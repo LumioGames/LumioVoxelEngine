@@ -1,55 +1,107 @@
 # LumioVoxelEngine
 
-> LumioGameEngine v0.2 架构中的独立 Rust 体素引擎与体素世界权威域。
+> 可复用的 Rust VoxelWorld 领域实现与 Chunk 权威域。
 
 ## 定位
 
-`LumioVoxelEngine` 是整个项目的体素核心。服务器和客户端使用同一套 Rust 实现，但采用不同链接与宿主方式。完整体素世界只由该引擎拥有，不在 C# ECS 中复制另一份权威数据。
+`LumioVoxelEngine` 拥有完整 `VoxelWorld` 的数据和生命周期。Server 维护权威 VoxelWorld；Client 维护独立的 VoxelReplicaWorld/预测视图；Local 模式在同一进程内也不共享这两份状态。它通过稳定 Port 和 Generated Contract 被 Runtime、Server、Client 使用，不把 Voxel 领域实现泄漏到 C# ECS。
+
+总架构基线见 [`docs/architecture/LumioGameEngine_Architecture_v0.3.md`](docs/architecture/LumioGameEngine_Architecture_v0.3.md)。
+
+体素引擎及其 Chunk、Streaming、Revision、Mesh 和体素查询实现统一使用 Rust；C# 侧只能通过生成的 Voxel Contract/`IVoxelWorldPort` 访问。
+
+## 拥有的状态与生命周期
+
+- VoxelWorld、Chunk、坐标、Block 数据布局、存储和加载状态。
+- Chunk Revision、Mutation/Transaction、变更区域、Snapshot/Diff 和 Streaming 状态。
+- Mesh、Voxel Collision Source、Voxel Spatial Source 的构建缓存。
+- `VoxelWorldHandle`、`VoxelChunkHandle`、`ChunkId` 及其 Generation 生命周期。
+
+Server、Client 和 Local 的世界实例由各自 Host 创建、Tick、Snapshot、迁移和销毁；Client 实例永远不是 Server 权威数据的第二真相来源。
 
 ## 职责
 
-- Voxel World、Chunk 生命周期、坐标、数据布局与存储。
-- 体素读取、批量修改、事务、Revision 和变更区域。
-- Chunk Load/Unload、Streaming、Snapshot、Diff、序列化和压缩接入。
-- Mesh 数据生成、Voxel Collision Source 和 Voxel Spatial Source。
-- `VoxelWorldHandle`、`VoxelChunkHandle`、`ChunkId`、Mutation Batch 与 Result Batch。
-- 发布服务器可直接链接的 Rust Crate，以及客户端 DLL、SO、dylib、静态库或 WASM 产物。
+- 实现 VoxelWorld/Chunk 的创建、读取、批量修改、事务提交、Revision 和回放。
+- 实现 Chunk Load/Unload、Streaming、Snapshot、Diff、序列化、压缩和恢复。
+- 生成 Mesh 数据、碰撞源和空间源，并用 `LumioNativeCore` 的通用 Kernel 做批量优化。
+- 提供 Voxel Query、Mutation Batch、Result Batch、Revision 和错误契约。
+- 提供服务器 Rust crate、统一 Native 产物所需的客户端平台库和 Headless 测试适配。
+- 为跨 World 操作提供 Tick 内 Prepare/Commit 所需的变更摘要和可重试结果。
 
-## 依赖关系
+AOI/Streaming/Collision 的体素感知策略可以在本仓库或 Runtime Coordinator 中组合，但通用 Kernel 仍归 `LumioNativeCore`。
 
-### 上游依赖
+## 明确不负责什么
 
-- [`LumioNativeCore`](https://github.com/LumioGames/LumioNativeCore)：通用 Handle、空间索引、碰撞、导航、压缩和 Typed Job。
+- 不实现 Ability、Effect、Attribute、Tag、背包、权限、任务、战斗或其他 Gameplay 判断。
+- 不创建或直接修改 C# ECS Entity/Component；只返回版本化 Voxel 结果。
+- 不在 C# 保存完整 Chunk/Block 权威副本。
+- 不承担 Connection、Session、RPC 路由、端口监听、CoreCLR 或 Server 进程生命周期。
+- 不依赖 `LumioGameRuntime`、`LumioServer`、`LumioClient` 或 `LumioGame` 源码。
 
-### 下游使用者
+## 对外产物与契约
 
-- [`LumioServer`](https://github.com/LumioGames/LumioServer)：直接链接并维护服务器权威 Voxel World。
-- [`LumioClient`](https://github.com/LumioGames/LumioClient)：加载平台原生库，维护客户端 Chunk 与预测视图。
-- [`LumioGameRuntime`](https://github.com/LumioGames/LumioGameRuntime)：通过稳定抽象和版本化 Batch 契约访问体素能力。
-- [`LumioGame`](https://github.com/LumioGames/LumioGame)：组合锁定版本的引擎产物，不直接拥有底层体素实现。
+- Rust crate 与服务器链接库。
+- `LumioVoxel` C ABI/托管绑定契约：Handle、ChunkId、Query、Mutation、Revision、Snapshot/Diff、Result Batch。
+- Chunk 序列化格式、压缩字典、错误码、能力表和迁移版本。
+- Mesh/Collision/Spatial Source 数据契约及 Headless fixture。
+
+所有结构都带版本和长度；破坏性变化提升契约主版本，并由 `LumioCoreEngine` 统一打包。
+
+## Source / Compile-Time Dependencies
+
+- `LumioNativeCore`：通用 Handle、空间、碰撞、压缩和 Typed Job Kernel。
+- Rust toolchain、平台 SDK 和经审核的 Rust crates。
+- 不得依赖任何上层 Runtime、Server、Client 或 Game 源码。
+
+## Generated Contract Dependencies
+
+生成 Voxel ABI Header、C# P/Invoke/源生成绑定、序列化器、Revision Schema 和 Migration Metadata。`LumioGameRuntime` 仅引用 `IVoxelWorldPort` 与这些生成契约；禁止引用本仓库内部模块。
+
+## Runtime Loading Relationships
 
 ```text
-LumioNativeCore
-└─> LumioVoxelEngine
-    ├─> LumioServer
-    ├─> LumioClient
-    └─> LumioGameRuntime adapter
+LumioCoreEngine platform package
+  -> LumioServer / LumioClient native loader
+  -> VoxelWorld instance (authority or replica)
+LumioGameRuntime
+  -> IVoxelWorldPort + generated Voxel contract
 ```
 
-## 契约所有权
+Server 与 Client 分别创建 VoxelWorld 和 VoxelReplicaWorld。LocalEmbedded 通过 InMemoryTransport 传输 Voxel Snapshot/Mutation 结果，仍保持两个实例。
 
-本仓库是 Voxel/Chunk Handle、Voxel Query、Mutation Batch、Revision、事务结果和底层错误码的唯一事实源。
+## Release Composition Relationships
 
-## 禁止事项
+本仓库发布 Voxel 领域版本；`LumioCoreEngine` 将其与 NativeCore 组合为一个平台包。`LumioGame` 只锁定该包的版本/Hash。Server/Client 的 Game Release 必须声明兼容的 Voxel ABI 和 Chunk Migration 版本。
 
-- 禁止实现背包、权限、任务、战斗、建造规则或其他 Gameplay 判断。
-- 禁止创建或直接修改 C# ECS Component。
-- 禁止在 C# 中复制完整 Chunk/Block 权威数据作为第二真相来源。
-- 禁止承担 Connection、Session、RPC 路由和服务器进程生命周期。
-- 禁止保存 C# Delegate、托管对象引用、热更方法地址或跨边界裸指针。
-- 禁止依赖 `LumioServer`、`LumioClient`、`LumioGameRuntime` 或 `LumioGame`。
+## Room Modes / Host Profiles
 
-## 当前状态
+提供相同的 Voxel API 给：
 
-`v0.1.0` 仅冻结仓库职责与依赖边界；尚未发布代码或软件包。
+- `PublicDedicatedServer`、`PlayerHostedDedicatedServer`、`LocalhostDedicatedServer`：Server 侧权威世界 + Client 侧副本。
+- `LocalEmbedded`：同进程 Server/Client 双角色与两个世界实例。
+- `PureHeadless`、`NativeHeadless`、`LocalSplitProcess`、`RemoteDS`、`MobileLocal`：由 Host 选择实例角色和传输方式。
 
+## Headless Test Surface
+
+- Chunk 读写、边界、坐标、Revision、Mutation Transaction 和冲突测试。
+- Streaming/Load/Unload、Snapshot/Diff、序列化/压缩和崩溃恢复测试。
+- Voxel-aware AOI/Collision/Spatial 查询 Benchmark，覆盖约 100 名真实玩家规模的世界数据基线。
+- Server Authority、Client Replica、Local 双实例和 Replay 重放一致性测试。
+
+## Version / Manifest
+
+Manifest 必须包含 Voxel API/ABI、Chunk Schema、压缩字典、Migration 版本、平台产物 Hash 和依赖的 NativeCore 版本。启动与迁移前校验 World Schema；不兼容时由 Server 升级编排拒绝启动。
+
+## 开发规范
+
+- 权威修改只能在 VoxelWorld 所属 Role 执行；Client 预测必须可被 Revision/Correction 覆盖。
+- 跨 World 读写通过 Runtime Coordinator 的 Prepare/Commit Port；禁止持有对方 World 的指针或 Storage 引用。
+- Chunk/Mutation API 先定义容量、顺序、失败语义和回放格式，再实现优化。
+- Voxel-aware 优化记录体数、Chunk 密度、AOI 半径、加载队列和内存指标；不得把玩法判断下沉。
+- 每个破坏性 Chunk/Revision 变化都必须提供 Migration、旧版本 fixture 和失败回滚测试。
+
+## 当前阶段任务
+
+- 冻结 VoxelWorld/Chunk/Revision/Mutation 的 v0.3 生成契约。
+- 建立 Server 权威、Client Replica、Local 双实例和 Native Headless 最小测试。
+- 完成 Chunk Streaming、Snapshot/Diff、Voxel-aware AOI 的可重复 Benchmark。
