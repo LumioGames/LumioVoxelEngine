@@ -7,13 +7,19 @@
 
 mod capture_ref;
 mod codec_port;
+mod decode;
 mod manifest_adapter;
+mod restore_preflight;
+mod restore_shadow;
 
 pub use capture_ref::{CaptureError, CaptureReadPort, CutEvidence, PinOrLease, VoxelCaptureRef};
 pub use codec_port::{
     CaptureWriter, GeneratedCaptureMetadata, MemoryCaptureWriter, SnapshotError, encode_capture,
 };
+pub use decode::decode_canonical_pairs;
 pub use manifest_adapter::{ManifestAdapter, SNAPSHOT_HEADER_SCHEMA, SNAPSHOT_PAYLOAD_SCHEMA};
+pub use restore_preflight::{DecodedRestore, RestoreError, RestorePreflight};
+pub use restore_shadow::{RestoreShadowBuilder, SealedRestoreCandidate};
 
 use lumio_voxel_contracts::STABLE_ERROR_IDS;
 

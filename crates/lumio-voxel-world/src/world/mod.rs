@@ -11,6 +11,7 @@ mod diagnostics;
 mod events;
 mod fault;
 mod instance;
+mod restore;
 mod routing;
 mod shutdown;
 mod state;
@@ -27,6 +28,7 @@ pub use instance::{
     InstanceGenerationGuard, VoxelWorld, WorldConfigAdapter, WorldDescriptor, WorldStateView,
     intern_local_embedded_pair, intern_role,
 };
+pub use restore::{RestoreReceipt, restore};
 pub use routing::WorldRouter;
 pub use shutdown::WorldShutdown;
 pub use write_lane::{WorldWriteLane, WriteLease};
