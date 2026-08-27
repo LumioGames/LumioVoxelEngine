@@ -115,6 +115,7 @@ pub(crate) struct WorldInstance {
     pub(crate) authority: PublicationAuthority,
     pub(crate) ledger: ReceiptLedger,
     pub(crate) query_planner: QueryPlanner,
+    pub(crate) write_occupied: bool,
 }
 
 impl WorldInstance {
@@ -199,6 +200,7 @@ impl VoxelWorld {
                 authority,
                 ledger,
                 query_planner,
+                write_occupied: false,
             },
         })
     }
@@ -217,6 +219,10 @@ impl VoxelWorld {
 
     pub fn publication_authority(&self) -> &PublicationAuthority {
         &self.instance.authority
+    }
+
+    pub(crate) fn ledger_mut(&mut self) -> &mut ReceiptLedger {
+        &mut self.instance.ledger
     }
 }
 

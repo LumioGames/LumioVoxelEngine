@@ -3,14 +3,21 @@
 #![forbid(unsafe_code)]
 
 mod admission;
+mod barrier;
+mod command;
 mod instance;
+mod routing;
 mod state;
+mod write_lane;
 
 pub use admission::{AdmittedCommand, WorldCommand, WorldEndpoint};
+pub use barrier::{BarrierScope, ForbiddenWork, reject_forbidden};
 pub use instance::{
     InstanceGenerationGuard, VoxelWorld, WorldConfigAdapter, WorldDescriptor, WorldStateView,
     intern_local_embedded_pair, intern_role,
 };
+pub use routing::WorldRouter;
+pub use write_lane::{WorldWriteLane, WriteLease};
 
 use lumio_voxel_contracts::STABLE_ERROR_IDS;
 
