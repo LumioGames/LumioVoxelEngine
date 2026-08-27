@@ -4,4 +4,5 @@
 
 pub const CRATE_NAME: &str = "lumio-voxel-world";
 
+pub mod port;
 pub mod world;
