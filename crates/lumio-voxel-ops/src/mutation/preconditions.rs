@@ -7,7 +7,7 @@ use super::plan::MutationPlanner;
 use super::receipt_ledger::{LedgerError, LookupOutcome, ReceiptLedger, ReplayDisposition};
 use lumio_voxel_contracts::{CHUNK_PRESENCE, STABLE_ERROR_IDS};
 use lumio_voxel_domain::chunk::{ChunkError, DirtyError};
-use lumio_voxel_domain::publication::PublishedReadView;
+use lumio_voxel_domain::publication::{PublishError, PublishedReadView};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MutationError {
@@ -74,6 +74,20 @@ impl MutationError {
     }
 
     pub(crate) fn from_dirty(err: DirtyError) -> Self {
+        Self {
+            error_id: err.error_id(),
+            disposition: None,
+        }
+    }
+
+    pub(crate) fn snapshot_base_mismatch() -> Self {
+        Self {
+            error_id: stable("SnapshotBaseMismatch"),
+            disposition: None,
+        }
+    }
+
+    pub(crate) fn from_publish(err: PublishError) -> Self {
         Self {
             error_id: err.error_id(),
             disposition: None,
