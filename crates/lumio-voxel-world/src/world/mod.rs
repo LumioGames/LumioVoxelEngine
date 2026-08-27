@@ -4,6 +4,8 @@
 
 mod admission;
 mod barrier;
+mod capture;
+mod capture_admission;
 mod command;
 mod diagnostics;
 mod events;
@@ -16,6 +18,8 @@ mod write_lane;
 
 pub use admission::{AdmittedCommand, WorldCommand, WorldEndpoint};
 pub use barrier::{BarrierScope, ForbiddenWork, reject_forbidden};
+pub use capture::{CaptureEvidence, capture};
+pub use capture_admission::RuntimeSnapshotCut;
 pub use diagnostics::{DiagnosticsView, WorldDiagnostics};
 pub use events::{FailureBundleFragment, WorldEvent, WorldEventSink};
 pub use fault::{FaultEvidence, WorldFaultPort};
