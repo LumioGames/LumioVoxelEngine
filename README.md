@@ -4,9 +4,9 @@
 
 ## 架构基线
 
-- Baseline：`LGE-V1.0-2026-08-27`
+- Baseline：`LGE-V1.1-2026-08-27`
 - 唯一架构源：`LumioGameEngineArchitecture`
-- 本地镜像：[`docs/architecture/LumioGameEngine_Architecture_v1.0.md`](docs/architecture/LumioGameEngine_Architecture_v1.0.md)
+- 本地镜像：[`docs/architecture/LumioGameEngine_Architecture_v1.1.md`](docs/architecture/LumioGameEngine_Architecture_v1.1.md)
 
 本仓库拥有 VoxelWorld 的权威数据和领域生命周期。Server 保存权威世界，Client 保存独立 VoxelReplicaWorld；LocalEmbedded 也必须创建两份实例。C# Runtime 只能通过版本化 `IVoxelWorldPort` 和生成契约访问，不能读取内部 Chunk Storage。
 
@@ -17,11 +17,11 @@
 ## 拥有的状态与生命周期
 
 - World、Chunk、Block、坐标、加载/卸载和 Streaming 状态。
-- 单调 `WorldRevision`、每 Chunk `ChunkRevision`、Mutation Batch 和 Snapshot Cut。
+- 单调 `WorldRevision`、每 Chunk `ChunkRevision`、Mutation Batch 和 `VoxelCaptureRef`（对应 Runtime 已固定的 `SnapshotCut`）。
 - Mesh Source、Collision Source、Spatial Source 的缓存和构建任务。
 - `VoxelWorldHandle`、`VoxelChunkHandle`、ChunkId 及其 Generation/Context 生命周期。
 
-Host 负责创建和销毁实例，VoxelEngine 负责实例内部状态转换和数据一致性。Runtime Coordinator 只能通过 Port 发起查询、Prepare、Commit 和取消，不拥有 Voxel 状态机。
+Host 负责创建和销毁实例，VoxelEngine 负责实例内部状态转换和数据一致性。Runtime Coordinator 拥有跨域 `SnapshotCut` 与 `SessionRevisionVector`，只能通过 Port 发起查询、Prepare、Commit、Capture 和取消，不拥有 Voxel 状态机。
 
 ## 子模块
 
@@ -61,7 +61,7 @@ Host 负责创建和销毁实例，VoxelEngine 负责实例内部状态转换和
 
 `WorldRevision` 用于世界级排序和 Snapshot；`ChunkRevision` 用于局部乐观并发。所有 Query 返回读取 Revision，Mutation 携带 Expected Revision；冲突必须返回稳定 `RevisionConflict`，不能静默覆盖。
 
-在协调 Snapshot Cut 中，VoxelEngine 对指定 Revision 做 Pin 或 Copy-on-Write。异步序列化期间 Chunk 可以继续服务读取，但不得把变化后的数据标记为旧 Snapshot。缺 Chunk 的 Query 必须明确返回 `NotLoaded`、`Pending` 或 `Unavailable`，不能当作空世界。
+Runtime 在协调 Barrier 固定 `SnapshotCut` 后，VoxelEngine 对指定 Revision 做 Pin 或 Copy-on-Write，并持有 `VoxelCaptureRef`。运行中 Snapshot 的编码在短 Barrier 之外继续；异步序列化期间 Chunk 可以继续服务读写，但不得把变化后的数据标记为旧 Snapshot。缺 Chunk 的 Query 必须明确返回 `NotLoaded`、`Pending` 或 `Unavailable`，不能当作空世界。
 
 ## CrossWorldTxnV1 参与者
 
@@ -75,7 +75,7 @@ NativeCore 提供通用空间 Kernel；本仓库根据 Chunk/Block/遮挡/可用
 
 - Chunk、World Snapshot、Diff 和 Migration 输入使用版本化 Canonical Serializer。
 - Envelope 至少包含 Magic、SchemaVersion、Length、World/Chunk Revision、Hash/Checksum、Compression 和可选加密信息。
-- Snapshot 采用临时文件、校验、fsync/原子替换；WAL/Command Log 由 Host 追加并关联 Txn/Session。
+- Voxel snapshot 生成并校验 Canonical payload；Host persistence 负责 staging、fsync、原子激活和 checkpoint retention。WAL/Command Log 由 Host 追加并关联 Txn/Session。
 - 支持部分 Chunk 加载、流式加载、旧版本 Migrator、损坏检测和从最近有效 Checkpoint 恢复。
 - Singleplayer 与 Dedicated Server 在同一 Release 使用同一 Voxel 存档格式；跨版本必须通过迁移工具。
 

@@ -18,14 +18,15 @@
 ## 明确不负责什么
 
 - 不拥有 Chunk/Block/Revision 数据（归 [chunk](../chunk/README.md)、[revision](../revision/README.md)），不修改 World。
+- 不直连 Chunk Storage；只经 [query](../query/README.md) ReadView 读取。
 - 不创建 Renderer/Physics 对象，不决定材质、LOD、碰撞层、触发器、伤害或 Gameplay 规则。
-- 不做最终 AOI/权限过滤（归 [spatial](../spatial/README.md) 上层 Runtime/Server）。
+- 不做最终 AOI/权限过滤（归 Runtime/Server；候选范围可来自 [spatial](../spatial/README.md) 事件，但不调用其裁决逻辑）。
 - 不保证所有平台位级 Mesh 相同；确定性和容差必须在适配器/测试中声明。
 - P2 未激活时，核心 P0/P1 Port 不得依赖本模块才能运行。
 
 ## 拥有的状态与资源
 
-- `ChunkId + ChunkRevision + BuildProfile` 的 Source 缓存和失效表。
+- `WorldContext/Generation + ChunkId + ChunkRevision + BuildProfile` 的 Source 缓存和失效表。
 - 脏区域/邻接依赖、构建请求、取消令牌和有界几何 Buffer。
 - NativeCore Job/Adapter 句柄、构建版本和失败摘要。
 - Source 生命周期：可用、过期、驱逐；不持有下游 Renderer/Physics 所有权。
@@ -36,11 +37,11 @@
 - **输出**：`MeshSource`/`CollisionSource`（typed Buffer + Revision + bounds + build metadata）或稳定错误。
 - **接口草案**（Mesh/Collision Schema 尚未发布）：`build_mesh(request) -> MeshSource | StableError`；`build_collision(request) -> CollisionSource | StableError`；`invalidate(chunk_id, revision)`；`cancel(build_id)`；`evict(cache_key)`。
 
-## 上游与下游依赖
+## 依赖（编译 / 控制流 / 事件与数据）
 
-- **上游**：[world](../world/README.md)（能力/生命周期）、[chunk](../chunk/README.md)、[revision](../revision/README.md)、[streaming](../streaming/README.md)（可用性）。
-- **旁路**：[spatial](../spatial/README.md) 可提供候选范围，但本模块不调用最终 AOI/权限逻辑。
-- **基础依赖**：NativeCore 几何/碰撞/Buffer/Job Kernel；下游 Renderer/Physics 仅消费 Source Adapter。
+- **编译依赖**：[query](../query/README.md)（ReadView）、[revision](../revision/README.md)、NativeCore 几何/碰撞/Buffer/Job。不依赖 chunk Storage、streaming 或 world。
+- **被谁调用**：[world](../world/README.md)（能力/生命周期）。Renderer/Physics Adapter 只消费 Source。
+- **发布/消费**：消费 `AvailabilityChanged` 与 `ChunkChanged` 以失效缓存；可选消费 spatial 候选范围事件。不调用最终 AOI/权限，不控制 Load。
 
 ## 生命周期与状态机
 
@@ -57,14 +58,14 @@ Ready(Revision) -> Stale -> Evicted
 
 ## 线程、队列与并发所有权
 
-- 构建可交给有界 Native Job/Worker；Worker 只读 Chunk View，不持有写锁或调用 C#。
-- Completion 在安全点核对 Revision/Generation，再原子发布缓存条目。
+- 构建可交给有界 Native Job/Worker；Worker 只读 query ReadView，不持有写锁或调用 C#。
+- Completion 在所属 Role 的声明 Phase 核对 Revision/Generation，再原子发布缓存条目。
 - 构建队列、邻接等待表和几何 Buffer 池有界；满载按优先级取消/延迟并计数。
 - Renderer/Physics Adapter 在模块外拥有消费对象；本模块只负责 Source Buffer 的生命周期和释放契约。
 
 ## 正常数据流与失败路径
 
-- **正常**：校验 Profile/预算 → 获取稳定 Chunk/邻接视图 → NativeCore 生成 → 校验 bounds/Buffer/Revision → 发布 Source。
+- **正常**：校验 Profile/预算 → 经 query 获取稳定 Chunk/邻接 ReadView → NativeCore 生成 → 校验 bounds/Buffer/Revision → 发布 Source。
 - **邻接缺失**：返回 `Pending/Unavailable` 或按 Profile 生成明确边界版本，结果必须标注缺失原因；不能默默使用旧邻接数据。
 - **失效**：Chunk 写入、Streaming 卸载或 Revision 变化使缓存 `Stale`，取消/丢弃在途结果。
 - **失败路径**：几何不变量、Buffer 超限、Native 错误、超时/取消都不影响 World 权威状态。
@@ -103,4 +104,4 @@ Ready(Revision) -> Stale -> Evicted
 
 ## 尚未批准的决策门
 
-- **VOX-D-007**（几何 Kernel Adapter、缓存键、精度/LOD 与 P2 激活）：临时只缓存带 Revision 的 Source，需 Native Differential、内存/性能和平台 Capability 评审。
+- **VOX-D-007**（几何 Kernel Adapter、缓存键、精度/LOD 与 P2 激活）：临时只缓存带 World Context/Revision 的 Source，需 Native Differential、内存/性能和平台 Capability 评审。

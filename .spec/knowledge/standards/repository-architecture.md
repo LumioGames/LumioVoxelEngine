@@ -16,8 +16,9 @@ metadata:
 
 ## 所有权边界
 
-- 本仓拥有 VoxelWorld、Chunk、Block、坐标、Revision、Query、Mutation、Snapshot/Diff、Streaming 与 Voxel 空间数据源。
-- Host 只创建/销毁实例；Runtime 只能经版本化 `IVoxelWorldPort` 发起查询、Prepare、Commit 和取消，不拥有 Voxel 状态机。
+- 本仓拥有 VoxelWorld、Chunk、Block、坐标、Revision、Query、Mutation、Voxel Snapshot/Diff payload、Streaming 与 Voxel 空间数据源。
+- Host 只创建/销毁实例；Runtime 拥有跨域 `SnapshotCut`，只能经版本化 `IVoxelWorldPort` 发起查询、Prepare、Commit、Capture 和取消，不拥有 Voxel 状态机。
+- Voxel 只接收不可变 Cut 并持有 `VoxelCaptureRef`；Chunk 数据与 Revision 必须经 `mutation` 的 CommitBatch 原子发布；源码只依赖 `LumioNativeCore`，不编译依赖 `LumioCoreEngine`。
 - 本仓不实现 Gameplay、Ability、权限、经济、ECS Entity/Component、Session、网络、Release Pool 或进程治理。
 - Server 权威世界、Client Replica 世界与 LocalEmbedded 双实例不得共享对象引用、Chunk Buffer、锁、指针或 Revision 写入。
 

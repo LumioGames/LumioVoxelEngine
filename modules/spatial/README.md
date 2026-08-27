@@ -19,6 +19,7 @@
 
 - 不决定最终 Interest、Role、Owner、Permission、带宽或隐身规则；这些由 Runtime/Server 过滤。
 - 不拥有通用 Spatial/Collision 算法、Chunk 数据或 Revision（归 NativeCore、[chunk](../chunk/README.md)、[revision](../revision/README.md)）。
+- 不直连 Chunk Storage；只经 [query](../query/README.md) ReadView 读取。
 - 不执行 Gameplay 写入、不修改 ECS、不创建 Entity，也不触发网络发送。
 - 不把不可用 Chunk 当作无遮挡/空空间，不返回内部指针或缓存句柄给 C#。
 - 不承诺跨平台浮点位级一致；确定性规则由契约与 Benchmark 明确。
@@ -26,7 +27,7 @@
 ## 拥有的状态与资源
 
 - 投影请求表、批次 Buffer、取消令牌和预算账本。
-- `ChunkId + ChunkRevision + QueryShape + Capability` 组成的缓存键与失效记录。
+- `WorldContext/Generation + ChunkId + ChunkRevision + QueryShape + Capability` 组成的缓存键与失效记录。
 - NativeCore Job/Buffer Adapter 句柄和结果 Revision。
 - 遮挡/候选诊断摘要与差异测试输入。
 
@@ -36,11 +37,11 @@
 - **输出**：候选/投影批次（带 Revision、Chunk 状态、截断原因）或稳定错误。
 - **接口草案**（Voxel Spatial Schema 尚未发布）：`project(request) -> VoxelSpatialProjection | StableError`；`candidates(request) -> CandidateBatch | Pending`；`invalidate(chunk_id, revision)`；`cancel(handle)`。
 
-## 上游与下游依赖
+## 依赖（编译 / 控制流 / 事件与数据）
 
-- **上游**：[world](../world/README.md)（Context/Capability）、[query](../query/README.md)（只读输入）、[chunk](../chunk/README.md) 和 [revision](../revision/README.md)。
-- **下游**：Runtime/Server AOI、Collision 预筛选和诊断工具；不直接依赖 Gameplay。
-- **基础依赖**：`LumioNativeCore` Spatial Kernel、Buffer 和 Typed Job。
+- **编译依赖**：[query](../query/README.md)（ReadView）、[revision](../revision/README.md)（Stamp）、`LumioNativeCore` Spatial Kernel。不依赖 chunk Storage、streaming 或 world。
+- **被谁调用**：[world](../world/README.md)（Context/Capability）；Runtime/Server AOI 消费结果。
+- **发布/消费**：消费 `AvailabilityChanged` 与 `ChunkChanged` 以失效缓存；不发 Load，不调用最终 AOI/权限逻辑。
 
 ## 生命周期与状态机
 
@@ -59,15 +60,15 @@ Created/Reading/Computing -> Cancelled | TimedOut | Rejected | Failed
 
 ## 线程、队列与并发所有权
 
-- 查询读取在只读视图上执行；计算可交给有界 Native Job，Completion 在安全点发布。
+- 查询读取在 query ReadView 上执行；计算可交给有界 Native Job，Completion 在所属 Role 的声明 Phase 发布。
 - 投影 Worker 不持有 Chunk 写锁、不修改 Revision；缓存失效在 Barrier 或串行缓存上下文完成。
 - 请求和结果队列有界，超限返回 `QueueFull`/截断原因；取消是幂等且必须阻止迟到结果入队。
 
 ## 正常数据流与失败路径
 
-- **正常**：校验形状/预算 → 获取 Revision 一致读视图 → 检查 Chunk 可用性 → NativeCore 计算 → 稳定排序/截断 → 发布带 Revision 的批次。
+- **正常**：校验形状/预算 → 经 query 获取 Revision 一致 ReadView → 检查可用性事件 → NativeCore 计算 → 稳定排序/截断 → 发布带 Revision 的批次。
 - **缺数据**：返回 `Pending` 或 `Unavailable` 和受影响 ChunkId，不假设空空间。
-- **缓存失效**：Revision/Generation 不匹配时丢弃旧结果并按策略重算。
+- **缓存失效**：Revision/Generation 不匹配时丢弃旧结果并按 Capability 允许的预算重算。
 - **失败路径**：Native Job 错误、预算超限、超时、取消、浮点/几何不变量失败都返回分类原因并保留输入摘要。
 
 ## 错误分类、恢复与降级
@@ -105,4 +106,4 @@ Created/Reading/Computing -> Cancelled | TimedOut | Rejected | Failed
 
 ## 尚未批准的决策门
 
-- **VOX-D-007**（Spatial Kernel Adapter、缓存键和精度）：临时缓存必须包含 Revision/Generation，通用算法留在 NativeCore；需 Differential、故障和性能基线。
+- **VOX-D-007**（Spatial Kernel Adapter、缓存键和精度）：临时缓存必须包含 World Context/Generation 与 Revision，通用算法留在 NativeCore；需 Differential、故障和性能基线。

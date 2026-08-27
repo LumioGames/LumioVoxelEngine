@@ -13,7 +13,7 @@
 - 调度 Storage Adapter、解压和校验任务；把完成/失败事件送回 Barrier，由 [chunk](../chunk/README.md) 发布状态。
 - 执行背压、取消、超时、重复请求合并和 Chunk 驱逐前置检查。
 - 产出 `Ready/NotLoaded/Pending/Unavailable` 可用性视图和 Load Failure 证据。
-- 为 Snapshot、Migration 和测试 Host 提供可控的加载/卸载能力，不决定业务 AOI。
+- 为 Snapshot 部分加载、Migration 工具和测试 Host 提供可控的加载/卸载能力，不决定业务 AOI。P0 全驻留 Profile 可禁用 Unload。
 
 ## 明确不负责什么
 
@@ -21,6 +21,7 @@
 - 不决定玩家 Interest、权限、带宽、渲染距离或 Gameplay 优先级；上层只提供已归一化的技术优先级。
 - 不在 IO Worker 直接写权威状态，不把失败 Chunk 当空世界。
 - 不负责 Snapshot/WAL 文件耐久、Migration 激活或 World 实例销毁。
+- 不得把未获 Host DurabilityAck 的 Dirty Chunk 驱逐为 `Unloaded`。
 - 不建立无界缓存、无界重试或不可取消的后台任务。
 
 ## 拥有的状态与资源
@@ -36,11 +37,11 @@
 - **输出**：`LoadHandle`、Chunk 可用性事件、完成页/失败原因、预算/队列水位。
 - **接口草案**（公共 Streaming Schema 待发布）：`request_load(request) -> LoadHandle | StableError`；`request_unload(chunk_id, reason)`；`cancel(handle)`；`poll_status(chunk_id) -> Availability`；`drain(budget) -> CompletionBatch`。
 
-## 上游与下游依赖
+## 依赖（编译 / 控制流 / 事件与数据）
 
-- **上游**：[world](../world/README.md)（启动/Quiesce/Destroy）、Runtime/Host（预算和技术优先级）。
-- **下游**：[chunk](../chunk/README.md)（页物化/驱逐）、[query](../query/README.md)（缺 Chunk 状态）、[snapshot](../snapshot/README.md)（部分加载）。
-- **基础依赖**：NativeCore Buffer/Compression/Job Kernel 和 Storage Adapter；不依赖 Gameplay。
+- **编译依赖**：[chunk](../chunk/README.md)（页物化/驱逐）、NativeCore Buffer/Compression/Job、Storage Adapter。不依赖 query、snapshot、revision 或 world。
+- **被谁调用**：[world](../world/README.md)（启动/Quiesce/Destroy）、Runtime/Host（预算和技术优先级）。
+- **发布/消费**：向 query / spatial / mesh-collision 发布 `AvailabilityChanged`。不消费 mutation 的方法调用。Unload 必须看到 Host DurabilityAck 已清除 Dirty，或 Capability 声明该 Chunk 可丢失。
 
 ## 生命周期与状态机
 
@@ -55,13 +56,15 @@ Queued/Loading/Verifying -> Cancelled | TimedOut | Rejected | Failed
 
 ```text
 NotLoaded -> Pending -> Ready
-Ready/Dirty -> Evicting -> NotLoaded
+Ready -> Evicting -> NotLoaded
+Dirty -> EvictionRequested -> (DurabilityAck or explicit volatile Capability) -> Evicting -> NotLoaded
 Pending/Ready/Evicting -> Unavailable
 ```
 
-- `PublishReady` 必须在 Barrier 完成 Generation/Revision 校验后才对 Query 可见。
+- `PublishReady` 必须在 Barrier 完成 Generation 校验后才对 Query 可见。迟到 Completion 必须同时匹配 World Context/Generation、Chunk Generation 和 RequestId。
 - 重复 Load 可合并到同一 Handle；取消一个消费者不能误取消仍被引用的任务。
-- World Quiescing 时停止新 Load，按策略完成或取消已有任务。
+- World Quiescing 时停止新 Load，完成或取消已有任务。
+- Dirty Unload 默认拒绝；Dedicated Server 不得驱逐未获恢复保障的 Dirty Chunk。
 
 ## 线程、队列与并发所有权
 
@@ -73,9 +76,9 @@ Pending/Ready/Evicting -> Unavailable
 ## 正常数据流与失败路径
 
 - **加载**：请求规范化 → 排队/预算检查 → 读取页 → 长度/Hash/解压校验 → Barrier 物化 → 发布 `Ready`。
-- **卸载**：停止新写入 → 等待读视图/Pin/构建任务 → Flush/保留脏状态 → Barrier 标记 `NotLoaded`。
+- **卸载**：停止新写入 → 等待读视图/Pin/构建任务 → 若 Dirty 则等待 DurabilityAck 或显式 volatile Capability → Barrier 标记 `NotLoaded`。
 - **背压**：队列/内存/IO 超限按优先级延迟、拒绝或取消；Query 收到明确 `Pending/Unavailable`。
-- **失败路径**：IO、校验、解压、超时、Generation 失效和磁盘压力都保留 ChunkId/请求证据，不回退为空 Chunk。
+- **失败路径**：IO、校验、解压、超时、Generation 失效和磁盘压力都保留 ChunkId/请求证据，不回退为空 Chunk，不静默丢掉 Dirty。
 
 ## 错误分类、恢复与降级
 
@@ -112,4 +115,4 @@ Pending/Ready/Evicting -> Unavailable
 
 ## 尚未批准的决策门
 
-- **VOX-D-006**（优先级、并发、队列容量和背压阈值）：临时所有队列有界，低优先级可拒绝/取消；需 NativeHeadless 压测、OOM/QueueFull 故障和 100 人基线。
+- **VOX-D-006**（优先级、并发、队列容量和背压阈值）：临时所有队列有界，低优先级可拒绝/取消；P0 可禁用 Unload。需 NativeHeadless 压测、OOM/QueueFull 故障和 100 人基线。

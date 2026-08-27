@@ -8,39 +8,41 @@
 
 ## 负责什么
 
-- 创建、初始化、Ready、运行、Quiesce、Snapshot、迁移配合和销毁一个 VoxelWorld 实例。
+- 创建、初始化、Ready、运行、Quiesce、Capture 路由、restore 入口、迁移配合和销毁一个 VoxelWorld 实例。
 - 校验 Role、WorldId、Context、Capability、Schema/ABI 和资源预算，然后组装 `chunk/revision/query/mutation`。
 - 按能力挂接 `snapshot/streaming/spatial/mesh-collision`，记录模块句柄和初始化顺序。
-- 提供唯一的 `IVoxelWorldPort`/Reference Port 入口，把 Query、Prepare、Commit、Abort、Snapshot 和取消转交给正确模块。
+- 提供唯一的 `IVoxelWorldPort`/Reference Port 入口，把 Query、Prepare、Commit、Abort、Capture 和取消转交给正确模块。
 - 维护 Voxel 侧 Simulation Barrier/Generation 闸门，拒绝销毁后或 Context 不匹配的迟到结果。
+- 转发 Host `DurabilityAck` 到 `chunk.clear_dirty`；转发 restore 字节到 `snapshot.decode` 再物化进 `chunk`/`revision`。
 - 在 LocalEmbedded 中创建两棵完全独立的 World 树，验证不共享 Storage、Lock、Buffer 或 Revision 写入。
 
 ## 明确不负责什么
 
-- 不拥有 Chunk/Block 数据、Revision 计数、Query 结果、Reservation 或投影缓存的内部实现。
-- 不决定 Host Wall Clock、Logical Tick Phase、CrossWorld 的 Game/ECS 提交顺序或最终 Gameplay 权限。
+- 不拥有 Chunk/Block 数据、Revision 计数、Query 结果、Reservation、Pin 记录、投影缓存或 `SnapshotCut`。
+- 不决定 Host Wall Clock、Logical Tick Phase、跨域 Cut、CrossWorld 的 Game/ECS 提交顺序或最终 Gameplay 权限。
 - 不直接操作 C# ECS/Session/Connection，不调用 Hot Gameplay；跨边界只使用版本化 Port/Generated Contract。
-- 不执行文件 fsync、WAL、Release 路由或进程级恢复；只向 Host/Runtime 提供 Snapshot/恢复接口。
+- 不执行文件 fsync、WAL、Release 路由或进程级恢复；只向 Host/Runtime 提供 Capture/恢复接口。
 - 不把 `migration` 的业务 DAG 当作 Tick 内部状态机；迁移由维护/工具编排驱动。
+- 不编译依赖 `LumioCoreEngine`。
 
 ## 拥有的状态与资源
 
 - `VoxelWorldHandle`、`WorldId`、Role、Context/Generation 和实例生命周期状态。
 - 子模块注册表、初始化/析构顺序、Barrier 闸门和异步任务取消源。
-- World 级资源预算视图、健康状态、最后已知 Revision/Snapshot 元数据。
+- World 级资源预算视图、健康状态和 Capability view。
 - Port 请求路由和销毁后的句柄失效表。
 
 ## 输入、输出与稳定接口
 
-- **输入**：Host 创建参数（Role/WorldId/Capability/预算）、Runtime Port 调用、Barrier Tick 入口、Quiesce/Snapshot/Destroy 指令。
-- **输出**：不透明 `VoxelWorldHandle`、Ready/Running 状态、Port 结果、SnapshotCut 引用、稳定故障和诊断事件。
-- **接口草案**（公共 ABI/字段待架构源冻结）：`create_world(config) -> VoxelWorldHandle | StableError`；`query(handle, request)`；`prepare_mutation(handle, batch)`；`commit(handle, txn_id, token)`；`abort(handle, txn_id, token, reason)`；`snapshot_cut(handle, cut) -> SnapshotRef`；`quiesce(handle, reason)`；`destroy(handle)`。
+- **输入**：Host 创建参数（Role/WorldId/Capability/预算）、Runtime Port 调用、Barrier Tick 入口、已固定的 `SnapshotCut`、Host `DurabilityAck`、Quiesce/Destroy 指令、restore 字节。
+- **输出**：不透明 `VoxelWorldHandle`、Ready/Running 状态、Port 结果、`VoxelCaptureRef`、稳定故障和诊断事件。
+- **接口草案**（公共 ABI/字段待架构源冻结）：`create_world(config) -> VoxelWorldHandle | StableError`；`query(handle, request)`；`prepare_mutation(handle, batch)`；`commit(handle, txn_id, token)`；`abort(handle, txn_id, token, reason)`；`capture(handle, cut) -> VoxelCaptureRef`；`apply_durability_ack(handle, ack)`；`restore(handle, decoded)`；`quiesce(handle, reason)`；`destroy(handle)`。
 
-## 上游与下游依赖
+## 依赖（编译 / 控制流 / 事件与数据）
 
-- **上游**：Host/Runtime（实例创建、Barrier、Quiesce、Snapshot、销毁）；`host-profiles`/Manifest 提供 Capability 与版本输入。
-- **下游**：[chunk](../chunk/README.md)、[revision](../revision/README.md)、[query](../query/README.md)、[mutation](../mutation/README.md)、[snapshot](../snapshot/README.md)、[streaming](../streaming/README.md)、[spatial](../spatial/README.md)、[mesh-collision](../mesh-collision/README.md)。
-- **外部基础**：`LumioNativeCore` 与 `LumioCoreEngine` 的版本化 ABI/Handle/Buffer；不编译依赖 Runtime、Server、Client 或 Game 源码。
+- **编译依赖**：已启用的领域模块；`LumioNativeCore` 已发布 Handle/Buffer API；架构源生成契约。不编译依赖 `LumioCoreEngine`、Runtime、Server、Client 或 Game 源码。CoreEngine 只出现在运行时加载与发布组合中。
+- **被谁调用**：Host/Runtime 发起创建、Barrier、Capture、DurabilityAck、Quiesce、Destroy。
+- **发布/消费**：向 Host 交出 `VoxelCaptureRef`/Canonical bytes 元数据；消费 Runtime 固定的 `SnapshotCut` 与 Host 耐久回执。不缓存子模块领域状态。
 
 ## 生命周期与状态机
 
@@ -55,14 +57,14 @@ Created/Initializing/Ready/Running/Quiescing/... -> Faulted
 ```
 
 - `Ready` 仅表示所有必需 P0 模块初始化完成；可选 P1/P2 能力缺失必须由 Capability 明确声明。
-- `Quiescing` 先关闭新 Ingress/写入，再排空或取消请求、固定 SnapshotCut。
+- `Quiescing` 先关闭新 Ingress/写入，再排空或取消请求；Cut 仍由 Runtime 固定，本模块只停止新写入并准备 Capture。
 - `Destroyed` 后所有 Handle、Token、View 和异步结果都以稳定错误失效，不能写入新实例。
 - 任一步初始化失败都按逆序释放已成功初始化的模块，不留下半初始化 World。
 
 ## 线程、队列与并发所有权
 
 - Host/Runtime 提供 Simulation Owner Thread；`world` 维护 Barrier 入口和 Context Generation，不另行读取 Wall Clock。
-- 只有 Barrier 能调用子模块的权威写入、Revision 递增和状态迁移；查询/构建 Completion 必须在安全点发布。
+- 只有 Barrier 能调用子模块的权威写入、CommitBatch publish 和状态迁移；查询/构建 Completion 必须在所属 Role 的声明 Phase 发布，不得写入新 Context。
 - `world` 负责汇总子模块取消源和有界任务句柄；不拥有 Native Job/IO Worker 的内部线程。
 - 初始化、Quiesce、Destroy 操作串行化；重复调用幂等，销毁后的迟到调用拒绝。
 
@@ -70,7 +72,10 @@ Created/Initializing/Ready/Running/Quiescing/... -> Faulted
 
 - **创建**：校验 Manifest/ABI/Capability/预算 → 建立 Context → 初始化基础模块 → 挂接可选模块 → `Ready`。
 - **运行**：Runtime Port 调用 → Context/Role/预算检查 → Query 或 Mutation → Barrier 提交 → 返回 Revision/错误。
-- **快照**：关闭新写入 → 固定 Cut → `revision` Pin/COW → `snapshot` 编码 → 交 Host 持久化 → 恢复运行。
+- **运行中快照**：接收 Runtime 已固定的 Cut → `revision` Pin/COW → 取得 `VoxelCaptureRef` → 立即恢复权威写入 → `snapshot` 后台编码 → 交 Host 持久化。
+- **Quiesce/维护快照**：关闭新写入并排空请求后，再走同一套 Cut → CaptureRef 路径。
+- **恢复**：Host 字节 → `snapshot.decode` → `chunk` 物化页 + `revision` 恢复 Stamp；不走 Streaming Load。
+- **耐久回执**：Host `DurabilityAck` → Barrier → `chunk.clear_dirty`。
 - **关闭**：取消新请求 → 完成/中止 Reservation → 停止 Streaming/投影任务 → 释放 Pin/Views → 逆序释放模块 → `Destroyed`。
 - **失败路径**：模块初始化/状态迁移/Context 校验/资源预算失败进入明确 `Faulted`；已创建资源按逆序清理并保留 Failure Bundle 素材。
 
@@ -102,6 +107,7 @@ Created/Initializing/Ready/Running/Quiescing/... -> Faulted
 
 ## 对应 ADR、Schema 与 Fixture
 
+- 本仓 [0001](../../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)、[0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)。
 - 架构源 `docs/adr/ADR-001-session-lifecycle.md`：World/Role/Host 所有权和销毁顺序。
 - 架构源 `docs/adr/ADR-002-tick-determinism.md`：Simulation Owner Thread 与 Barrier。
 - 架构源 `schemas/native-managed-abi.schema.json`：Root API/Handle/错误边界；正例 `fixtures/valid/native-managed-abi.json`。

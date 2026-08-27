@@ -2,13 +2,14 @@
 
 > **架构基线**：`LGE-V1.0-2026-08-27`
 > **唯一架构源**：`LumioGameEngineArchitecture`（本仓只保存只读镜像 [docs/architecture/LumioGameEngine_Architecture_v1.0.md](../docs/architecture/LumioGameEngine_Architecture_v1.0.md)）
-> **本文定位**：LumioVoxelEngine 的模块文档总入口。公共语义引用架构源，本文只冻结本仓的模块边界、依赖方向、状态所有权、线程/队列约束和文档维护规则。
+> **本文定位**：LumioVoxelEngine 的模块文档总入口。公共语义引用架构源，本文只冻结本仓的模块边界、三张依赖图、状态所有权、线程/队列约束和文档维护规则。
+> **内部决策**：Cut 与 CaptureRef 见 [0001](../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)；CommitBatch 见 [0002](../.spec/decisions/0002-barrier-commit-batch.md)；分层与三图见 [0003](../.spec/decisions/0003-dependency-graphs-and-layering.md)；Snapshot Barrier 见 [0004](../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)。
 
 ## 1. 设计目标、范围与审查结论
 
 ### 1.1 设计目标
 
-- 把根 [README.md](../README.md) 声明的 VoxelWorld 能力拆成**单一状态所有者、单向依赖、可独立测试、故障边界清晰**的模块。
+- 把根 [README.md](../README.md) 声明的 VoxelWorld 能力拆成**单一状态所有者、单向编译依赖、可独立测试、故障边界清晰**的模块。
 - 让开发者只阅读一个模块 README 就能回答：模块负责什么、不负责什么、拥有哪些状态、接受哪些输入、在哪个执行上下文运行、失败如何分类和恢复。
 - 为 Foundation 阶段的 Rust crate 落地提供稳定的逻辑模块地图；物理 crate/文件布局可以在不改变边界的前提下演进。
 
@@ -21,21 +22,21 @@
 ### 1.3 当前架构审查结论
 
 1. **总体方向可进入模块化设计阶段**：World/Chunk/Revision 的所有权、Server/Client 双实例隔离、Runtime Port 边界和 NativeCore 依赖方向一致。
-2. **根 README 与架构源的粒度不同**：架构源 §16 给出 `world/chunk/revision/mutation/snapshot/streaming` 的首批清单；根 README 进一步把 `query`、`spatial`、`migration` 和 `mesh-collision` 拆为独立模块。这里是实现粒度细化，不改变仓库所有权。
+2. **根 README 与架构源的粒度不同**：架构源 §16 给出 `world/chunk/revision/mutation/snapshot/streaming` 的首批清单；根 README 进一步把 `query`、`spatial`、`migration` 和 `mesh-collision` 拆为独立模块。这里是实现粒度细化，不改变仓库所有权；`query` 独立是正确决定。
 3. **`query` 必须独立**：只读批量查询拥有独立的预算、取消、缺 Chunk 结果和读取 Revision 语义，不能隐藏在 `chunk` 或 `world` 内部。
-4. **`spatial` 与 `mesh-collision` 不等于 NativeCore 的通用 Kernel**：本仓只负责把 Chunk/Block/遮挡数据投影为 Voxel 领域结果；通用空间、碰撞和压缩算法仍归 NativeCore。
-5. **`migration` 不在 Tick 热路径**：它读取不可变 Snapshot，在 Staging 中生成新版本并交由 Host 原子激活；失败不得改写旧数据。
+4. **`spatial` 与 `mesh-collision` 不等于 NativeCore 的通用 Kernel**：本仓只负责把 Chunk/Block/遮挡数据投影为 Voxel 领域结果；通用空间、碰撞和压缩算法仍归 NativeCore。投影只经 ReadView，不直连 Chunk Storage。
+5. **`migration` 不在 Tick 热路径**：它提供 Voxel 节点语义；完整 DAG、Staging 目录、Checkpoint 索引和原子激活归 Host/Server。失败不得改写旧数据。
 6. **公共 Voxel Schema 尚未在架构源发布**：当前架构源有 `common`、`sessionRevisionVector`、`cross-world-txn`、`snapshot-header` 和 `migration-manifest` 等通用契约，但没有完整的 Chunk/Block/Query/Streaming/Spatial 专属 Schema。因此本目录只写模块边界和候选接口，不擅自冻结字段、枚举或二进制布局。
 
 ## 2. 系统上下文与仓库边界
 
 LumioVoxelEngine 是七仓库体系中的 VoxelWorld 领域实现（架构源 §2.1）：
 
-- **本仓拥有**：VoxelWorld、Chunk、Block、坐标、World/Chunk Revision、Query、Mutation、Snapshot/Diff、Streaming、Voxel Migration，以及 Voxel Spatial/Collision Source。
+- **本仓拥有**：VoxelWorld、Chunk、Block、坐标、World/Chunk Revision、Query、Mutation、Voxel Snapshot/Diff payload、Streaming、Voxel Migration 节点，以及 Voxel Spatial/Collision Source。
 - **Host 拥有**：进程、连接、Wall Clock、WorldSlot 和实例创建/销毁编排；本仓只提供实例内部状态转换和稳定 Port。
-- **Runtime 拥有**：Logical Tick、Phase Graph、Coordinator、GameWorld、Replication 语义和跨 World 决策；本仓不创建或直接修改 ECS。
-- **CoreEngine/NativeCore 拥有**：Native 聚合加载、Root ABI 和领域无关的 Handle、Buffer、Job、空间、碰撞、压缩 Kernel；本仓消费版本化接口。
-- **编译依赖**：`LumioVoxelEngine -> LumioNativeCore`；`LumioCoreEngine` 只消费本仓发布的 Schema/Artifact，不依赖本仓内部实现。
+- **Runtime 拥有**：Logical Tick、Phase Graph、Coordinator、GameWorld、Replication 语义、跨域 `SnapshotCut` 和跨 World 决策；本仓不创建或直接修改 ECS，也不拥有 Session Cut。
+- **CoreEngine/NativeCore 拥有**：Native 聚合加载、Root ABI 和领域无关的 Handle、Buffer、Job、空间、碰撞、压缩 Kernel；本仓消费 NativeCore 已发布 API 与架构源生成契约。
+- **编译依赖**：`LumioVoxelEngine -> LumioNativeCore`；`LumioCoreEngine` 只消费本仓发布的 Schema/Artifact，不依赖本仓内部实现。Voxel 模块源码不得依赖 CoreEngine。
 - **运行时关系**：`LumioCoreEngine package -> Host Loader -> VoxelWorld instance -> Runtime IVoxelWorldPort / generated Voxel Contract`。
 
 所有模块都必须遵守以下约束：
@@ -47,65 +48,72 @@ LumioVoxelEngine 是七仓库体系中的 VoxelWorld 领域实现（架构源 §
 5. 缺 Chunk 必须返回 `NotLoaded`、`Pending` 或 `Unavailable` 等明确结果，不能伪装为空世界。
 6. 任何队列都必须声明容量、优先级、满载动作和 Metrics；禁止无界增长。
 
-## 3. 模块地图与依赖方向
+## 3. 模块地图与三张依赖图
+
+禁止使用方向不明的「上游/下游」。边只表示：
+
+- `depends on`：编译 / API 依赖。
+- `called by`：控制流谁发起。
+- `publishes / consumes`：事件和数据流。
 
 ### 3.1 模块地图
 
 | 模块 | 一句话职责 | 层 | 首批状态 |
 | --- | --- | --- | --- |
-| [world](world/README.md) | VoxelWorld 实例组装、Role/Context 生命周期、Barrier 入口和模块协调 | 组合/编排 | P0 |
-| [chunk](chunk/README.md) | Chunk 坐标、Block 存储、页布局、压缩页和加载状态 | 基础数据 | P0 |
-| [revision](revision/README.md) | World/Chunk Revision、比较、读取令牌和 Snapshot Pin/COW | 基础数据 | P0 |
-| [query](query/README.md) | 有界只读批量查询、缺 Chunk 结果、读取 Revision 和取消 | 领域 API | P0 |
-| [mutation](mutation/README.md) | 单域修改、Prepare/Reservation、幂等 Commit/Abort 和冲突 | 领域 API | P0 |
-| [snapshot](snapshot/README.md) | Snapshot Cut、Diff、Canonical 编码、校验和恢复输入 | 持久化数据 | P1 |
-| [streaming](streaming/README.md) | Chunk Load/Unload、优先级、预算、取消、背压和可用性 | 生命周期服务 | P1 |
-| [spatial](spatial/README.md) | Voxel 候选、遮挡投影和带 Revision 的空间 Source | 领域投影 | P1 |
-| [migration](migration/README.md) | Chunk/World Schema 转换、校验、Staging 和失败保留 | 工具/升级 | P1 |
-| [mesh-collision](mesh-collision/README.md) | Mesh/Collision Source 构建、缓存和任务，不拥有 Gameplay 规则 | 领域投影 | P2 |
+| [world](world/README.md) | VoxelWorld 实例组装、Role/Context 生命周期、Barrier 入口和模块协调 | L5 组合根 | P0 |
+| [chunk](chunk/README.md) | Chunk 坐标、Block 存储、页布局、压缩页和加载状态 | L1 基础数据 | P0 |
+| [revision](revision/README.md) | World/Chunk Revision、比较、读取令牌和 Snapshot Pin/COW 记录 | L1 基础数据 | P0 |
+| [query](query/README.md) | 有界只读批量查询、缺 Chunk 结果、读取 Revision 和取消 | L3 领域 API | P0 |
+| [mutation](mutation/README.md) | 单域修改、Prepare/Reservation、幂等 Commit/Abort 和 CommitBatch | L3 领域 API | P0 |
+| [snapshot](snapshot/README.md) | VoxelCaptureRef、Diff、Canonical 编码、校验和恢复输入 | L3 持久化数据 | P1 |
+| [streaming](streaming/README.md) | Chunk Load/Unload、优先级、预算、取消、背压和可用性 | L3 生命周期服务 | P1 |
+| [spatial](spatial/README.md) | Voxel 候选、遮挡投影和带 Revision 的空间 Source | L4 领域投影 | P1 |
+| [migration](migration/README.md) | Voxel Migration 节点输入/输出、转换器和节点级校验 | Tool 路径 | P1 |
+| [mesh-collision](mesh-collision/README.md) | Mesh/Collision Source 构建、缓存和任务，不拥有 Gameplay 规则 | L4 领域投影 | P2 |
 
-“首批状态”表示实现优先级，不表示代码已经存在或已交付。
+“首批状态”表示实现优先级，不表示代码已经存在或已交付。逻辑模块不必与物理 crate 1:1，见 [0003](../.spec/decisions/0003-dependency-graphs-and-layering.md)。
 
-### 3.2 依赖方向
+### 3.2 Compile-Time DAG
 
-依赖只能指向更基础的模块；`world` 是运行期组合根，负责组装和驱动模块，但基础模块不得反向依赖 `world`。同层依赖必须在本节登记，禁止隐藏的全局单例、反向调用和循环依赖。
+`A --> B` 表示 A 编译/API 依赖 B。`chunk` 与 `revision` 是 sibling，不互调。`world` 是组合根；L0–L4 与 Tool 不得依赖 `world`。不存在指向 `LumioCoreEngine` 的编译边。
 
 ```mermaid
 graph TD
-    world[world<br/>组合根]
-    revision[revision<br/>基础]
-    chunk[chunk<br/>基础]
-    query[query<br/>只读 API]
-    mutation[mutation<br/>写入 API]
-    snapshot[snapshot<br/>快照]
-    streaming[streaming<br/>流式生命周期]
-    spatial[spatial<br/>空间投影]
-    migration[migration<br/>迁移工具]
-    mesh[mesh-collision<br/>几何投影]
-    native[LumioNativeCore<br/>通用 Kernel]
+    world[world]
+    revision[revision]
+    chunk[chunk]
+    query[query]
+    mutation[mutation]
+    snapshot[snapshot]
+    streaming[streaming]
+    spatial[spatial]
+    migration[migration]
+    mesh[mesh-collision]
+    native[LumioNativeCore]
+    contracts[generated-contracts]
 
-    chunk --> revision
+    revision --> contracts
+    chunk --> contracts
+    chunk --> native
     query --> chunk
     query --> revision
     mutation --> chunk
     mutation --> revision
     snapshot --> chunk
     snapshot --> revision
+    snapshot --> contracts
+    snapshot --> native
     streaming --> chunk
-    streaming --> revision
     spatial --> query
-    spatial --> chunk
     spatial --> revision
+    spatial --> native
     mesh --> query
-    mesh --> chunk
     mesh --> revision
+    mesh --> native
     migration --> snapshot
     migration --> chunk
     migration --> revision
-
-    chunk --> native
-    spatial --> native
-    mesh --> native
+    migration --> contracts
 
     world --> chunk
     world --> revision
@@ -115,46 +123,139 @@ graph TD
     world --> streaming
     world --> spatial
     world --> mesh
+    world --> native
+    world --> contracts
+
+    query --> native
+    mutation --> native
+    streaming --> native
+    revision --> native
 ```
 
 补充约定：
 
-- `revision` 不依赖任何上层 Voxel 模块；Revision 类型、比较和 Pin 语义是最小基础。
-- `chunk` 只拥有数据布局和 Chunk 内部状态，不暴露 Storage 引用给上层或跨语言调用方。
-- `query`、`mutation` 通过只读/可写视图消费 `chunk`，不调用 `world` 的生命周期方法。
-- `snapshot` 负责内存中的 Cut、编码和解码输入；文件、fsync、原子替换和 WAL 落盘由 Host/Runtime 的持久化编排负责。
-- `streaming` 负责请求调度和 Chunk 可用性，不拥有 World 生命周期；`world` 决定何时启动、排空和关闭它。
-- `spatial`、`mesh-collision` 只生成候选/Source，最终 AOI、权限、渲染和 Gameplay 决策在上层完成。
+- `revision` 不依赖任何上层 Voxel 模块，也不依赖 `chunk`。
+- `chunk` 只拥有数据布局和 Chunk 内部状态，不暴露 Storage 引用，不递增公共 Revision。
+- `query`、`mutation` 通过 ReadView / WriteSet 消费 `chunk`，不调用 `world` 的生命周期方法。
+- `snapshot` 负责 CaptureRef、编码和解码输入；文件、fsync、原子替换和 WAL 落盘由 Host/Runtime 的持久化编排负责。
+- `streaming` 负责请求调度和 Chunk 可用性任务，不拥有 World 生命周期；`world` 决定何时启动、排空和关闭它。
+- `spatial`、`mesh-collision` 只经 `query` ReadView 读取体素，最终 AOI、权限、渲染和 Gameplay 决策在上层完成。
 - `migration` 可在工具进程或维护阶段运行，不得从 Tick 热路径回调 `world` 写入。
 - NativeCore 只提供通用 Kernel；Voxel 语义、Revision 和失败原因仍由本仓定义。
 
-### 3.3 关键调用链
+### 3.3 Runtime Control Flow
+
+谁发起调用，谁完成调用。箭头是控制流，不是编译边。
+
+```text
+Host create/destroy
+  -> world lifecycle
+  -> init revision + chunk
+  -> register query + mutation
+  -> optional snapshot / streaming / spatial / mesh-collision
+
+IVoxelWorldPort.query
+  -> world Barrier / Context check
+  -> query
+  -> ReadView(chunk) + Stamp(revision)
+
+IVoxelWorldPort.prepare / commit / abort
+  -> world
+  -> mutation
+  -> CommitBatch publish { chunk pages, Dirty, ChunkRevisionSet, WorldRevision }
+
+CrossWorldTxn
+  -> Runtime Coordinator owns CommitIntent + TxnJournal
+  -> mutation as participant: Prepare / Apply / Abort / Duplicate receipt
+
+Running Snapshot
+  -> Runtime fixes SnapshotCut
+  -> world.capture(cut)
+  -> revision.pin
+  -> snapshot holds VoxelCaptureRef
+  -> resume writes
+  -> background encode / verify
+  -> Host persist
+
+Quiesce / maintenance Snapshot
+  -> world closes Ingress and new writes
+  -> drain or abort Reservation
+  -> same Cut -> CaptureRef path as above
+
+Restore
+  -> Host supplies immutable bytes
+  -> snapshot.decode
+  -> world restore entry
+  -> chunk.materialize_pages + revision.restore_stamps
+  (not streaming Load)
+
+Streaming Load/Unload
+  -> world or Host submits request
+  -> streaming queue / IO worker
+  -> Barrier publish on chunk
+  -> Dirty Unload only after Host durability ack
+
+Spatial / Mesh
+  -> world routes
+  -> spatial or mesh-collision
+  -> query ReadView
+  -> NativeCore Kernel
+
+Migration
+  -> Host orchestrates DAG / Staging / activation
+  -> migration runs node executor only
+```
+
+### 3.4 Event / Data Flow
+
+```text
+mutation publishes ChunkChanged
+  -> snapshot Diff index consumes
+  -> spatial / mesh-collision invalidate caches
+  (mutation does not call those modules)
+
+streaming publishes AvailabilityChanged
+  -> query / spatial / mesh-collision consume
+  (query does not request Load)
+
+Host publishes DurabilityAck(SnapshotId or WAL offset, ChunkId set)
+  -> world Barrier
+  -> chunk.clear_dirty
+
+snapshot publishes CaptureReady(Canonical bytes + Header)
+  -> Host persistence consumes
+  -> migration node input is the immutable Artifact, not a live World
+```
+
+### 3.5 关键调用链
 
 1. **创建**：Host 分配句柄和 Capability → `world` 建立实例上下文 → 初始化 `revision/chunk` → 注册 `query/mutation` → 按能力挂接 `snapshot/streaming/spatial/mesh-collision` → 返回 `VoxelWorldHandle`。
-2. **只读查询**：`IVoxelWorldPort` → `world` 校验 Context/预算 → `query` 读取 `chunk` 和 `revision` → 返回 typed batch、读取 Revision 和缺 Chunk 状态；不会返回内部指针。
-3. **单域修改**：Runtime Barrier → `world` 转交 `mutation.prepare` → 校验 Chunk/Cell/Expected Revision 并创建不可见 Reservation → Coordinator 决定 Commit → `mutation.commit` 幂等应用 → `revision` 递增 → 返回新 World/Chunk Revision。
-4. **CrossWorldTxnV1**：Runtime 持有协调状态；Voxel 侧只执行 Prepare/Reservation/Commit/Abort。固定顺序为 `VoxelCommit -> EcsCommandBufferCommit`，重复 `TxnId` 返回原结果。
-5. **Snapshot**：Runtime 在协调 Barrier 固定 `SnapshotCut` → `world` 请求 `snapshot` Pin/COW → 编码带 Revision 的 Canonical bytes → 交给 Host 持久化；异步期间新写入不能污染旧 Cut。
+2. **只读查询**：`IVoxelWorldPort` → `world` 校验 Context/预算 → `query` 读取 ReadView 和 `revision` Stamp → 返回 typed batch、读取 Revision 和缺 Chunk 状态；不会返回内部指针。
+3. **单域修改**：Runtime Barrier → `world` 转交 `mutation.prepare` → 校验 Chunk/Cell/Expected Revision 并创建不可见 Reservation → Coordinator 或单域调用方决定 Commit → `mutation.commit` 经 CommitBatch 原子发布页与 Revision → 返回新 World/Chunk Revision。
+4. **CrossWorldTxnV1**：Runtime 持有协调状态和 `CommitIntent`；Voxel 侧只执行 Prepare/Reservation/Apply/Abort 并记录 participant receipt。固定顺序为 `VoxelCommit -> EcsCommandBufferCommit`，重复 `TxnId` 返回原结果。
+5. **运行中 Snapshot**：Runtime 在协调 Barrier 固定 `SnapshotCut` → `world` 请求 Pin/COW 并取得 `VoxelCaptureRef` → 恢复写入 → `snapshot` 后台编码带 Revision 的 Canonical bytes → 交给 Host 持久化。
 6. **Streaming**：上层提交带优先级和截止条件的 Load/Unload → `streaming` 放入有界队列 → IO/解压完成后在 Barrier 发布 Chunk 可用性 → `query` 明确返回 `Ready/NotLoaded/Pending/Unavailable`。
-7. **空间与几何**：`spatial` 或 `mesh-collision` 读取指定 Revision 的稳定视图 → NativeCore Kernel 计算 → 返回带 Revision、预算和取消原因的 Source；上层再做权限/AOI/渲染过滤。
-8. **迁移**：Host 从不可变 `SnapshotId + SessionRevisionVector` 启动 `migration` DAG → Staging 校验 → 产出新 Snapshot/Manifest → 原子激活；任何失败都保留旧 Active 指针。
-9. **销毁**：先关闭 Ingress 并停止新写入 → 完成/中止 Reservation → 导出诊断与 Snapshot 元数据 → 停止 Streaming/构建任务 → 释放 Chunk/Revision → 使所有旧 Handle 失效。
+7. **空间与几何**：`spatial` 或 `mesh-collision` 经 `query` 读取指定 Revision 的 ReadView → NativeCore Kernel 计算 → 返回带 Revision、预算和取消原因的 Source；上层再做权限/AOI/渲染过滤。
+8. **迁移**：Host 从不可变 `SnapshotId + SessionRevisionVector` 调度 DAG → 调用 Voxel 节点 executor → Staging 校验与原子激活由 Host 完成；任何失败都保留旧 Active 指针。
+9. **恢复**：Host 提供不可变字节 → `snapshot.decode` → `world` restore 入口 → `chunk` 物化页、`revision` 恢复 Stamp。
+10. **销毁**：先关闭 Ingress 并停止新写入 → 完成/中止 Reservation → 导出诊断与 Snapshot 元数据（向 Host，不在 world 内缓存 Cut）→ 停止 Streaming/构建任务 → 释放 Chunk/Revision → 使所有旧 Handle 失效。
 
 ## 4. 状态所有权与故障域
 
 | 状态或资源 | 唯一所有者 | 边界说明 |
 | --- | --- | --- |
-| World 实例句柄、Role、Context、生命周期 | `world` | 只保存内部模块句柄，不复制模块状态 |
-| Chunk/Block/坐标/页布局/加载态 | `chunk` | Storage 私有，跨边界只给 typed view 或 Buffer |
-| WorldRevision、ChunkRevision、读取令牌、Pin/COW | `revision` | 不允许无语义的统一整数替代域 Revision |
-| 查询预算、批次、取消和缺 Chunk 结果 | `query` | 只读，不产生可见写入 |
-| Mutation Batch、Reservation、Prepare Token、幂等结果 | `mutation` | Prepare 无可见副作用，Commit 只在 Barrier 执行 |
-| SnapshotCut、Diff、Canonical 编码/解码上下文 | `snapshot` | 不拥有文件耐久与 WAL 队列 |
-| Load/Unload 请求、优先级、预算、背压和取消 | `streaming` | 不改变上层 World 生命周期 |
-| Voxel 候选、遮挡投影、Spatial Source 缓存 | `spatial` | 不做最终 AOI/权限裁决 |
-| Migration DAG 节点、Staging 状态和校验结果 | `migration` | 不覆盖旧 Snapshot，不在 Tick 热路径运行 |
+| World 实例句柄、Role、Context、生命周期 | `world` | 只保存模块句柄、Capability view 和 Barrier gate，不复制模块状态，不缓存 Cut |
+| Chunk/Block/坐标/页布局/加载态/Dirty | `chunk` | Storage 私有；Dirty 仅在 Host DurabilityAck 后由 Barrier 清除 |
+| WorldRevision、ChunkRevision、读取令牌、Pin/COW 记录 | `revision` | 不允许无语义的统一整数替代域 Revision；不拥有 Block 页 |
+| 查询预算、批次、取消和缺 Chunk 结果 | `query` | 只读，不产生可见写入，不控制 Load |
+| Mutation Batch、Reservation、Prepare Token、participant receipt | `mutation` | Prepare 无可见副作用；不拥有全局 CommitIntent |
+| VoxelCaptureRef、Diff、Canonical 编码/解码上下文 | `snapshot` | 不拥有跨域 SnapshotCut、Pin 记录、文件耐久与 WAL |
+| Load/Unload 请求、优先级、预算、背压和取消 | `streaming` | 不改变上层 World 生命周期，不拥有 WAL，不得卸载未获 ack 的 Dirty |
+| Voxel 候选、遮挡投影、Spatial Source 缓存 | `spatial` | 不做最终 AOI/权限裁决；缓存 scoped 到 World Context |
+| Voxel migration 节点局部输入/输出/校验结果 | `migration` | 不拥有 Staging 目录、全图 DAG、Active 指针或重启扫描 |
 | Mesh/Collision Source、构建任务和缓存 | `mesh-collision` | 不拥有 Renderer、Physics Gameplay 或材质规则 |
-| 文件/目录、fsync、原子替换、WAL/Command Log | Host/Runtime 持久化编排 | Voxel 模块只提供 Canonical bytes 和元数据 |
+| 跨域 SnapshotCut、SessionRevisionVector | Runtime Coordinator | Voxel 只接收不可变 Cut 描述 |
+| 文件/目录、fsync、原子替换、WAL/Command Log、DurabilityAck | Host/Runtime 持久化编排 | Voxel 模块只提供 Canonical bytes 和元数据 |
 | Diagnostic/Audit/Metrics/Trace Sink | 上层观测管道 | Voxel 模块只发带关联字段的事件 |
 
 故障按最小影响范围处理：单次 Query/Mutation → Chunk/Streaming → World 实例 → 进程。连接、Session、Release Pool 和进程级重启不在本仓裁决；本仓必须提供稳定错误、Revision、Failure Bundle 片段和可重放输入。
@@ -175,8 +276,8 @@ Streaming IO Worker(s)
 
 Migration Tool / Maintenance Worker
   -> immutable Snapshot input
-  -> staging output
-  -> atomic activation request
+  -> node-local staged payload
+  -> Host atomic activation request
 ```
 
 - `world` 不自行拥有 Host Wall Clock；Host 决定何时 Tick，Runtime 决定 Phase，Voxel 只在所属 Barrier 接受权威写入。
@@ -185,6 +286,7 @@ Migration Tool / Maintenance Worker
 - `streaming` 的 IO/解压线程只生产完成事件；Chunk 状态转换在 Barrier 发布，避免后台线程直接改权威状态。
 - Snapshot 编码、Spatial 和 Mesh/Collision 构建可使用 Native Job，但 Completion 只能在声明的 Barrier 应用。
 - 所有队列声明容量、优先级、满载动作和 Metrics；Unreliable/诊断结果可按策略丢弃，权威 Mutation、TxnJournal 和已确认 Snapshot 不得静默丢失。
+- 同步 P0 可以关闭异步 Query/Streaming/投影能力；开启异步后每个任务必须携带 World Context/Generation、RequestId 和输入 Revision，迟到结果不得写入新实例。
 
 ## 6. 公共契约与架构来源
 
@@ -212,7 +314,7 @@ Migration Tool / Maintenance Worker
 3. 明确不负责什么。
 4. 拥有的状态与资源。
 5. 输入、输出与稳定接口（候选接口必须注明仍待公共 Schema/ADR 冻结）。
-6. 上游与下游依赖。
+6. 依赖（编译 / 控制流 / 事件与数据）；禁止「上游/下游」。
 7. 生命周期与状态机。
 8. 线程、队列与并发所有权。
 9. 正常数据流与失败路径。
@@ -233,19 +335,21 @@ Migration Tool / Maintenance Worker
 | --- | --- | --- | --- | --- |
 | VOX-D-001 | Chunk 维度、坐标范围和页布局 | 先抽象 `ChunkCoord`/`BlockCoord`/页接口，不写死尺寸到 Port | chunk、query | Chunk Schema 与边界 Fixture 在架构源发布 |
 | VOX-D-002 | Block 存储与压缩策略 | 通过 Adapter/页接口隔离，优先 OSS，保持确定性 | chunk | 密度、CPU、内存和许可证 Benchmark |
-| VOX-D-003 | Query 批次、预算和缺 Chunk 结果枚举 | 有界批次；`NotLoaded/Pending/Unavailable` 语义先在内部统一 | query、streaming | Query Schema、超时/取消/缺失 Fixture |
-| VOX-D-004 | Reservation 租约和 Mutation 幂等记录保留 | Prepare 不可见；`TxnId` 重复返回原结果 | mutation | CrossWorldTxn 与崩溃恢复测试通过 |
-| VOX-D-005 | Snapshot Pin/COW 和 Diff 粒度 | 先以 Pin 或 COW 实现等价语义，编码由生成器决定 | snapshot、revision | Snapshot Schema、旧版本读取和损坏 Fixture |
-| VOX-D-006 | Streaming 优先级、并发和背压阈值 | 所有队列有界，超限按优先级拒绝/延迟/取消 | streaming | NativeHeadless 压测和故障矩阵 |
-| VOX-D-007 | Spatial/Collision Kernel 适配与缓存键 | 只缓存带 Revision 的 Source，不缓存 Gameplay 判定 | spatial、mesh-collision | Native Differential 与性能基线 |
-| VOX-D-008 | Voxel Migration 节点粒度与激活策略 | 不可变输入 + Staging + 原子指针；失败保留旧版本 | migration | Migration Manifest 与 Crash-at-node 测试 |
+| VOX-D-003 | Query 批次、预算和缺 Chunk 结果枚举 | 有界批次；`NotLoaded/Pending/Unavailable` 语义先在内部统一；请求开始时固定目标 Revision | query、streaming | Query Schema、超时/取消/缺失 Fixture |
+| VOX-D-004 | Reservation 租约和 Mutation 幂等记录保留 | Prepare 不可见；`TxnId` 重复返回原结果；崩溃恢复协议回架构源 | mutation | CrossWorldTxn 与崩溃恢复测试通过 |
+| VOX-D-005 | Snapshot Pin/COW 和 Diff 粒度 | 先以 Pin 或 COW 实现等价语义，编码由生成器决定；运行中不暂停 Tick | snapshot、revision | Snapshot Schema、旧版本读取和损坏 Fixture |
+| VOX-D-006 | Streaming 优先级、并发和背压阈值 | 所有队列有界，超限按优先级拒绝/延迟/取消；P0 可禁用 Unload | streaming | NativeHeadless 压测和故障矩阵 |
+| VOX-D-007 | Spatial/Collision Kernel 适配与缓存键 | 只缓存带 Revision 与 World Context 的 Source，不缓存 Gameplay 判定 | spatial、mesh-collision | Native Differential 与性能基线 |
+| VOX-D-008 | Voxel Migration 节点粒度 | 节点局部输入/输出 + 幂等；全图与 Staging 归 Host | migration | Migration Manifest 与 Crash-at-node 测试 |
+
+已经冻结、不再当作决策门的内部边界见 [0001](../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)–[0004](../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)。
 
 公共状态、字段、错误、时序、ID、Schema 或依赖图的变化必须先回到架构源；本仓内部边界变化也不得只改一个 README 而不更新本文和 ADR 索引。
 
 ## 9. 实现节奏与文档退出条件
 
 1. **Architecture Gate**：冻结 World/Chunk/Revision/Mutation/Snapshot 的公共语义，补齐 Voxel 专属 Schema、正向/失败 Fixture 和 Port 错误表。
-2. **Foundation**：实现 `revision/chunk/world/query/mutation` 的单域闭环，Reference Port 和 NativeHeadless 语义测试可运行。
+2. **Foundation**：实现 `revision/chunk/world/query/mutation` 的单域闭环，Reference Port 和 NativeHeadless 语义测试可运行。P0 Profile 可全驻留并禁用 Dirty Unload。
 3. **Vertical Slice**：以 `PlaceVoxelAbility` 接入 CrossWorldTxn、Local 双实例、Snapshot/WAL、Reference Differential 和恢复路径。
 4. **Production Hardening**：完成 Streaming、Spatial、Migration、损坏注入、背压、性能曲线和长期运行验证。
 5. **P2**：实现复杂 Voxel-aware AOI、Mesh/Collision 优化和可替换后端；不得改变 V1 权威边界。

@@ -20,6 +20,7 @@
 - 不存储 Chunk/Block 数据，不决定 Chunk 布局或压缩方式（归 [chunk](../chunk/README.md)）。
 - 不执行 Mutation、Reservation、权限或 Gameplay 资源检查（归 [mutation](../mutation/README.md) 或上层 Runtime）。
 - 不决定何时 Tick、何时生成 SnapshotCut 或何时加载 Chunk；只提供版本操作。
+- 不回调 `chunk`，不自行应用 Block 写入；递增只发生在 `mutation` 的 CommitBatch publish 中。
 - 不把 `TickId`、`ConfigRevision`、`ReplicationRevision` 等其他域版本混成 Voxel Revision。
 - 不向 C# 暴露可变引用、内部计数器或跨 World 的共享令牌。
 
@@ -36,11 +37,11 @@
 - **输出**：读取 `RevisionStamp`、Revision 比较结果、Pin/COW 句柄、提交后的新版本和稳定冲突原因。
 - **接口草案**（字段和错误枚举仍需架构源 Schema 冻结）：`current_world() -> WorldRevision`；`current_chunk(chunk_id) -> ChunkRevision`；`observe(scope) -> RevisionStamp`；`check(expected, observed) -> Ok | RevisionConflict`；`pin(cut) -> SnapshotPin | StableError`；`release(pin)`；`advance(changes) -> RevisionDelta`。
 
-## 上游与下游依赖
+## 依赖（编译 / 控制流 / 事件与数据）
 
-- **上游**：`world` 提供 Context 生命周期和 Barrier 入口；`mutation` 提交已验证的变化摘要。
-- **下游**：[chunk](../chunk/README.md)、[query](../query/README.md)、[snapshot](../snapshot/README.md)、[spatial](../spatial/README.md)、[mesh-collision](../mesh-collision/README.md) 消费版本令牌。
-- **基础依赖**：`LumioNativeCore` 的固定宽度 ID、Handle 和稳定错误模型；不依赖其他 Voxel 业务模块。
+- **编译依赖**：`LumioNativeCore` 的固定宽度 ID、Handle 和稳定错误模型；架构源 Revision 基础类型。不依赖 `chunk` 或其他上层 Voxel 模块。
+- **被谁调用**：`world` 提供 Context 生命周期；`mutation` 在 CommitBatch 中请求 publish；`query`/`snapshot`/`spatial`/`mesh-collision` 读取 Stamp 或请求 Pin。
+- **发布/消费**：发布 RevisionDelta / Stamp；消费 Mutation 已验证的变化摘要。不调用 `chunk`。
 
 ## 生命周期与状态机
 
@@ -59,7 +60,7 @@ Requested/Pinned -> Expired | Invalidated
 ```
 
 - `Active` 期间 Revision 只能在所属 Simulation Barrier 递增。
-- `Quiescing` 拒绝新的写入版本分配，但允许已批准的只读 Pin 按策略完成。
+- `Quiescing` 拒绝新的写入版本分配，但允许已批准的只读 Pin 按租约完成。
 - `Closed` 后所有令牌和 Pin 均以稳定错误失效，不能作用于新建 World。
 
 ## 线程、队列与并发所有权
@@ -71,14 +72,14 @@ Requested/Pinned -> Expired | Invalidated
 
 ## 正常数据流与失败路径
 
-- **正常读**：请求范围 → 读取当前版本 → 生成 Stamp → 下游读取 → 结果回带 Stamp。
-- **正常写**：Expected Revision 校验通过 → Barrier 应用变化 → 递增 ChunkRevision/WorldRevision → 发布 RevisionDelta。
-- **Snapshot**：Barrier 固定 Cut → Pin/COW → 编码期间继续读写 → 完成后释放 Pin。
+- **正常读**：请求范围 → 读取当前版本 → 生成 Stamp → 调用方读取 → 结果回带 Stamp。
+- **正常写**：Expected Revision 校验通过 → `mutation` 的 CommitBatch 同时发布 Chunk 页与 `advance` → 公开 RevisionDelta。本模块不单独应用 Block。
+- **Snapshot**：Barrier 接收 Runtime Cut → Pin/COW → 编码期间继续读写 → 完成后释放 Pin。
 - **失败路径**：
   - Expected 版本落后：返回 `RevisionConflict`，不写入、不递增。
   - Chunk/World Context 已销毁：返回 `InvalidHandle`/稳定上下文错误，不触碰新实例。
   - Pin 超时或预算不足：拒绝 Pin，保留当前 Active 版本。
-  - Revision 溢出或内部表不一致：进入 `Faulted`，输出证据并由 `world` 决定实例处置。
+  - Revision 溢出或内部表不一致：进入 `Faulted`，输出证据并由 `world` 决定实例处置。 publish 一旦开始可见则不得退回普通可重试错误。
 
 ## 错误分类、恢复与降级
 
@@ -108,6 +109,7 @@ Requested/Pinned -> Expired | Invalidated
 
 ## 对应 ADR、Schema 与 Fixture
 
+- 本仓 [0001](../../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)、[0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)。
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：Expected Revision、SnapshotCut、幂等和恢复语义。
 - 架构源 `schemas/common.schema.json` / `schemas/session-revision-vector.schema.json`：`revision` 与 `chunkRevisionSet`；正例 `fixtures/valid/session-revision-vector.json`，反例 `fixtures/invalid/session-revision-negative.json`。
 - 架构源 `schemas/snapshot-header.schema.json`：Snapshot 版本关联；正例 `fixtures/valid/snapshot-active.json`。

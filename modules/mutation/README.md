@@ -10,25 +10,26 @@
 
 - 校验坐标、Chunk 可用性、Cell 可写性、容量、Expected `ChunkRevision` 和 Context/Generation。
 - 创建带租约的不可见 `MutationReservation`/`PreparedVoxelToken`，防止 Prepare 产生可见副作用。
-- 在 Simulation Barrier 应用已批准的 Block 变化，递增 `WorldRevision/ChunkRevision` 并返回变更摘要。
-- 按 `TxnId` 和命令身份保存幂等结果；重复 Commit 返回原结果，不重复写入或收费（收费语义由 Game 侧负责）。
+- 在 Simulation Barrier 经 CommitBatch 原子发布已批准的 Block 变化与 `WorldRevision/ChunkRevision`，并返回变更摘要。本模块协调 publish，但不代替 `revision` 拥有版本计数器。
+- 按 `TxnId` 保存 participant receipt；重复 Commit 返回原结果，不重复写入。收费语义由 Game 侧负责。
 - 支持 Abort、超时、取消、租约到期和 Chunk Unloaded 的稳定原因。
-- 为 Runtime Coordinator 提供 Voxel 参与者状态、结果 Revision 和恢复所需标记。
+- 为 Runtime Coordinator 提供 Voxel 参与者状态、结果 Revision 和可查询 receipt。
 
 ## 明确不负责什么
 
-- 不拥有 CrossWorld 协调、Game/ECS CommandBuffer 或 CommitIntent Journal 的最终持久化（归 Runtime/Host）。
+- 不拥有 CrossWorld 协调、全局 `CommitIntent`、Game/ECS CommandBuffer 或 TxnJournal 的最终持久化（归 Runtime/Host）。
 - 不做玩家权限、阵营、隐身、库存、扣费、Ability 或其他 Gameplay 判断；只接受上层已完成的结构前置条件上下文。
 - 不直接加载 Chunk、不绕过 [query](../query/README.md) 的只读边界、不持有跨模块 Storage 锁。
+- 不调用 [snapshot](../snapshot/README.md) 或 [streaming](../streaming/README.md)；只读 Availability Port，并发布 `ChunkChanged`。
 - 不在 Native 锁内回调 C#，不由 Worker 线程直接触发 Hot Gameplay。
 - 不允许无 Expected Revision 的静默覆盖写入。
 
 ## 拥有的状态与资源
 
 - 活跃 Reservation、租约截止和已锁定 Chunk/Cell 范围。
-- `TxnId -> CommitResult` 的有界幂等缓存/日志引用。
-- Prepare 失败原因、Abort 原因、变更摘要和待提交 Revision。
-- Barrier 内的临时 Write Plan；不长期持有 Chunk 可变引用。
+- `TxnId -> ParticipantReceipt` 的有界幂等缓存（崩溃后如何从 Journal/Snapshot 重建由架构源协议决定，见 VOX-D-004）。
+- Prepare 失败原因、Abort 原因、变更摘要和待提交 RevisionDelta。
+- Barrier 内的临时 WriteSet / CommitBatch；不长期持有 Chunk 可变引用。
 
 ## 输入、输出与稳定接口
 
@@ -36,26 +37,27 @@
 - **输出**：Prepare Token、Reservation 状态、Commit/Abort 结果、变更范围和新 Revision。
 - **接口草案**（公共字段待架构源契约）：`prepare(batch) -> PreparedVoxelToken | MutationError`；`commit(txn_id, token) -> CommitResult | StableError`；`abort(txn_id, token, reason)`；`status(txn_id) -> MutationStatus`。
 
-## 上游与下游依赖
+## 依赖（编译 / 控制流 / 事件与数据）
 
-- **上游**：[world](../world/README.md)（Context/Barrier）、Runtime Coordinator（CrossWorldTxn 状态）。
-- **下游**：[chunk](../chunk/README.md)（可写视图）、[revision](../revision/README.md)（版本提交）、[snapshot](../snapshot/README.md)（变更/恢复输入）、[streaming](../streaming/README.md)（可用性）。
-- **旁路**：Host/Runtime 持久化 `TxnJournal`；本模块只提供可持久化标记和幂等结果。
+- **编译依赖**：[chunk](../chunk/README.md)（WriteView）、[revision](../revision/README.md)（Stamp/advance publish）、Availability Port 类型、NativeCore 稳定错误。不依赖 snapshot、streaming 或 world。
+- **被谁调用**：[world](../world/README.md)（Context/Barrier）；Runtime Coordinator 只经 Port 决定 Commit/Abort。
+- **发布/消费**：发布 `ChunkChanged` 供 snapshot Diff / 投影缓存失效消费；只读 Availability，不控制 Load。Host/Runtime 持久化 `TxnJournal`；本模块只提供可查询 participant receipt。
 
 ## 生命周期与状态机
 
-单域 Mutation：
+单域 / Voxel 参与者状态（本模块拥有）：
 
 ```text
-Created -> Validating -> Prepared -> Committed
+Created -> Validating -> Prepared -> Applied
                          |          |
                          v          v
                        Aborted   Duplicate
 Prepared -> Expired | Cancelled | ChunkUnavailable
 Created/Validating -> Rejected
+Applied -> receipt retained until pruning handshake
 ```
 
-CrossWorld 参与者遵循架构源 `CrossWorldTxnV1`：
+Runtime 拥有的全局 CrossWorldTxn 状态（本模块不存储）：
 
 ```text
 Created -> Prepared -> CommitIntent -> Committed
@@ -64,8 +66,10 @@ Prepared -> Indeterminate
 ```
 
 - Prepare 阶段不得改变可见 Block 或 Revision。
-- Commit 必须在 `VoxelCommit` Barrier 顺序执行；重复 `TxnId` 只能返回原结果。
-- `Indeterminate` 不由本模块猜测成功/失败；Runtime 通过 Journal 标记和状态查询解决。
+- Commit 必须在 `VoxelCommit` Barrier 经 CommitBatch 执行；第一个可见写入后不得再失败为普通错误。
+- 重复 `TxnId` 只能返回原 receipt。
+- `Indeterminate` 不由本模块猜测成功/失败；Runtime 通过 Journal 标记和 `status(txnId)` 解决。
+- 本模块不进入 `CommitIntent` 状态。 Coordinator 必须先持久化 Intent，再调用 Voxel Apply。
 
 ## 线程、队列与并发所有权
 
@@ -77,9 +81,9 @@ Prepared -> Indeterminate
 ## 正常数据流与失败路径
 
 - **Prepare**：批次规范化 → Chunk/Cell/Revision/容量检查 → 建立 Reservation → 返回 Token。
-- **Commit**：Coordinator 持久化 `CommitIntent` → `VoxelCommit` 应用 → 递增 Revision → 写参与者标记 → 返回结果。
+- **Commit**：确认 Coordinator 已持久化 `CommitIntent`（CrossWorld）或单域调用方已批准 → CommitBatch 原子发布页与 Revision → 记录 participant receipt → 发布 `ChunkChanged` → 返回结果。
 - **Abort**：释放 Reservation，不产生可见变更；重复 Abort 幂等。
-- **失败路径**：Revision 冲突、Chunk 未加载、Cell 不可写、容量超限、租约过期、取消、Context 失效均在可见写入前拒绝；Commit 后结果丢失通过 `status(txnId)` 查询。
+- **失败路径**：Revision 冲突、Chunk 未加载、Cell 不可写、容量超限、租约过期、取消、Context 失效均在可见写入前拒绝；Commit 后结果丢失通过 `status(txnId)` 查询。崩溃后 receipt 如何从 Journal/Snapshot 重建由架构源协议决定。
 
 ## 错误分类、恢复与降级
 
@@ -109,10 +113,11 @@ Prepared -> Indeterminate
 
 ## 对应 ADR、Schema 与 Fixture
 
+- 本仓 [0002](../../.spec/decisions/0002-barrier-commit-batch.md)。
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：Prepare/Reservation/CommitIntent、固定 Commit 顺序和 Indeterminate 恢复。
 - 架构源 `schemas/cross-world-txn.schema.json`：正例 `fixtures/valid/cross-world-txn-committed.json`、`fixtures/valid/cross-world-txn-aborted.json`；反例 `fixtures/invalid/cross-world-txn-partial-commit.json`。
 - 架构源 `schemas/common.schema.json`：Revision 基础；Voxel Mutation 专属 Schema 尚未发布。
 
 ## 尚未批准的决策门
 
-- **VOX-D-004**（Reservation 租约、幂等记录保留和批次上限）：临时 Prepare 不可见、重复 `TxnId` 返回原结果；需 CrossWorld 崩溃/超时/丢结果 Fixture 与测量。
+- **VOX-D-004**（Reservation 租约、幂等记录保留和批次上限）：临时 Prepare 不可见、重复 `TxnId` 返回原结果。崩溃后 receipt 耐久、pruning handshake 与 Duplicate/Lost Result fixture 必须在架构源冻结，不能单靠本模块有界缓存。

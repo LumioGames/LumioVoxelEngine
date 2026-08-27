@@ -9,11 +9,11 @@
 ## 负责什么
 
 - 校验 Query 范围、点数、批次大小、Context/Generation 和调用能力。
-- 在指定 Revision 或最新可读视图上执行点查询、范围查询和批量候选读取。
-- 对每个结果返回读取 `WorldRevision/ChunkRevision` 或明确的一致性令牌。
+- 在指定 Revision 或请求开始时固定的 Latest 可读视图上执行点查询、范围查询和批量候选读取。目标 Revision 在 `begin` 时绑定，后续批次与 continuation 不得改观察版本。
+- 对每个结果返回读取 `WorldRevision/ChunkRevision` 或明确的一致性令牌；多 Chunk 批次属于同一个已绑定 Revision。
 - 区分 `Ready`、`NotLoaded`、`Pending`、`Unavailable`、`OutOfBudget`、`Cancelled` 和 `TimedOut` 等结果类别；具体公共枚举待 Schema 冻结。
 - 维护每请求的预算、截止时间、取消令牌、批次计数和诊断上下文。
-- 为 Spatial/Geometry 投影提供只读稳定输入，不替上层做权限、AOI 或 Gameplay 过滤。
+- 为 Spatial/Geometry 投影提供只读稳定 ReadView，不替上层做权限、AOI 或 Gameplay 过滤。
 
 ## 明确不负责什么
 
@@ -22,6 +22,7 @@
 - 不把缺 Chunk 当作空值，不隐式等待无限时间，也不分配无界结果集合。
 - 不做玩家权限、阵营、隐身、带宽或最终 AOI 判断；上层根据候选结果做最终过滤。
 - 不泄漏 Storage 指针、锁、页地址或第三方容器。
+- 不依赖 [spatial](../spatial/README.md) 或 [mesh-collision](../mesh-collision/README.md)。
 
 ## 拥有的状态与资源
 
@@ -35,11 +36,11 @@
 - **输出**：`QueryBatch`（typed voxel result + `RevisionStamp` + Chunk 状态）、稳定错误/取消原因和 Metrics。
 - **接口草案**（Chunk/Query Schema 尚未发布）：`begin(request) -> QueryHandle | StableError`；`poll(handle, budget) -> QueryBatch | Pending | Done`；`cancel(handle, reason)`；`read_at(context, coord) -> VoxelRead | QueryStatus`。
 
-## 上游与下游依赖
+## 依赖（编译 / 控制流 / 事件与数据）
 
-- **上游**：[world](../world/README.md)（Context/Port）、调用方 Runtime/ReferenceVoxelPort。
-- **下游**：[chunk](../chunk/README.md)（数据视图）、[revision](../revision/README.md)（读取版本）、[spatial](../spatial/README.md)、[mesh-collision](../mesh-collision/README.md)。
-- **旁路**：[streaming](../streaming/README.md) 只提供可用性事件；Query 不直接控制 Load。
+- **编译依赖**：[chunk](../chunk/README.md)（ReadView）、[revision](../revision/README.md)（Stamp/Pin）、NativeCore 稳定错误。不依赖 spatial、mesh-collision、streaming 或 world。
+- **被谁调用**：[world](../world/README.md) Port；[spatial](../spatial/README.md) 与 [mesh-collision](../mesh-collision/README.md) 经 ReadView 读取。
+- **发布/消费**：消费 [streaming](../streaming/README.md) 的 `AvailabilityChanged`；不直接发 Load。Pending 恢复必须继续绑定 `begin` 时的目标 Revision；目标已被回收则返回稳定 stale/unavailable，不得改读最新。
 
 ## 生命周期与状态机
 
@@ -54,21 +55,21 @@ Running -> Failed
 
 - `Pending` 只表示请求依赖的 Chunk 尚未可用，必须带截止时间和当前状态。
 - `Completed` 的批次不可再追加；`Cancelled/TimedOut/Rejected` 后的迟到结果必须丢弃。
-- World 进入 Quiescing/Closed 后，新 Query 按策略拒绝，已运行请求收到明确取消原因。
+- World 进入 Quiescing/Closed 后，新 Query 拒绝，已运行请求收到明确取消原因。
 
 ## 线程、队列与并发所有权
 
 - 轻量点查询可在 Simulation Owner Thread 直接读取只读视图；大批量查询可以交给有界 Native Job。
-- Query Worker 不修改 Chunk/Revision；Completion 只在约定的 Barrier 或只读安全点发布。
+- Query Worker 不修改 Chunk/Revision；Completion 只在所属 Role 的声明 Phase 发布。
 - 每请求和全局结果队列均有容量/预算/截止时间；队列满返回 `QueueFull` 或按调用方策略取消。
 - 取消是协作式且幂等；销毁 Context 后不得继续访问内部视图。
 
 ## 正常数据流与失败路径
 
-- **正常**：校验请求 → 取得 Revision Stamp → 按批读取 Chunk → 生成结果 → 发布完成标记。
+- **正常**：校验请求 → 在 `begin` 绑定目标 Revision（显式或 Latest-at-Acquire）→ 必要时 Pin/ReadView → 按批读取 Chunk → 生成结果 → 发布完成标记。
 - **缺 Chunk**：查询返回 `NotLoaded/Pending/Unavailable` 和相关 ChunkId/Revision，不生成空 Block。
-- **超预算/超时**：返回已完成批次加明确终止原因；不得静默截断为成功。
-- **失败路径**：Context 失效、视图 Generation 变化、解压/读取错误或结果队列满时停止该请求并保留诊断。
+- **超预算/超时**：返回已完成批次加明确终止原因；不得静默截断为成功。continuation 仍绑定原 Revision。
+- **失败路径**：Context 失效、视图 Generation 变化、目标 Revision 已回收、解压/读取错误或结果队列满时停止该请求并保留诊断。
 
 ## 错误分类、恢复与降级
 
@@ -104,4 +105,4 @@ Running -> Failed
 
 ## 尚未批准的决策门
 
-- **VOX-D-003**（Query 批次、预算和缺 Chunk 枚举）：临时采用有界批次和显式 `NotLoaded/Pending/Unavailable` 内部语义；需 Architecture Gate Schema、超时/取消/缺失 Fixture 和基准。
+- **VOX-D-003**（Query 批次、预算和缺 Chunk 枚举）：临时采用有界批次、显式 `NotLoaded/Pending/Unavailable` 内部语义，以及 `begin` 时固定目标 Revision。多 Chunk 一致性、continuation 绑定和 Pin 生命周期的公共契约回架构源。
