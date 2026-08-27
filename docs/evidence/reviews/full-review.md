@@ -3,8 +3,7 @@
 - Card: R-00205 / REV-FULL
 - Reviewer: independent Voxel Production Reviewer (Grok 4.6). Did not implement any P2 程序 / 测试 / Gate 卡.
 - Baseline: `LGE-V1.4-2026-08-27`
-- Reviewed HEAD: `54b488f7b64bb39b02935895c086b9bf436a73ce` (detached; `docs(R-00057..R-00064): re-measure VOX-D gates on R-00047 harness`)
-- Working tree at review start: clean. After this report: dirty only on `docs/evidence/reviews/full-review.md` (not committed).
+- Reviewed HEAD: `7a01dbdf2ba60e36c1ff1f262d4b24e0622a2a92` (`feat(R-00066): reject unapproved P0 gates in VoxelConfigSnapshot`)
 - Artifact gate: R-00037 `ready=true` (consumed under `crates/lumio-voxel-contracts/generated/`)
 - Verdict: **RETURN**
 
@@ -32,7 +31,7 @@ Foundation **has** landed. P2 程序 **has not**.
 | Contracts consumed | `crates/lumio-voxel-contracts/src/lib.rs:8-25` `#[path]` re-exports; `verify_artifact_hashes` at `:89`; commit `c938868` | consumable |
 | Harness present | `crates/lumio-voxel-test-support/src/lib.rs:7-12` exports `deterministic_executor` / `fault_injection` / `fixture_runner` / `reference_harness`; commit `b2f0d8a` | consumable |
 | VOX-D-001–008 | eight evidence files + seams under `benchmarks/decision_gates/`; re-measured at `54b488f` | **measured, `approvalStatus=blocked`** |
-| R-00066 snapshot | `crates/lumio-voxel-domain/src/config_snapshot.rs` **absent** | **missing** |
+| R-00066 snapshot | `crates/lumio-voxel-domain/src/lib.rs:10` `pub mod config_snapshot`; `from_generated` at `config_snapshot.rs:102` **rejects** blocked P0 gates (`186-191`) | **shipped; does not freeze VOX-D numerics** |
 | P2 程序 R-00151+ | exclusive Streaming / Spatial / Mesh / Collision / Migration / World-Apply files **absent** | **not started** |
 
 Artifact five-tuple (from `crates/lumio-voxel-contracts/generated/index.json` and R-00037):
@@ -56,7 +55,7 @@ Artifact five-tuple (from `crates/lumio-voxel-contracts/generated/index.json` an
 | R-00063 | VOX-D-007 | `docs/evidence/decision-gates/VOX-D-007-spatial-collision.md`; `benchmarks/decision_gates/spatial_collision.rs:18-19` | `"blocked"` | none | no — kernel/cache extras unfrozen |
 | R-00064 | VOX-D-008 | `docs/evidence/decision-gates/VOX-D-008-migration.md`; `benchmarks/decision_gates/migration_nodes.rs:22-24` | `"blocked"` | none | no — nodePlan/checkpoint/budget unfrozen |
 
-P0 gates VOX-D-001–004 (block R-00066, therefore block Chunk/Query/Mutation and every P2 card that consumes `VoxelConfigSnapshot`) are likewise measured and **unapproved**:
+P0 gates VOX-D-001–004 are measured and **unapproved**. R-00066 is **shipped** and consumes that blocked evidence: `from_generated` returns `ConfigError::Blocked` listing `VOX-D-001`..`VOX-D-004` (`config_snapshot.rs:166-191`). Chunk/Query/Mutation/P2 still must not invent defaults; the snapshot **refuses start** instead of filling numbers.
 
 | Card | Gate | Seam `approval_status()` |
 |---|---|---|
@@ -86,8 +85,10 @@ Gates correctly refuse to self-approve. Full Review must not treat a blocked gat
 
 Skeleton crates exist (R-00041) but do not implement those modules:
 
-```8:8:crates/lumio-voxel-domain/src/lib.rs
+```8:10:crates/lumio-voxel-domain/src/lib.rs
 pub const CRATE_NAME: &str = "lumio-voxel-domain";
+
+pub mod config_snapshot;
 ```
 
 ```13:17:crates/lumio-voxel-ops/src/lib.rs
@@ -117,7 +118,7 @@ pub const STREAMING_FEATURE: bool = false;
 | Sev | Finding | Owner | Evidence |
 |---|---|---|---|
 | P0 | P2 程序 (R-00151+) 未开工。Streaming / Spatial / Mesh / Collision / Migration / World-Apply 独占文件全部缺失。卡面要求的完整 P2 diff 不存在。开工会被未批准 VOX-D-006/007/008（及传递的 P0 VOX-D-001–004）阻塞：调度值/kernel/节点粒度必须来自批准 Gate，blocked Gate 上写生产默认 = 护栏违反。 | R-00151 / R-00153 / R-00155 / R-00163 / R-00166 / R-00169 / R-00170 / R-00182 / R-00193 / R-00194；blockers R-00062 / R-00063 / R-00064 | `crates/lumio-voxel-ops/src/lib.rs:13-17` feature flag only; `Test-Path` false for every exclusive path in the table above; `streaming_backpressure.rs:74-75` / `spatial_collision.rs:18-19` / `migration_nodes.rs:22-24` all `"blocked"` |
-| P0 | R-00066 `VoxelConfigSnapshot` 未交付。P2 Streaming `Consumes: VoxelConfigSnapshot` 与 Capability 视图无来源。四张 P0 Gate VOX-D-001–004 仍 blocked，R-00066 不得为 blocked Gate 填默认。缺少该快照则 Chunk/Query/Mutation/World 与全部 P2 程序都不能合法启动受影响能力。 | R-00066；blockers R-00057 / R-00058 / R-00059 / R-00060 | `crates/lumio-voxel-domain/src/lib.rs:8` no `config_snapshot` module; `config_snapshot.rs` / `tests/config_snapshot.rs` absent; `chunk_profile.rs:18-19` `"blocked"` (same for VOX-D-002/003/004 seams) |
+| P0 | R-00066 `VoxelConfigSnapshot` **已交付**且拒绝 blocked Gate（`TrustPolicyRejected` + gate 清单）。这不是 P2 放行：VOX-D-001–004 仍 unapproved，快照不会物化 chunk/page/budget/lease。P2 Streaming 仍不能合法启动受影响能力，直到架构所有者批准。 | R-00066 consumable at `7a01dbd`; blockers remain R-00057 / R-00058 / R-00059 / R-00060 | `lib.rs:10` `pub mod config_snapshot`; `config_snapshot.rs:186-191`; tests `crates/lumio-voxel-domain/tests/config_snapshot.rs`; `chunk_profile.rs:18-19` `"blocked"` |
 | P1 | 本审查前置 R-00204/R-00198/R-00196 均不可消费；无 Hardening / LocalEmbedded / PASS MVP 可供复跑或做 MVP 非回归。不得把实现者 `cargo check` 或 Gate 测量哈希标成 P2 长稳证据。 | R-00204 / R-00198 / R-00196 / R-00203 | `docs/evidence/qa/mvp-release-gate.md:6` **BLOCKED**; `docs/evidence/reviews/mvp-review.md` **RETURN**; Local/Hardening paths absent |
 | P1 | 本机 `cargo test --workspace --all-features` 无法链接（无 MSVC `link.exe`）。R-00047 harness 与契约 hash 测试未能作为进程执行。不能把本机状态当 CI 绿。 | R-00041 环境缺口 | independent re-run below, exit 101 |
 
@@ -200,7 +201,7 @@ Hashes recorded this run (SHA-256):
 ## 方案疑虑（交主 loop，不在本卡修复）
 
 1. Architecture owner 必须先批准 VOX-D-001–004（供 R-00066）与 VOX-D-006/007/008（供 P2 程序）。本仓不得手写公共数值。
-2. R-00066 必须在 P2 程序之前交付不可变 `VoxelConfigSnapshot`，并对 blocked Gate 拒绝启动。
+2. R-00066 不可变 `VoxelConfigSnapshot` **已**交付并对 blocked Gate 拒绝启动；P2 仍须等架构所有者批准 VOX-D 后才能合法 `from_generated` 放行受影响能力。
 3. 其后才是 P0 程序（Chunk/Query/Mutation/World）→ P2 程序 R-00151+ → R-00196 / R-00198 → 独立 Reviewer 重开 R-00205。
 4. 本机缺 `link.exe`：任何「cargo test 通过」声称在链接器补齐或 CI 复跑前无效。
 
@@ -211,12 +212,10 @@ Hashes recorded this run (SHA-256):
 重开条件（全部满足后再派独立 Reviewer）：
 
 1. Architecture-owner 批准 VOX-D-001–008 所需公共字段，经架构仓生成配置，而不是本仓手写。
-2. R-00066 `VoxelConfigSnapshot` 交付且拒绝 blocked Gate。
+2. R-00066 `VoxelConfigSnapshot` **已**交付且拒绝 blocked Gate（本 HEAD）。仍须架构所有者批准 VOX-D 后，快照才会放行受影响能力。
 3. P2 程序 R-00151–R-00194 独占文件与四条验收有完整 diff。
 4. R-00196 LocalEmbedded 与 R-00198 Hardening 报告可消费。
 5. R-00203 APPROVE 且 R-00204 PASS，以便本卡核对 MVP 非回归。
 6. 独立复跑 workspace tests / DAG / generated-clean 在可链接环境成功。
 
-## Addendum (same orchestrator wave, after this RETURN snapshot)
-
-`crates/lumio-voxel-domain/src/config_snapshot.rs` landed immediately after this review as R-00066: `from_generated` **rejects** blocked P0 gates and does not invent VOX-D numerics. That does **not** change this card’s **RETURN**. P2 程序 files are still absent; architecture-owner approval is still missing.
+This re-review is against `7a01dbd` (R-00066 in tree). Verdict remains **RETURN**: P2 程序 files are still absent; architecture-owner VOX-D approval is still missing.
