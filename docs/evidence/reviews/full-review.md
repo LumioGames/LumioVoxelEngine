@@ -3,7 +3,7 @@
 - Card: R-00205 / REV-FULL
 - Reviewer: independent Voxel Production Reviewer (Grok 4.6). Did not implement any P2 程序 / 测试 / Gate 卡.
 - Baseline: `LGE-V1.4-2026-08-27`
-- Reviewed HEAD: `7a01dbdf2ba60e36c1ff1f262d4b24e0622a2a92` (`feat(R-00066): reject unapproved P0 gates in VoxelConfigSnapshot`)
+- Reviewed HEAD: `1e07b766307e717f1803ffda68c1b50ac630080a` (`test(R-00145): B2 query/mutation/world/restore fault matrix`; R-00066 remains shipped at `7a01dbd`)
 - Artifact gate: R-00037 `ready=true` (consumed under `crates/lumio-voxel-contracts/generated/`)
 - Verdict: **RETURN**
 
@@ -29,7 +29,7 @@ Foundation **has** landed. P2 程序 **has not**.
 |---|---|---|
 | Artifacts published | `docs/evidence/v1.4-generated-artifact-gate.md:102` `"ready": true`; 12 kind×language packages under `crates/lumio-voxel-contracts/generated/` | consumable |
 | Contracts consumed | `crates/lumio-voxel-contracts/src/lib.rs:8-25` `#[path]` re-exports; `verify_artifact_hashes` at `:89`; commit `c938868` | consumable |
-| Harness present | `crates/lumio-voxel-test-support/src/lib.rs:7-12` exports `deterministic_executor` / `fault_injection` / `fixture_runner` / `reference_harness`; commit `b2f0d8a` | consumable |
+| Harness present | `crates/lumio-voxel-test-support/src/lib.rs` exports `b0_harness` / `b2_harness` plus `deterministic_executor` / `fault_injection` / `fixture_runner` / `reference_harness` | consumable |
 | VOX-D-001–008 | eight evidence files + seams under `benchmarks/decision_gates/`; re-measured at `54b488f` | **measured, `approvalStatus=blocked`** |
 | R-00066 snapshot | `crates/lumio-voxel-domain/src/lib.rs:10` `pub mod config_snapshot`; `from_generated` at `config_snapshot.rs:102` **rejects** blocked P0 gates (`186-191`) | **shipped; does not freeze VOX-D numerics** |
 | P2 程序 R-00151+ | exclusive Streaming / Spatial / Mesh / Collision / Migration / World-Apply files **absent** | **not started** |
