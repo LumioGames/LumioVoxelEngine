@@ -28,21 +28,32 @@ metadata:
 
 ## 验收标准（Definition of Done）
 
-- [ ] 收口门槛命令全绿（当前至少执行 `node .spec/tools/spec-lint.mjs` 与 `node --test .spec/tools/spec-lint.test.mjs`）。
+- [ ] 收口门槛命令全绿（`node .spec/tools/spec-lint.mjs`、`node --test .spec/tools/spec-lint.test.mjs`，以及 Cargo 工作区命令，见下节）。
 - [ ] 新增 / 修改行为有测试覆盖；bug 修复留有回归测试。
 - [ ] 无 lint / 类型错误、无调试残留。
 - [ ] 相关知识文档已更新（见 [`workflow.md`](./workflow.md)）。
 
 ## 项目测试栈与命令
 
-当前仓库尚未提交 Rust 实现工程；现阶段默认验证为：
+默认验证：
 
 ```text
 node .spec/tools/spec-lint.mjs
 node --test .spec/tools/spec-lint.test.mjs
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo check --workspace --no-default-features
+cargo test --workspace --all-features
+cargo check-crate-dag
+cargo check-generated-clean
+python tools/architecture/check_crate_dag.py
+python tools/architecture/check_generated_clean.py
+python tools/architecture/test_guards.py
 ```
 
-首次引入 Cargo 工程时，必须把 `cargo fmt --check`、`cargo clippy`、单元/集成测试和适用的内存/并发检查加入收口门槛。公共 Contract 变更还必须在 `LumioGameEngineArchitecture` 安装 `requirements-dev.txt` 后运行 `python3 tools/lumio_contract.py validate`。
+公共 Contract 变更还必须在 `LumioGameEngineArchitecture` 安装 `requirements-dev.txt` 后运行 `python3 tools/lumio_contract.py validate`。
+
+工作区恰好七个 crate（ADR-0006）：`lumio-voxel-contracts`、`lumio-voxel-domain`、`lumio-voxel-ops`、`lumio-voxel-world`、`lumio-voxel-project`、`lumio-voxel-migration`、`lumio-voxel-test-support`。禁止 persistence / runtime / ffi / common crate。DAG 与 generated-clean 的实现入口是 `lumio_voxel_test_support::crate_dag::violations` 与 `lumio_voxel_test_support::generated_clean::violations`。
 
 ## 本仓 Headless / 契约测试面
 

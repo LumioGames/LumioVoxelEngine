@@ -1,0 +1,11 @@
+[package]
+name = "lumio-voxel-world"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+lumio-voxel-contracts = { path = "../lumio-voxel-contracts" }
+lumio-voxel-domain = { path = "../lumio-voxel-domain" }
+lumio-voxel-ops = { path = "../lumio-voxel-ops" }
+lumio-voxel-project = { path = "../lumio-voxel-project" }

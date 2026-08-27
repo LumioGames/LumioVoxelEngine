@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/lumio-voxel-contracts",
+    "crates/lumio-voxel-domain",
+    "crates/lumio-voxel-ops",
+    "crates/lumio-voxel-world",
+    "crates/lumio-voxel-project",
+    "crates/lumio-voxel-migration",
+    "crates/lumio-voxel-test-support",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+publish = false

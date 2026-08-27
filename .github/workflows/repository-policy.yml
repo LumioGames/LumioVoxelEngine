@@ -37,3 +37,23 @@ jobs:
           grep -q '^## 当前阶段与开发节奏$' README.md
           test -s docs/architecture/.baseline.sha256
           sha256sum -c docs/architecture/.baseline.sha256
+
+  cargo:
+    name: Cargo workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          components: rustfmt, clippy
+      - name: Workspace metadata and DAG
+        run: |
+          cargo metadata --format-version 1 --no-deps
+          cargo run -p lumio-voxel-test-support --example check-crate-dag
+          cargo run -p lumio-voxel-test-support --example check-generated-clean
+      - name: fmt clippy check tests
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo check --workspace --no-default-features
+          cargo test --workspace --all-features

@@ -1,0 +1,8 @@
+[alias]
+check-crate-dag = "run -p lumio-voxel-test-support --quiet --example check-crate-dag --"
+check-generated-clean = "run -p lumio-voxel-test-support --quiet --example check-generated-clean --"
+
+# Local Windows without MinGW gcc: rustup's LLD can link the GNU target.
+# Linux CI uses the host GNU linker and ignores this table.
+[target.x86_64-pc-windows-gnu]
+linker = "rust-lld"
