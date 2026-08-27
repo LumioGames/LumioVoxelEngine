@@ -6,11 +6,17 @@
 #![forbid(unsafe_code)]
 
 mod budget;
+mod chunk_access;
+mod execute;
 mod plan;
+mod result_assembly;
 mod validate;
 
 pub use budget::BUDGET_FAMILY;
+pub use chunk_access::ChunkAccessResult;
+pub use execute::QueryExecutor;
 pub use plan::{QueryPlan, QueryPlanner};
+pub use result_assembly::{GeneratedVoxelQueryOutcome, QueryEvidence};
 pub use validate::GeneratedVoxelQueryRequest;
 
 use lumio_voxel_contracts::{SCHEMA_IDS, STABLE_ERROR_IDS};
@@ -28,27 +34,33 @@ impl QueryError {
         self.error_id
     }
 
-    fn budget_exceeded() -> Self {
+    pub(super) fn budget_exceeded() -> Self {
         Self {
             error_id: stable("BudgetExceeded"),
         }
     }
 
-    fn coordinate_out_of_bounds() -> Self {
+    pub(super) fn coordinate_out_of_bounds() -> Self {
         Self {
             error_id: stable("CoordinateOutOfBounds"),
         }
     }
 
-    fn invalid_handle() -> Self {
+    pub(super) fn invalid_handle() -> Self {
         Self {
             error_id: stable("InvalidHandle"),
         }
     }
 
-    fn claim_not_granted() -> Self {
+    pub(super) fn claim_not_granted() -> Self {
         Self {
             error_id: stable("ClaimNotGranted"),
+        }
+    }
+
+    pub(super) fn loader_cancelled() -> Self {
+        Self {
+            error_id: stable("LoaderCancelled"),
         }
     }
 }

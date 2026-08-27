@@ -1,0 +1,86 @@
+//! Single-cut execute against one captured `PublishedReadView`.
+//!
+//! No implicit Load, no mixed cut, no writes, no recapture.
+
+#![forbid(unsafe_code)]
+
+use super::QueryError;
+use super::budget;
+use super::chunk_access;
+use super::plan::QueryPlan;
+use super::result_assembly::{GeneratedVoxelQueryOutcome, assemble};
+use lumio_voxel_domain::publication::PublishedReadView;
+
+pub struct QueryExecutor;
+
+impl QueryExecutor {
+    pub fn execute(
+        plan: &QueryPlan,
+        view: &PublishedReadView,
+    ) -> Result<GeneratedVoxelQueryOutcome, QueryError> {
+        Self::walk(plan, view, 0)
+    }
+
+    /// Continue a cut-local walk charged against remaining budget.
+    pub fn walk(
+        plan: &QueryPlan,
+        view: &PublishedReadView,
+        already_used: usize,
+    ) -> Result<GeneratedVoxelQueryOutcome, QueryError> {
+        bind_cut(plan, view)?;
+        walk_bound(plan, view, already_used)
+    }
+
+    /// Generated cancel path. No directory walk or writes.
+    pub fn execute_cancelled(
+        plan: &QueryPlan,
+        view: &PublishedReadView,
+    ) -> Result<GeneratedVoxelQueryOutcome, QueryError> {
+        bind_cut(plan, view)?;
+        Err(QueryError::loader_cancelled())
+    }
+}
+
+fn bind_cut(plan: &QueryPlan, view: &PublishedReadView) -> Result<(), QueryError> {
+    let planned = plan.read_stamp();
+    let observed = view.stamp();
+    // Cut identity is world/context/generation/world_revision; do not recapture.
+    if planned.world_id != observed.world_id
+        || planned.context_id != observed.context_id
+        || planned.generation != observed.generation
+        || planned.world_revision != observed.world_revision
+    {
+        return Err(QueryError::invalid_handle());
+    }
+    if plan.cancel_token().is_empty() {
+        return Err(QueryError::invalid_handle());
+    }
+    Ok(())
+}
+
+fn walk_bound(
+    plan: &QueryPlan,
+    view: &PublishedReadView,
+    already_used: usize,
+) -> Result<GeneratedVoxelQueryOutcome, QueryError> {
+    if budget::exceeds(already_used, plan.budget()) {
+        return Err(QueryError::budget_exceeded());
+    }
+    let mut used = already_used;
+    let mut items = Vec::with_capacity(plan.canonical_chunks().len());
+    for chunk_id in plan.canonical_chunks() {
+        used = used
+            .checked_add(1)
+            .ok_or_else(QueryError::budget_exceeded)?;
+        if budget::exceeds(used, plan.budget()) {
+            return Err(QueryError::budget_exceeded());
+        }
+        items.push(chunk_access::access(view, chunk_id)?);
+    }
+    Ok(assemble(
+        items,
+        plan.read_stamp().clone(),
+        used,
+        plan.plan_hash(),
+    ))
+}
