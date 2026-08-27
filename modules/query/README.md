@@ -1,6 +1,7 @@
 # query 模块
 
 > 有界只读批量查询、缺 Chunk 结果、读取 Revision、预算、超时与取消。
+> 物理 crate：`lumio-voxel-ops`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；经 domain `ReadView` 读取。
 
 ## 模块定位与目标
 
@@ -11,7 +12,7 @@
 - 校验 Query 范围、点数、批次大小、Context/Generation 和调用能力。
 - 在指定 Revision 或请求开始时固定的 Latest 可读视图上执行点查询、范围查询和批量候选读取。目标 Revision 在 `begin` 时绑定，后续批次与 continuation 不得改观察版本。
 - 对每个结果返回读取 `WorldRevision/ChunkRevision` 或明确的一致性令牌；多 Chunk 批次属于同一个已绑定 Revision。
-- 区分 `Ready`、`NotLoaded`、`Pending`、`Unavailable`、`OutOfBudget`、`Cancelled` 和 `TimedOut` 等结果类别；具体公共枚举待 Schema 冻结。
+- 区分 `Ready`、`NotLoaded`、`Pending`、`Unavailable`、`OutOfBudget`、`Cancelled` 和 `TimedOut` 等结果类别；缺 Chunk 四态以架构源 `voxel-query` / ADR-024（`LGE-V1.4-2026-08-27`）为准。
 - 维护每请求的预算、截止时间、取消令牌、批次计数和诊断上下文。
 - 为 Spatial/Geometry 投影提供只读稳定 ReadView，不替上层做权限、AOI 或 Gameplay 过滤。
 
@@ -99,6 +100,7 @@ Running -> Failed
 
 ## 对应 ADR、Schema 与 Fixture
 
+- 本仓 [0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：读取 Revision 与 Chunk 可用性前置条件。
 - 架构源 `schemas/common.schema.json` / `schemas/session-revision-vector.schema.json`：Revision 结构。
 - 架构源 `schemas/voxel-query.schema.json`：一致性模式、continuation 绑定、缺 Chunk 多态；ADR-024。批次/预算默认值仍属 VOX-D-003。

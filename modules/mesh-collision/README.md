@@ -1,6 +1,7 @@
 # mesh-collision 模块
 
 > Mesh/Collision Source 构建、缓存、脏 Chunk 失效和 Native 几何任务；不拥有 Gameplay 规则。
+> 物理 crate：`lumio-voxel-project`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；P2。
 
 ## 模块定位与目标
 
@@ -98,6 +99,7 @@ Ready(Revision) -> Stale -> Evicted
 
 ## 对应 ADR、Schema 与 Fixture
 
+- 本仓 [0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源架构正文 §2.1、§14.3、§15.3：Voxel Collision/Spatial 所有权、P2 边界和 Benchmark。
 - 架构源 `schemas/host-capability.schema.json`：Native/平台能力声明；正例 `fixtures/valid/host-capability.json`。
 - 仍无跨仓 Mesh/Collision Schema；本模块保持 P2 文档边界，不冻结 ABI。

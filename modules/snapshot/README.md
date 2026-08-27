@@ -1,6 +1,7 @@
 # snapshot 模块
 
 > VoxelCaptureRef、Voxel Snapshot/Diff、Canonical 编码/解码、校验和恢复输入。
+> 物理 crate：`lumio-voxel-ops`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；P0。载荷契约随 ADR-035 / `LGE-V1.4-2026-08-27` 冻结。
 
 ## 模块定位与目标
 
@@ -37,7 +38,7 @@
 
 - **输入**：Barrier 产出的不可变 `SnapshotCut`、Pin 后的只读页视图、目标 Schema/Compression、恢复或 Diff 请求。
 - **输出**：`VoxelCaptureRef`、`SnapshotPayload`（Canonical bytes + Header 元数据）、`DiffPayload`、Decode 后的 typed 恢复输入、稳定校验错误。
-- **本仓 Port 表面**（载荷见架构源 `voxel-snapshot-payload`，随下次 BaselineId 收口）：`capture(cut) -> VoxelCaptureRef | StableError`；`diff(base, target) -> DiffPayload`；`encode(ref) -> CanonicalBytes`；`decode(header, bytes) -> TypedSnapshot | StableError`；`release(ref)`。
+- **本仓 Port 表面**（载荷见架构源 `voxel-snapshot-payload`，ADR-035 随 `LGE-V1.4-2026-08-27` 冻结）：`capture(cut) -> VoxelCaptureRef | StableError`；`diff(base, target) -> DiffPayload`；`encode(ref) -> CanonicalBytes`；`decode(header, bytes) -> TypedSnapshot | StableError`；`release(ref)`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -104,11 +105,11 @@ Ready -> Released
 
 ## 对应 ADR、Schema 与 Fixture
 
-- 本仓 [0001](../../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)。
+- 本仓 [0001](../../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)、[0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：SnapshotCut 与 Revision 一致性。
 - 架构源 `docs/adr/ADR-010-persistence-config.md`：Canonical Serializer、校验和配置快照。
 - 架构源 `schemas/snapshot-header.schema.json`：正例 `fixtures/valid/snapshot-active.json`；反例 `fixtures/invalid/snapshot-length-mismatch.json`。
-- 架构源 `schemas/voxel-snapshot-payload.schema.json`：Capture/Payload/Diff；ADR-035。已交付，随下次 BaselineId 收口。Envelope 仍是 `snapshot-header`。
+- 架构源 `schemas/voxel-snapshot-payload.schema.json`：Capture/Payload/Diff；ADR-035，随 `LGE-V1.4-2026-08-27` 冻结。Envelope 仍是 `snapshot-header`。 Pin/COW 物化策略仍属 VOX-D-005。
 
 ## 尚未批准的决策门
 

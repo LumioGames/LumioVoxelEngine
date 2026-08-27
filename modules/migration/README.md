@@ -1,6 +1,7 @@
 # migration 模块
 
 > Voxel Chunk/World Schema 转换节点、节点级校验与幂等执行；不拥有全图编排。
+> 物理 crate：`lumio-voxel-migration`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；P2 Tool 路径，不得依赖 `lumio-voxel-world`。
 
 ## 模块定位与目标
 
@@ -97,6 +98,7 @@ Pending/Running -> Failed | Cancelled
 
 ## 对应 ADR、Schema 与 Fixture
 
+- 本仓 [0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源 `docs/adr/ADR-013-migration-dag.md`：不可变 Snapshot、DAG、Staging、原子激活和失败恢复。
 - 架构源 `schemas/migration-manifest.schema.json`：正例 `fixtures/valid/migration-manifest.json`；反例 `fixtures/invalid/migration-cycle.json`。
 - 架构源 `schemas/snapshot-header.schema.json`：源/目标 Snapshot 元数据。

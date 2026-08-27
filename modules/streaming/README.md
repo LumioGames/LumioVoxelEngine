@@ -1,6 +1,7 @@
 # streaming 模块
 
 > Chunk Load/Unload、优先级、资源预算、取消、背压与 Chunk 可用性发布。
+> 物理 crate：`lumio-voxel-ops`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；P2。DurabilityAck 契约随 ADR-036 / `LGE-V1.4-2026-08-27` 冻结。
 
 ## 模块定位与目标
 
@@ -35,7 +36,7 @@
 
 - **输入**：`LoadRequest`/`UnloadRequest`（ChunkId、优先级、deadline、预算、cancel token）、Storage Adapter 回调、World Quiesce 指令。
 - **输出**：`LoadHandle`、Chunk 可用性事件、完成页/失败原因、预算/队列水位。
-- **本仓 Port 表面**（耐久回执见架构源 `voxel-durability-ack`，随下次 BaselineId 收口）：`request_load(request) -> LoadHandle | StableError`；`request_unload(chunk_id, reason)`；`cancel(handle)`；`poll_status(chunk_id) -> Availability`；`drain(budget) -> CompletionBatch`。
+- **本仓 Port 表面**（耐久回执见架构源 `voxel-durability-ack`，ADR-036 随 `LGE-V1.4-2026-08-27` 冻结）：`request_load(request) -> LoadHandle | StableError`；`request_unload(chunk_id, reason)`；`cancel(handle)`；`poll_status(chunk_id) -> Availability`；`drain(budget) -> CompletionBatch`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -108,10 +109,11 @@ Pending/Ready/Evicting -> Unavailable
 
 ## 对应 ADR、Schema 与 Fixture
 
+- 本仓 [0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源 `docs/adr/ADR-001-session-lifecycle.md`：Quiesce/销毁顺序和 World 生命周期背景。
 - 架构源 `docs/adr/ADR-010-persistence-config.md`：Snapshot/存储校验与配置快照。
 - 架构源 `schemas/host-capability.schema.json`：`Native`/`ReferenceVoxel` 能力；正例 `fixtures/valid/host-capability.json`。
-- 架构源 `schemas/voxel-durability-ack.schema.json`：Ack 覆盖集、驻留模式、驱逐栅栏；ADR-036。已交付，随下次 BaselineId 收口。优先级阈值仍属 VOX-D-006。
+- 架构源 `schemas/voxel-durability-ack.schema.json`：Ack 覆盖集、驻留模式、驱逐栅栏；ADR-036，随 `LGE-V1.4-2026-08-27` 冻结。优先级阈值仍属 VOX-D-006。
 
 ## 尚未批准的决策门
 

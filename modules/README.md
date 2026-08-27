@@ -1,9 +1,10 @@
 # LumioVoxelEngine 模块架构（模块总入口）
 
-> **架构基线**：`LGE-V1.3-2026-08-27`
-> **唯一架构源**：`LumioGameEngineArchitecture`（本仓只保存只读镜像 [docs/architecture/LumioGameEngine_Architecture_v1.3.md](../docs/architecture/LumioGameEngine_Architecture_v1.3.md)）
+> **架构基线**：`LGE-V1.4-2026-08-27`
+> **唯一架构源**：`LumioGameEngineArchitecture`（本仓只保存只读镜像 [docs/architecture/LumioGameEngine_Architecture_v1.4.md](../docs/architecture/LumioGameEngine_Architecture_v1.4.md)）
+> **实现蓝图**：[docs/plans/lve-v1.4-implementation-blueprint.md](../docs/plans/lve-v1.4-implementation-blueprint.md)
 > **本文定位**：LumioVoxelEngine 的模块文档总入口。公共语义引用架构源，本文只冻结本仓的模块边界、三张依赖图、状态所有权、线程/队列约束和文档维护规则。
-> **内部决策**：Cut 与 CaptureRef 见 [0001](../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)；CommitBatch 见 [0002](../.spec/decisions/0002-barrier-commit-batch.md)；分层与三图见 [0003](../.spec/decisions/0003-dependency-graphs-and-layering.md)；Snapshot Barrier 见 [0004](../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)；Origin Token 与队列矩阵见 [0005](../.spec/decisions/0005-origin-token-and-queue-matrix.md)；crate map 见 [0006](../.spec/decisions/0006-crate-map.md)。
+> **内部决策**：Cut 与 CaptureRef 见 [0001](../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)；CommitBatch 见 [0002](../.spec/decisions/0002-barrier-commit-batch.md)；分层与三图见 [0003](../.spec/decisions/0003-dependency-graphs-and-layering.md)；Snapshot Barrier 见 [0004](../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)；Origin Token 与队列矩阵见 [0005](../.spec/decisions/0005-origin-token-and-queue-matrix.md)；crate map 见 [0006](../.spec/decisions/0006-crate-map.md)；V1.4 实现基线见 [0007](../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 
 ## 1. 设计目标、范围与审查结论
 
@@ -26,7 +27,7 @@
 3. **`query` 必须独立**：只读批量查询拥有独立的预算、取消、缺 Chunk 结果和读取 Revision 语义，不能隐藏在 `chunk` 或 `world` 内部。
 4. **`spatial` 与 `mesh-collision` 不等于 NativeCore 的通用 Kernel**：本仓只负责把 Chunk/Block/遮挡数据投影为 Voxel 领域结果；通用空间、碰撞和压缩算法仍归 NativeCore。投影只经 ReadView，不直连 Chunk Storage。
 5. **`migration` 不在 Tick 热路径**：它提供 Voxel 节点语义；完整 DAG、Staging 目录、Checkpoint 索引和原子激活归 Host/Server。失败不得改写旧数据。
-6. **公共 Voxel P0 Schema 已在 `LGE-V1.3-2026-08-27` 发布**：World/Port、Chunk/Page、Revision Stamp、Query、Mutation receipt 以架构源为准；模块 README 不再复制字段布局。Snapshot payload 与 Streaming DurabilityAck 已在架构源交付，随下次 BaselineId 收口。Spatial/Mesh 仍无跨仓 Schema。
+6. **公共 Voxel 契约已在 `LGE-V1.4-2026-08-27` 发布**：World/Port、Chunk/Page、Revision Stamp、Query、Mutation receipt 以及 Snapshot payload（ADR-035）与 Streaming DurabilityAck（ADR-036）均以架构源为准；模块 README 不再复制字段布局。Spatial/Mesh 仍无跨仓 Schema。
 
 ## 2. 系统上下文与仓库边界
 
@@ -58,20 +59,20 @@ LumioVoxelEngine 是七仓库体系中的 VoxelWorld 领域实现（架构源 §
 
 ### 3.1 模块地图
 
-| 模块 | 一句话职责 | 层 | 首批状态 |
-| --- | --- | --- | --- |
-| [world](world/README.md) | VoxelWorld 实例组装、Role/Context 生命周期、Barrier 入口和模块协调 | L5 组合根 | P0 |
-| [chunk](chunk/README.md) | Chunk 坐标、Block 存储、页布局、压缩页和加载状态 | L1 基础数据 | P0 |
-| [revision](revision/README.md) | World/Chunk Revision、比较、读取令牌和 Snapshot Pin/COW 记录 | L1 基础数据 | P0 |
-| [query](query/README.md) | 有界只读批量查询、缺 Chunk 结果、读取 Revision 和取消 | L3 领域 API | P0 |
-| [mutation](mutation/README.md) | 单域修改、Prepare/Reservation、幂等 Commit/Abort 和 CommitBatch | L3 领域 API | P0 |
-| [snapshot](snapshot/README.md) | VoxelCaptureRef、Diff、Canonical 编码、校验和恢复输入 | L3 持久化数据 | P1 |
-| [streaming](streaming/README.md) | Chunk Load/Unload、优先级、预算、取消、背压和可用性 | L3 生命周期服务 | P1 |
-| [spatial](spatial/README.md) | Voxel 候选、遮挡投影和带 Revision 的空间 Source | L4 领域投影 | P1 |
-| [migration](migration/README.md) | Voxel Migration 节点输入/输出、转换器和节点级校验 | Tool 路径 | P1 |
-| [mesh-collision](mesh-collision/README.md) | Mesh/Collision Source 构建、缓存和任务，不拥有 Gameplay 规则 | L4 领域投影 | P2 |
+| 模块 | 一句话职责 | 层 | 物理 crate | 优先级 |
+| --- | --- | --- | --- | --- |
+| [world](world/README.md) | VoxelWorld 实例组装、Role/Context 生命周期、Barrier 入口和模块协调 | L5 组合根 | `lumio-voxel-world` | P0 |
+| [chunk](chunk/README.md) | Chunk 坐标、Block 存储、页布局、压缩页和加载状态 | L1 基础数据 | `lumio-voxel-domain` | P0 |
+| [revision](revision/README.md) | World/Chunk Revision、比较、读取令牌和 Snapshot Pin/COW 记录 | L1 基础数据 | `lumio-voxel-domain` | P0 |
+| [query](query/README.md) | 有界只读批量查询、缺 Chunk 结果、读取 Revision 和取消 | L3 领域 API | `lumio-voxel-ops` | P0 |
+| [mutation](mutation/README.md) | 单域修改、Prepare/Reservation、幂等 Commit/Abort 和 CommitBatch | L3 领域 API | `lumio-voxel-ops` | P0 |
+| [snapshot](snapshot/README.md) | VoxelCaptureRef、Diff、Canonical 编码、校验和恢复输入 | L3 持久化数据 | `lumio-voxel-ops` | P0 |
+| [streaming](streaming/README.md) | Chunk Load/Unload、优先级、预算、取消、背压和可用性 | L3 生命周期服务 | `lumio-voxel-ops` | P2 |
+| [spatial](spatial/README.md) | Voxel 候选、遮挡投影和带 Revision 的空间 Source | L4 领域投影 | `lumio-voxel-project` | P2 |
+| [migration](migration/README.md) | Voxel Migration 节点输入/输出、转换器和节点级校验 | Tool 路径 | `lumio-voxel-migration` | P2 |
+| [mesh-collision](mesh-collision/README.md) | Mesh/Collision Source 构建、缓存和任务，不拥有 Gameplay 规则 | L4 领域投影 | `lumio-voxel-project` | P2 |
 
-“首批状态”表示实现优先级，不表示代码已经存在或已交付。逻辑模块不必与物理 crate 1:1，见 [0003](../.spec/decisions/0003-dependency-graphs-and-layering.md) 与 [0006](../.spec/decisions/0006-crate-map.md)。
+“优先级”表示实现顺序，不表示代码已经存在或已交付。逻辑模块不必与物理 crate 1:1；七 crate 落点见 [0006](../.spec/decisions/0006-crate-map.md)、[0007](../.spec/decisions/0007-v1.4-implementation-baseline.md) 与 [实现蓝图](../docs/plans/lve-v1.4-implementation-blueprint.md)。Query/Mutation 属 `lumio-voxel-ops`，L2 ReadView/WriteSet/CommitBatch 属 `lumio-voxel-domain`。
 
 ### 3.2 Compile-Time DAG
 
@@ -151,8 +152,8 @@ graph TD
 Host create/destroy
   -> world lifecycle
   -> init revision + chunk
-  -> register query + mutation
-  -> optional snapshot / streaming / spatial / mesh-collision
+  -> register query + mutation + snapshot
+  -> optional streaming / spatial / mesh-collision
 
 IVoxelWorldPort.query
   -> world Barrier / Context check
@@ -229,7 +230,7 @@ snapshot publishes CaptureReady(Canonical bytes + Header)
 
 ### 3.5 关键调用链
 
-1. **创建**：Host 分配句柄和 Capability → `world` 建立实例上下文 → 初始化 `revision/chunk` → 注册 `query/mutation` → 按能力挂接 `snapshot/streaming/spatial/mesh-collision` → 返回 `VoxelWorldHandle`。
+1. **创建**：Host 分配句柄和 Capability → `world` 建立实例上下文 → 初始化 `revision/chunk` → 注册 `query/mutation/snapshot` → 按能力挂接 P2 `streaming/spatial/mesh-collision` → 返回 `VoxelWorldHandle`。
 2. **只读查询**：`IVoxelWorldPort` → `world` 校验 Context/预算 → `query` 读取 ReadView 和 `revision` Stamp → 返回 typed batch、读取 Revision 和缺 Chunk 状态；不会返回内部指针。
 3. **单域修改**：Runtime Barrier → `world` 转交 `mutation.prepare` → 校验 Chunk/Cell/Expected Revision 并创建不可见 Reservation → Coordinator 或单域调用方决定 Commit → `mutation.commit` 经 CommitBatch 原子发布页与 Revision → 返回新 World/Chunk Revision。
 4. **CrossWorldTxnV1**：Runtime 持有协调状态和 `CommitIntent`；Voxel 侧只执行 Prepare/Reservation/Apply/Abort 并记录 participant receipt。固定顺序为 `VoxelCommit -> EcsCommandBufferCommit`，重复 `TxnId` 返回原结果。
@@ -307,8 +308,8 @@ Migration Tool / Maintenance Worker
 | Voxel Revision Stamp | `schemas/voxel-revision-stamp.schema.json` | revision、query、mutation、snapshot |
 | Voxel Query | `schemas/voxel-query.schema.json` | query |
 | Voxel Mutation Receipt | `schemas/voxel-mutation-receipt.schema.json` | mutation |
-| Voxel Snapshot Payload | `schemas/voxel-snapshot-payload.schema.json`（已交付，随下次 BaselineId 收口） | snapshot |
-| Voxel DurabilityAck | `schemas/voxel-durability-ack.schema.json`（已交付，随下次 BaselineId 收口） | streaming、chunk |
+| Voxel Snapshot Payload | `schemas/voxel-snapshot-payload.schema.json`（ADR-035，随 `LGE-V1.4-2026-08-27` 冻结） | snapshot |
+| Voxel DurabilityAck | `schemas/voxel-durability-ack.schema.json`（ADR-036，随 `LGE-V1.4-2026-08-27` 冻结） | streaming、chunk |
 
 模块 README 不得复制上述 Schema 的字段布局；只引用 `$id` 与本仓方法名。Spatial/Mesh 仍无跨仓 Schema。
 
@@ -349,14 +350,14 @@ Migration Tool / Maintenance Worker
 | VOX-D-007 | Spatial/Collision Kernel 适配与缓存键 | 只缓存带 Revision 与 World Context 的 Source，不缓存 Gameplay 判定 | spatial、mesh-collision | Native Differential 与性能基线 |
 | VOX-D-008 | Voxel Migration 节点粒度 | Manifest 已含 hash/toolVersion；节点切分仍开放 | migration | Crash-at-node 与大世界基准 |
 
-已经冻结、不再当作决策门的内部边界见 [0001](../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)–[0006](../.spec/decisions/0006-crate-map.md)。
+已经冻结、不再当作决策门的内部边界见 [0001](../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)–[0007](../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 
 公共状态、字段、错误、时序、ID、Schema 或依赖图的变化必须先回到架构源；本仓内部边界变化也不得只改一个 README 而不更新本文和 ADR 索引。
 
 ## 9. 实现节奏与文档退出条件
 
-1. **Architecture Gate**：冻结 World/Chunk/Revision/Mutation/Snapshot 的公共语义，补齐 Voxel 专属 Schema、正向/失败 Fixture 和 Port 错误表。
-2. **Foundation**：实现 `revision/chunk/world/query/mutation` 的单域闭环，Reference Port 和 NativeHeadless 语义测试可运行。P0 Profile 可全驻留并禁用 Dirty Unload。
+1. **Architecture Gate**：消费 `LGE-V1.4-2026-08-27` 已冻结的 World/Chunk/Revision/Mutation/Snapshot 公共语义、Voxel 专属 Schema、正向/失败 Fixture 和 Port 错误表。
+2. **Foundation**：实现 `revision/chunk/world/query/mutation/snapshot` 的单域闭环，Reference Port 和 NativeHeadless 语义测试可运行。P0 Profile 可全驻留并禁用 Dirty Unload。
 3. **Vertical Slice**：以 `PlaceVoxelAbility` 接入 CrossWorldTxn、Local 双实例、Snapshot/WAL、Reference Differential 和恢复路径。
 4. **Production Hardening**：完成 Streaming、Spatial、Migration、损坏注入、背压、性能曲线和长期运行验证。
 5. **P2**：实现复杂 Voxel-aware AOI、Mesh/Collision 优化和可替换后端；不得改变 V1 权威边界。
@@ -365,7 +366,7 @@ Migration Tool / Maintenance Worker
 
 - 每个模块都有独立 README，且链接、责任和状态所有权与本文一致。
 - 每个 P0 模块都有稳定 Port 表面、生命周期、失败路径和测试面。
-- 所有公共契约引用都指向架构源和正确 Baseline；未收口的 Snapshot/Streaming Schema 明确标为待下次 BaselineId。
+- 所有公共契约引用都指向架构源和 `LGE-V1.4-2026-08-27`；Snapshot payload 与 DurabilityAck 已随 ADR-035/036 冻结，不再标为下一 BaselineId。
 - LocalEmbedded 双实例、Revision 一致性、缺 Chunk、Prepare/Commit 顺序和 Snapshot Cut 的边界没有互相矛盾。
 - 代码引入时另行执行 Rust toolchain、`rustfmt`、`clippy`、测试与契约校验要求；本次文档补充不改变这些门槛。
 

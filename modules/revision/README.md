@@ -1,6 +1,7 @@
 # revision 模块
 
 > World/Chunk Revision、读取一致性、比较、Snapshot Pin/COW 与 Revision 冲突语义。
+> 物理 crate：`lumio-voxel-domain`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；L2 ReadView 在本 crate，不进入 `lumio-voxel-ops`。
 
 ## 模块定位与目标
 
@@ -109,7 +110,7 @@ Requested/Pinned -> Expired | Invalidated
 
 ## 对应 ADR、Schema 与 Fixture
 
-- 本仓 [0001](../../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)、[0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)。
+- 本仓 [0001](../../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)、[0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)、[0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：Expected Revision、SnapshotCut、幂等和恢复语义。
 - 架构源 `schemas/common.schema.json` / `schemas/session-revision-vector.schema.json`：`revision` 与 `chunkRevisionSet`；正例 `fixtures/valid/session-revision-vector.json`，反例 `fixtures/invalid/session-revision-negative.json`。
 - 架构源 `schemas/snapshot-header.schema.json`：Snapshot 版本关联；正例 `fixtures/valid/snapshot-active.json`。

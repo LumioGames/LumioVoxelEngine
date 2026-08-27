@@ -1,6 +1,7 @@
 # spatial 模块
 
 > Voxel 候选、遮挡投影、空间 Source 与带 Revision 的空间查询结果。
+> 物理 crate：`lumio-voxel-project`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；P2。只经 query `ReadView`。
 
 ## 模块定位与目标
 
@@ -99,6 +100,7 @@ Created/Reading/Computing -> Cancelled | TimedOut | Rejected | Failed
 
 ## 对应 ADR、Schema 与 Fixture
 
+- 本仓 [0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源 `docs/adr/ADR-014-platform-capability.md`：Capability/Preset 与实现能力声明。
 - 架构源 `schemas/host-capability.schema.json`：`ReferenceVoxel`/`Native` 能力；正例 `fixtures/valid/host-capability.json`。
 - 架构源架构正文 §10、§15：Voxel-aware AOI/Spatial 边界和 Benchmark 要求。

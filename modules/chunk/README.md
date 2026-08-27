@@ -1,6 +1,7 @@
 # chunk 模块
 
 > Chunk 坐标、Block 数据、页布局、压缩页、边界校验与 Chunk 加载状态。
+> 物理 crate：`lumio-voxel-domain`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；与 `revision` sibling，不互调。
 
 ## 模块定位与目标
 
@@ -102,7 +103,7 @@ Loading/Ready/Dirty/Evicting -> Failed
 
 ## 对应 ADR、Schema 与 Fixture
 
-- 本仓 [0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)。
+- 本仓 [0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)、[0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：Chunk 可用性、Expected ChunkRevision 和 Reservation 前置检查。
 - 架构源 `schemas/common.schema.json`：Revision/ID 基础；Snapshot 相关见 `schemas/snapshot-header.schema.json`。
 - 架构源 `schemas/voxel-chunk-page.schema.json` 与 `common.schema.json#/$defs/voxelChunkId`：坐标、规范 ChunkId、页封皮；ADR-024。数值尺寸仍属 VOX-D-001。

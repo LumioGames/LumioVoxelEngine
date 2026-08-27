@@ -1,6 +1,7 @@
 # mutation 模块
 
 > 单域 Mutation、Prepare/Reservation、幂等 Commit/Abort、Expected Revision 冲突与恢复摘要。
+> 物理 crate：`lumio-voxel-ops`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；L2 WriteSet/CommitBatch 在 `lumio-voxel-domain`。
 
 ## 模块定位与目标
 
@@ -113,7 +114,7 @@ Prepared -> Indeterminate
 
 ## 对应 ADR、Schema 与 Fixture
 
-- 本仓 [0002](../../.spec/decisions/0002-barrier-commit-batch.md)。
+- 本仓 [0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：Prepare/Reservation/CommitIntent、固定 Commit 顺序和 Indeterminate 恢复。
 - 架构源 `schemas/cross-world-txn.schema.json`：正例 `fixtures/valid/cross-world-txn-committed.json`、`fixtures/valid/cross-world-txn-aborted.json`；反例 `fixtures/invalid/cross-world-txn-partial-commit.json`。
 - 架构源 `schemas/voxel-mutation-receipt.schema.json`：participant receipt 与 `status(txnId)`；ADR-025（`CoDurableWithWorldState`）。

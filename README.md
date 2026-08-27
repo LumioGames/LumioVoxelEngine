@@ -6,7 +6,9 @@
 
 - Baseline：`LGE-V1.4-2026-08-27`
 - 唯一架构源：`LumioGameEngineArchitecture`
-- 本地镜像：[`docs/architecture/LumioGameEngine_Architecture_v1.3.md`](docs/architecture/LumioGameEngine_Architecture_v1.3.md)
+- 本地镜像：[`docs/architecture/LumioGameEngine_Architecture_v1.4.md`](docs/architecture/LumioGameEngine_Architecture_v1.4.md)
+- 实现蓝图：[`docs/plans/lve-v1.4-implementation-blueprint.md`](docs/plans/lve-v1.4-implementation-blueprint.md)
+- 历史来源（非当前规范）：`LGE-V1.3-2026-08-27` 的设计包 [`docs/LumioVoxelEngine_Framework_Design_LGE-V1.3/`](docs/LumioVoxelEngine_Framework_Design_LGE-V1.3/) 仅作需求提取来源；与 V1.4 或仓内 ADR 0006 冲突的 crate、字段和依赖方向无效。
 
 本仓库拥有 VoxelWorld 的权威数据和领域生命周期。Server 保存权威世界，Client 保存独立 VoxelReplicaWorld；LocalEmbedded 也必须创建两份实例。C# Runtime 只能通过版本化 `IVoxelWorldPort` 和生成契约访问，不能读取内部 Chunk Storage。
 
@@ -27,18 +29,18 @@ Host 负责创建和销毁实例，VoxelEngine 负责实例内部状态转换和
 
 模块地图、依赖方向、状态所有权和各模块边界契约见 [`modules/README.md`](modules/README.md)。
 
-| 子模块 | 责任 | 首批状态 |
-| --- | --- | --- |
-| [`world`](modules/world/README.md) | VoxelWorld 实例、Role/Context 和实例生命周期 | P0 |
-| [`chunk`](modules/chunk/README.md) | Chunk 布局、Block、坐标、压缩页和加载状态 | P0 |
-| [`revision`](modules/revision/README.md) | World/Chunk Revision、比较和 Snapshot Pin | P0 |
-| [`query`](modules/query/README.md) | 只读批量查询、缺 Chunk 结果和版本返回 | P0 |
-| [`mutation`](modules/mutation/README.md) | 单域 Mutation、Prepare Token、幂等 Commit/Abort | P0 |
-| [`snapshot`](modules/snapshot/README.md) | Snapshot/Diff、Canonical 编码、校验和恢复 | P1 |
-| [`streaming`](modules/streaming/README.md) | Load/Unload、优先级、预算、取消和背压 | P1 |
-| [`spatial`](modules/spatial/README.md) | Voxel 候选、遮挡和带 Revision 的空间 Source | P1 |
-| [`migration`](modules/migration/README.md) | Chunk/World Schema 转换、校验和失败保留 | P1 |
-| [`mesh-collision`](modules/mesh-collision/README.md) | Mesh/Collision Source 构建，不拥有 Gameplay 规则 | P2 |
+| 子模块 | 责任 | 物理 crate | 优先级 |
+| --- | --- | --- | --- |
+| [`world`](modules/world/README.md) | VoxelWorld 实例、Role/Context 和实例生命周期 | `lumio-voxel-world` | P0 |
+| [`chunk`](modules/chunk/README.md) | Chunk 布局、Block、坐标、压缩页和加载状态 | `lumio-voxel-domain` | P0 |
+| [`revision`](modules/revision/README.md) | World/Chunk Revision、比较和 Snapshot Pin | `lumio-voxel-domain` | P0 |
+| [`query`](modules/query/README.md) | 只读批量查询、缺 Chunk 结果和版本返回 | `lumio-voxel-ops` | P0 |
+| [`mutation`](modules/mutation/README.md) | 单域 Mutation、Prepare Token、幂等 Commit/Abort | `lumio-voxel-ops` | P0 |
+| [`snapshot`](modules/snapshot/README.md) | Snapshot/Diff、Canonical 编码、校验和恢复 | `lumio-voxel-ops` | P0 |
+| [`streaming`](modules/streaming/README.md) | Load/Unload、优先级、预算、取消和背压 | `lumio-voxel-ops` | P2 |
+| [`spatial`](modules/spatial/README.md) | Voxel 候选、遮挡和带 Revision 的空间 Source | `lumio-voxel-project` | P2 |
+| [`migration`](modules/migration/README.md) | Chunk/World Schema 转换、校验和失败保留 | `lumio-voxel-migration` | P2 |
+| [`mesh-collision`](modules/mesh-collision/README.md) | Mesh/Collision Source 构建，不拥有 Gameplay 规则 | `lumio-voxel-project` | P2 |
 
 ## 职责
 
@@ -138,8 +140,8 @@ Manifest 至少包含 Voxel API/ABI、World/Chunk Schema、压缩字典、Migrat
 
 ## 当前阶段与开发节奏
 
-1. **Architecture Gate**：冻结 World/Chunk/Revision/Mutation/Snapshot Schema 和 Port 错误语义。
-2. **Foundation**：实现 `world/chunk/revision/query/mutation` 单域闭环和 NativeHeadless 测试。
+1. **Architecture Gate**：消费 `LGE-V1.4-2026-08-27` 已冻结的 World/Chunk/Revision/Mutation/Snapshot Schema 和 Port 错误语义。
+2. **Foundation**：按七 crate DAG 实现 `world/chunk/revision/query/mutation/snapshot` 单域闭环和 NativeHeadless 测试。
 3. **Vertical Slice**：接入 CrossWorldTxn、Local 双实例、Snapshot/WAL 和 Reference Differential。
 4. **Production Hardening**：Streaming/AOI/恢复/Migration/损坏注入和性能曲线。
-5. **P2**：复杂空间优化、可替换后端和跨服迁移；不改变 V1 权威边界。
+5. **P2**：复杂空间优化、可替换后端和跨服迁移；不改变 V1 权威边界。物理 crate 仍只允许 ADR 0006 的七仓。

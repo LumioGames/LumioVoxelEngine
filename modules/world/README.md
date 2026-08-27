@@ -1,6 +1,7 @@
 # world 模块
 
 > VoxelWorld 实例组装、Authority/Replica Role、Context/Handle 生命周期、Barrier 入口与模块协调。
+> 物理 crate：`lumio-voxel-world`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）。
 
 ## 模块定位与目标
 
@@ -9,8 +10,8 @@
 ## 负责什么
 
 - 创建、初始化、Ready、运行、Quiesce、Capture 路由、restore 入口、迁移配合和销毁一个 VoxelWorld 实例。
-- 校验 Role、WorldId、Context、Capability、Schema/ABI 和资源预算，然后组装 `chunk/revision/query/mutation`。
-- 按能力挂接 `snapshot/streaming/spatial/mesh-collision`，记录模块句柄和初始化顺序。
+- 校验 Role、WorldId、Context、Capability、Schema/ABI 和资源预算，然后组装 P0 `chunk/revision/query/mutation/snapshot`。
+- 按能力挂接 P2 `streaming/spatial/mesh-collision`，记录模块句柄和初始化顺序。
 - 提供唯一的 `IVoxelWorldPort`/Reference Port 入口，把 Query、Prepare、Commit、Abort、Capture 和取消转交给正确模块。
 - 维护 Voxel 侧 Simulation Barrier/Generation 闸门，拒绝销毁后或 Context 不匹配的迟到结果。
 - 转发 Host `DurabilityAck` 到 `chunk.clear_dirty`；转发 restore 字节到 `snapshot.decode` 再物化进 `chunk`/`revision`。
@@ -56,7 +57,7 @@ Stopping -> Destroyed
 Created/Initializing/Ready/Running/Quiescing/... -> Faulted
 ```
 
-- `Ready` 仅表示所有必需 P0 模块初始化完成；可选 P1/P2 能力缺失必须由 Capability 明确声明。
+- `Ready` 仅表示所有必需 P0 模块（含 snapshot）初始化完成；可选 P2 能力缺失必须由 Capability 明确声明。
 - `Quiescing` 先关闭新 Ingress/写入，再排空或取消请求；Cut 仍由 Runtime 固定，本模块只停止新写入并准备 Capture。
 - `Destroyed` 后所有 Handle、Token、View 和异步结果都以稳定错误失效，不能写入新实例。
 - 任一步初始化失败都按逆序释放已成功初始化的模块，不留下半初始化 World。
@@ -81,7 +82,7 @@ Created/Initializing/Ready/Running/Quiescing/... -> Faulted
 
 ## 错误分类、恢复与降级
 
-- **可重试**：P1/P2 可选模块暂时不可用（仅在 Capability 允许的情况下延迟挂接）；核心 P0 初始化不隐式降级。
+- **可重试**：P2 可选模块暂时不可用（仅在 Capability 允许的情况下延迟挂接）；核心 P0 初始化不隐式降级。
 - **可拒绝**：Role/Schema/ABI/Capability 不匹配、预算不足、非法状态调用、过期 Handle/Token。
 - **可致命**：Context/Storage 不变量破坏、无法保证 World 隔离或 Barrier 一致性；实例停止并由 Host/Runtime 恢复。
 - **降级**：只允许 Capability 声明的 Reference/Native、无 Spatial/Mesh 等明确能力差异；不得把缺 Chunk、Snapshot 失败或 Mutation 冲突当成功。
@@ -102,12 +103,12 @@ Created/Initializing/Ready/Running/Quiescing/... -> Faulted
 ## 测试面、故障矩阵与性能指标
 
 - **测试面**：完整状态机、逆序清理、重复 Destroy、迟到 Handle 拒绝、Port 路由、Role 隔离、Local 双实例无共享引用、Reference/Native 一致性。
-- **故障矩阵**：任一 P0 初始化失败、P1 挂接失败、预算不足、Barrier 取消、Snapshot 失败、Streaming/构建任务泄漏、Context Generation 复用。
+- **故障矩阵**：任一 P0 初始化失败、P2 挂接失败、预算不足、Barrier 取消、Snapshot 失败、Streaming/构建任务泄漏、Context Generation 复用。
 - **性能指标**：World 冷启动到 Ready、Quiesce/Snapshot 停顿、销毁耗时、Port 路由开销和 1/10/25/50/100/150/200 Bot 场景的 Tick 贡献。
 
 ## 对应 ADR、Schema 与 Fixture
 
-- 本仓 [0001](../../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)、[0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)。
+- 本仓 [0001](../../.spec/decisions/0001-snapshotcut-vs-capture-ref.md)、[0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)、[0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)。
 - 架构源 `docs/adr/ADR-001-session-lifecycle.md`：World/Role/Host 所有权和销毁顺序。
 - 架构源 `docs/adr/ADR-002-tick-determinism.md`：Simulation Owner Thread 与 Barrier。
 - 架构源 `schemas/native-managed-abi.schema.json`：Root API/Handle/错误边界；正例 `fixtures/valid/native-managed-abi.json`。
