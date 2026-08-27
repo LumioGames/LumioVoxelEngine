@@ -5,7 +5,11 @@
 #![forbid(unsafe_code)]
 
 pub mod crate_dag;
+pub mod deterministic_executor;
+pub mod fault_injection;
+pub mod fixture_runner;
 pub mod generated_clean;
+pub mod reference_harness;
 
 pub const CRATE_NAME: &str = "lumio-voxel-test-support";
 

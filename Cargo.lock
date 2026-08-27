@@ -42,6 +42,9 @@ dependencies = [
 [[package]]
 name = "lumio-voxel-test-support"
 version = "0.0.0"
+dependencies = [
+ "lumio-voxel-contracts",
+]
 
 [[package]]
 name = "lumio-voxel-world"
