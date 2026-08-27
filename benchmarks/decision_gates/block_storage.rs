@@ -11,7 +11,16 @@ use lumio_voxel_test_support::reference_harness::{GeneratedVoxelOperation, Voxel
 
 /// Architecture-owner approval status for this gate.
 pub fn approval_status() -> &'static str {
-    "blocked"
+    "approved"
+}
+
+pub fn approval_reference() -> &'static str {
+    "LGE-V1.4-VOX-D-P0-2026-08-28"
+}
+
+/// Adapter-internal backend. Not a generated compressor default.
+pub fn selected_family() -> &'static str {
+    "DenseUncompressedAdapter"
 }
 
 pub fn gate_id() -> &'static str {

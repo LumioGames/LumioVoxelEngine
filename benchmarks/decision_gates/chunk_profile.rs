@@ -16,7 +16,17 @@ use lumio_voxel_test_support::reference_harness::{GeneratedVoxelOperation, Voxel
 pub const MEASURE_SEED: u64 = 0x0000_D001_0000_0057;
 
 pub fn approval_status() -> &'static str {
-    "blocked"
+    "approved"
+}
+
+/// Architecture-owner confirmation id (`LGE-V1.4-VOX-D-P0-2026-08-28`).
+pub fn approval_reference() -> &'static str {
+    "LGE-V1.4-VOX-D-P0-2026-08-28"
+}
+
+/// Adapter-internal family. Not a public Schema extent default.
+pub fn selected_family() -> &'static str {
+    "IsolatedCubicExtentFamily"
 }
 
 pub fn gate_id() -> &'static str {

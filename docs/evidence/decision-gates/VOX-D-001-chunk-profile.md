@@ -8,11 +8,11 @@
 - Recorded: 2026-08-28
 - Produces: `DecisionEvidenceVOXD001`; `ChunkProfileProposal`
 - Exclusive files: this document; `benchmarks/decision_gates/chunk_profile.rs`
-- `approvalStatus=blocked`
-- Architecture owner approval: **none**
-- `blockedReason`: no architecture-owner approval of VOX-D-001 numerics; cargo test unlinked on this host.
+- `approvalStatus=approved`
+- Architecture owner approval: **`LGE-V1.4-VOX-D-P0-2026-08-28`** (Architecture `5f06822`, [VOX-D-P0-OWNER-CONFIRMATION.md](../../../../LumioGameEngineArchitecture/docs/architecture/VOX-D-P0-OWNER-CONFIRMATION.md))
+- Selected internal family: `IsolatedCubicExtentFamily` (adapter-internal; **no public Schema extent**)
 
-This is a research gate. It does **not** freeze Chunk extent, world bounds, page size, overflow policy, or any production default. `approval_status()` in the measurement seam returns `"blocked"`. No candidate family is selected (first family is not a default).
+This is a research gate plus owner confirmation. It still does **not** freeze a public Chunk extent, world bound, page size, or overflow policy into generated config. `approval_status()` returns `"approved"` citing the owner confirmation. Concrete dimensions remain adapter-internal.
 
 **Explicit:** no Schema, ID Registry, ABI, generated Artifact, or default config was modified by this card.
 
@@ -130,18 +130,19 @@ Compile-check of `measure()` is the evidence that the driver is wired to shipped
 
 ## 5. Approval
 
-- `approvalStatus=blocked`
-- Architecture owner approval: **none**
-- Approval reference: none
-- This card does not self-approve.
-- Seam: `pub fn approval_status() -> &'static str { "blocked" }`; `selected_candidate: None`.
+- `approvalStatus=approved`
+- Architecture owner approval: **recorded**
+- Approval reference: `LGE-V1.4-VOX-D-P0-2026-08-28` / Architecture commit `5f06822`
+- Selected internal family: `IsolatedCubicExtentFamily`
+- This card does not invent Schema numbers. Public extent remains ungenerated.
+- Seam: `approval_status() -> "approved"`; `selected_family() -> "IsolatedCubicExtentFamily"`.
 
 `ChunkProfileProposal` (no selected candidate, no limits):
 
 ```json
 {
   "name": "ChunkProfileProposal",
-  "candidate": null,
+  "candidate": "IsolatedCubicExtentFamily",
   "measurements": {
     "status": "driver-compiled-not-executed",
     "exit": "未执行：cargo test/bin 缺 link.exe",
@@ -159,13 +160,14 @@ Compile-check of `measure()` is the evidence that the driver is wired to shipped
     "blueprintSha256": "32e76066eb298aad20f4149760abbeddacb6d6c43e096945f1cf0ea75b2471aa",
     "seamSha256": "90c65e89b00030acc9da76282171bf2a36186f814e701744e4943f7759cb1601"
   },
-  "approvalStatus": "blocked"
+  "approvalStatus": "approved",
+  "approvalReference": "LGE-V1.4-VOX-D-P0-2026-08-28"
 }
 ```
 
 ## 6. Blocked requirements and continuable scope
 
-Cannot proceed until this freeze is architecture-owner approved **and** the three-repeat matrix is executed on a host that can link:
+Owner confirmation is recorded. Public Schema extent is still ungenerated. Three-repeat matrix remains unexecuted on this host (`link.exe` missing). Downstream:
 
 - R-00066 `[程序·配置] 建立不可变 Voxel 配置快照` — consumes `DecisionEvidenceVOXD001` `approvalStatus` and source hashes; must not fill defaults for a blocked gate.
 - R-00073 `[程序·Chunk] 实现不可变 Payload、四态 Slot 与 Directory Root` — depends on R-00057 / R-00058 / R-00066.

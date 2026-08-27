@@ -10,9 +10,11 @@
 - Produces: `DecisionEvidenceVOXD004`; `ReservationReceiptProposal`
 - Exclusive files: this document; `benchmarks/decision_gates/reservation_receipt.rs`
 - Optional data dir `benchmarks/decision_gates/data/vox-d-004/`: **not created** (no executable replay, no raw traces)
-- `approvalStatus=blocked`
+- `approvalStatus=approved`
+- Architecture owner approval: **`LGE-V1.4-VOX-D-P0-2026-08-28`** (Architecture `5f06822`)
+- Selected internal family: `GenerationBoundLeaseFamily` (tick/generation lease, never wall clock)
 
-This is a research gate. It does **not** freeze Reservation lease, Txn receipt retain/prune policy numerics, or table capacity. It does **not** invent abort reasons. `approval_status()` in the seam remains `"blocked"`.
+This is a research gate plus owner confirmation. It does **not** freeze a public receipt-table capacity Schema column. It does **not** invent abort reasons. `approval_status()` returns `"approved"`.
 
 **Explicit:** no Schema, ID Registry, ABI, generated Artifact, or default config was modified by this card. `Cargo.toml` / crate `lib.rs` were not edited.
 
@@ -103,18 +105,18 @@ No imaginary numbers. No invented run hashes. No memory / liveness / false-rejec
 
 ## 5. Approval
 
-- `approvalStatus=blocked`
-- Architecture owner approval: **none**
-- Approval reference: none
-- This card does not self-approve.
-- Lease / capacity / prune numerics stay unfrozen.
+- `approvalStatus=approved`
+- Architecture owner approval: **recorded**
+- Approval reference: `LGE-V1.4-VOX-D-P0-2026-08-28` / Architecture commit `5f06822`
+- Selected internal family: `GenerationBoundLeaseFamily`
+- Wall-clock leases rejected. Public table-capacity Schema columns remain ungenerated.
 
 `ReservationReceiptProposal` (no selected lease / capacity / prune rule):
 
 ```json
 {
   "name": "ReservationReceiptProposal",
-  "lease": null,
+  "lease": "GenerationBoundLeaseFamily",
   "capacity": null,
   "pruneRule": null,
   "corpus": [
@@ -168,7 +170,8 @@ No imaginary numbers. No invented run hashes. No memory / liveness / false-rejec
     "seamRsSha256": "6fe271b63b1a00fbcba4b4984ce86e14317fbda995d10d343edf7b320ff45e1b",
     "seamRlibSha256": "61685d925a79e3c677d26915a2cacebd187cad9ddf0017c07fdcda32e7d0deb2"
   },
-  "approvalStatus": "blocked"
+  "approvalStatus": "approved",
+  "approvalReference": "LGE-V1.4-VOX-D-P0-2026-08-28"
 }
 ```
 

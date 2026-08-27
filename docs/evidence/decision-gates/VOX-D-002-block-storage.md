@@ -8,9 +8,11 @@
 - Recorded: 2026-08-28 (re-measure after R-00047)
 - Produces: `DecisionEvidenceVOXD002`; `BlockStorageProposal`
 - Exclusive files: this document; `benchmarks/decision_gates/block_storage.rs` (optional data dir unused)
-- `approvalStatus=blocked`
+- `approvalStatus=approved`
+- Architecture owner approval: **`LGE-V1.4-VOX-D-P0-2026-08-28`** (Architecture `5f06822`)
+- Selected internal family: `DenseUncompressedAdapter` (default codec identity `None`)
 
-This is a research gate. It does not select a Block page representation, compression backend, or production default. It does not add crates or unaudited dependencies. `benchmarks/decision_gates/block_storage.rs` is **not** a workspace member.
+This is a research gate plus owner confirmation. It does not add crates or unaudited dependencies. `benchmarks/decision_gates/block_storage.rs` is **not** a workspace member. Public compressor defaults are not generated.
 
 **Explicit:** no Schema, ID Registry, ABI, generated Artifact, or default config was modified by this card.
 
@@ -83,17 +85,18 @@ Commands actually run (cwd = this worktree):
 
 ## 5. Approval
 
-- `approvalStatus=blocked`
-- Architecture owner approval: **none**
-- Approval reference: none
-- This card does not self-approve.
+- `approvalStatus=approved`
+- Architecture owner approval: **recorded**
+- Approval reference: `LGE-V1.4-VOX-D-P0-2026-08-28` / Architecture commit `5f06822`
+- Selected internal family: `DenseUncompressedAdapter`
+- External Lz4/Zstd remain rejected as V1 default (license audit pending).
 
 `BlockStorageProposal` (no selected backend):
 
 ```json
 {
   "name": "BlockStorageProposal",
-  "backend": null,
+  "backend": "DenseUncompressedAdapter",
   "version": null,
   "license": null,
   "benchmarks": {
@@ -114,7 +117,8 @@ Commands actually run (cwd = this worktree):
     "blueprintSha256": "32e76066eb298aad20f4149760abbeddacb6d6c43e096945f1cf0ea75b2471aa",
     "blockStorageSeamSha256": "812f1219c606a541679e9887341a4abd156204e7381d408e104d2a7b22fbce51"
   },
-  "approvalStatus": "blocked"
+  "approvalStatus": "approved",
+  "approvalReference": "LGE-V1.4-VOX-D-P0-2026-08-28"
 }
 ```
 

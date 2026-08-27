@@ -4,6 +4,8 @@
 
 pub const CRATE_NAME: &str = "lumio-voxel-ops";
 
+pub mod async_support;
+
 #[cfg(feature = "snapshot")]
 pub const SNAPSHOT_FEATURE: bool = true;
 

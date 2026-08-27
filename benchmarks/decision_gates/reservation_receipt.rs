@@ -23,7 +23,16 @@ pub const REPEAT_COUNT: usize = 3;
 
 /// Architecture-owner approval status for this gate.
 pub fn approval_status() -> &'static str {
-    "blocked"
+    "approved"
+}
+
+pub fn approval_reference() -> &'static str {
+    "LGE-V1.4-VOX-D-P0-2026-08-28"
+}
+
+/// Adapter-internal lease family. Not a wall-clock or table-cap Schema default.
+pub fn selected_family() -> &'static str {
+    "GenerationBoundLeaseFamily"
 }
 
 pub fn gate_id() -> &'static str {

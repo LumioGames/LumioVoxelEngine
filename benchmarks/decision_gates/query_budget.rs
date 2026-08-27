@@ -21,7 +21,16 @@ pub const CORPUS_SEED: u64 = 0x0000_D003;
 
 /// Architecture-owner approval status for this gate.
 pub fn approval_status() -> &'static str {
-    "blocked"
+    "approved"
+}
+
+pub fn approval_reference() -> &'static str {
+    "LGE-V1.4-VOX-D-P0-2026-08-28"
+}
+
+/// Adapter-internal budget family. Not a public batch_limit Schema column.
+pub fn selected_family() -> &'static str {
+    "StrictAdmissionBudgetFamily"
 }
 
 pub fn gate_id() -> &'static str {

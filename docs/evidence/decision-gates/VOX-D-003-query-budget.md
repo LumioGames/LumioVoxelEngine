@@ -8,9 +8,11 @@
 - Recorded: 2026-08-28
 - Produces: `DecisionEvidenceVOXD003`; `QueryBudgetProposal`
 - Exclusive files: this document; `benchmarks/decision_gates/query_budget.rs`; `benchmarks/decision_gates/data/vox-d-003/`
-- `approvalStatus=blocked`
+- `approvalStatus=approved`
+- Architecture owner approval: **`LGE-V1.4-VOX-D-P0-2026-08-28`** (Architecture `5f06822`)
+- Selected internal family: `StrictAdmissionBudgetFamily` (full-load action = generated `QueueFull` / `BudgetExceeded`)
 
-This is a research gate. It does **not** freeze Query batch size, cost model, cancel granularity, missing-chunk quota, or any numeric default. The four-state presence contract `Ready` / `NotLoaded` / `Pending` / `Unavailable` is already frozen by generated `CHUNK_PRESENCE`; this card does not change it.
+This is a research gate plus owner confirmation. It does **not** freeze a public Query batch size, cost model, or quota Schema column. The four-state presence contract `Ready` / `NotLoaded` / `Pending` / `Unavailable` is already frozen by generated `CHUNK_PRESENCE`; this card does not change it.
 
 **Explicit:** no Schema, ID Registry, ABI, generated Artifact, default config, or `Cargo.toml` / crate member list was modified by this card.
 
@@ -113,11 +115,11 @@ No mixed `ChunkRevisionSet` was produced: the harness corpus does not assemble m
 
 ## 5. Approval
 
-- `approvalStatus=blocked`
-- Architecture owner approval: **none**
-- Approval reference: none
-- This card does not self-approve.
-- Query budget numbers are **not frozen**.
+- `approvalStatus=approved`
+- Architecture owner approval: **recorded**
+- Approval reference: `LGE-V1.4-VOX-D-P0-2026-08-28` / Architecture commit `5f06822`
+- Selected internal family: `StrictAdmissionBudgetFamily`
+- Public batch/cost Schema columns remain **ungenerated**. Full-load *action* is the generated `QueueFull`/`BudgetExceeded` ids.
 
 `QueryBudgetProposal` (no selected limits):
 
@@ -125,7 +127,7 @@ No mixed `ChunkRevisionSet` was produced: the harness corpus does not assemble m
 {
   "name": "QueryBudgetProposal",
   "batchLimit": null,
-  "costModel": null,
+  "costModel": "StrictAdmissionBudgetFamily",
   "cancelGranularity": null,
   "measurements": {
     "status": "harness-seam-compiled",
@@ -150,7 +152,8 @@ No mixed `ChunkRevisionSet` was produced: the harness corpus does not assemble m
     "blueprintSha256": "32e76066eb298aad20f4149760abbeddacb6d6c43e096945f1cf0ea75b2471aa",
     "queryBudgetRsSha256": "17a8f6fffc6620ca1d5f494de05e149622091b55c0f48f2b2095245c23b3accf"
   },
-  "approvalStatus": "blocked"
+  "approvalStatus": "approved",
+  "approvalReference": "LGE-V1.4-VOX-D-P0-2026-08-28"
 }
 ```
 
