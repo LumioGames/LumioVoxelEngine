@@ -37,7 +37,7 @@
 
 - **输入**：Barrier 产出的不可变 `SnapshotCut`、Pin 后的只读页视图、目标 Schema/Compression、恢复或 Diff 请求。
 - **输出**：`VoxelCaptureRef`、`SnapshotPayload`（Canonical bytes + Header 元数据）、`DiffPayload`、Decode 后的 typed 恢复输入、稳定校验错误。
-- **接口草案**（公共 Voxel Payload Schema 待发布）：`capture(cut) -> VoxelCaptureRef | StableError`；`diff(base, target) -> DiffPayload`；`encode(ref) -> CanonicalBytes`；`decode(header, bytes) -> TypedSnapshot | StableError`；`release(ref)`。
+- **本仓 Port 表面**（载荷见架构源 `voxel-snapshot-payload`，随下次 BaselineId 收口）：`capture(cut) -> VoxelCaptureRef | StableError`；`diff(base, target) -> DiffPayload`；`encode(ref) -> CanonicalBytes`；`decode(header, bytes) -> TypedSnapshot | StableError`；`release(ref)`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -108,9 +108,9 @@ Ready -> Released
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：SnapshotCut 与 Revision 一致性。
 - 架构源 `docs/adr/ADR-010-persistence-config.md`：Canonical Serializer、校验和配置快照。
 - 架构源 `schemas/snapshot-header.schema.json`：正例 `fixtures/valid/snapshot-active.json`；反例 `fixtures/invalid/snapshot-length-mismatch.json`。
-- Voxel Snapshot/Chunk Payload Schema 尚未发布；本文不替代架构源生成器。
+- 架构源 `schemas/voxel-snapshot-payload.schema.json`：Capture/Payload/Diff；ADR-035。已交付，随下次 BaselineId 收口。Envelope 仍是 `snapshot-header`。
 
 ## 尚未批准的决策门
 
-- **VOX-D-005**（Pin/COW、Diff 粒度与 Snapshot 并发预算）：临时保证 Cut 一致性并允许两种实现；需旧版本、损坏、崩溃点和性能基准后确认。
+- **VOX-D-005**（Pin/COW 与子 chunk Diff 粒度）：载荷线格式已交付；物化策略待 Bench（架构源 D-014）。
 - **D-005**（整体 Snapshot/WAL 耐久级别）由架构源/Host 决定，本模块只提供等价 Canonical bytes。

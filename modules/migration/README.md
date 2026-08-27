@@ -35,7 +35,7 @@
 
 - **输入**：Host 传入的节点描述、不可变 Snapshot 字节、源/目标 Schema、资源预算和取消信号。
 - **输出**：节点结果（目标 Canonical payload、Hash、Revision/Schema Epoch）、节点级验证结果、Failure Bundle 片段。
-- **接口草案**：`describe_nodes() -> NodeDescriptor[]`；`run_node(node, input) -> NodeArtifact | StableError`；`verify_node(artifact) -> VerifiedArtifact | StableError`。不提供 `validate_manifest` 全图接口或 `request_activation`。
+- **本仓 Port 表面**：`describe_nodes() -> NodeDescriptor[]`；`run_node(node, input) -> NodeArtifact | StableError`；`verify_node(artifact) -> VerifiedArtifact | StableError`。不提供 `validate_manifest` 全图接口或 `request_activation`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -100,8 +100,8 @@ Pending/Running -> Failed | Cancelled
 - 架构源 `docs/adr/ADR-013-migration-dag.md`：不可变 Snapshot、DAG、Staging、原子激活和失败恢复。
 - 架构源 `schemas/migration-manifest.schema.json`：正例 `fixtures/valid/migration-manifest.json`；反例 `fixtures/invalid/migration-cycle.json`。
 - 架构源 `schemas/snapshot-header.schema.json`：源/目标 Snapshot 元数据。
-- Voxel 节点的专属输入/输出 Schema 尚未发布；节点字段必须先回架构源登记。
+- Manifest 节点现要求 `inputHash`/`outputHash`/`toolVersion`（ADR-013）。节点载荷 Schema 仍须先回架构源登记。
 
 ## 尚未批准的决策门
 
-- **VOX-D-008**（Voxel Migration 节点粒度）：临时采用不可变输入、幂等节点和节点局部校验；全图、Staging、Checkpoint 索引与激活归 Host。需 golden、崩溃点和大世界基准。公共 Manifest 缺 ADR-013 字段的问题回架构源。
+- **VOX-D-008**（Voxel Migration 节点粒度）：Manifest 公共字段已齐；节点切分与大世界基准仍开放。

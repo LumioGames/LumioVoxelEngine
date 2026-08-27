@@ -32,3 +32,5 @@
 | [0002](0002-barrier-commit-batch.md) | Mutation 以不可失败的 CommitBatch 同时发布数据与 Revision | 生效 |
 | [0003](0003-dependency-graphs-and-layering.md) | 用三张图描述依赖，逻辑模块不必等于 crate | 生效 |
 | [0004](0004-snapshot-short-barrier-vs-quiesce.md) | 运行中 Snapshot 只在短 Barrier 固定 Cut，Quiesce 才停写 | 生效 |
+| [0005](0005-origin-token-and-queue-matrix.md) | 异步任务携带完整 Origin Token，队列按矩阵声明 | 生效 |
+| [0006](0006-crate-map.md) | 按分层合并 crate，不按逻辑模块开仓 | 生效 |

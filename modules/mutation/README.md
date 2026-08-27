@@ -27,7 +27,7 @@
 ## 拥有的状态与资源
 
 - 活跃 Reservation、租约截止和已锁定 Chunk/Cell 范围。
-- `TxnId -> ParticipantReceipt` 的有界幂等缓存（崩溃后如何从 Journal/Snapshot 重建由架构源协议决定，见 VOX-D-004）。
+- `TxnId -> ParticipantReceipt` 的有界幂等缓存（与 CommitBatch 共同耐久，见架构源 ADR-025；表容量属 VOX-D-004）。
 - Prepare 失败原因、Abort 原因、变更摘要和待提交 RevisionDelta。
 - Barrier 内的临时 WriteSet / CommitBatch；不长期持有 Chunk 可变引用。
 
@@ -35,7 +35,7 @@
 
 - **输入**：Mutation Batch（坐标/新值/Expected Revision/TxnId/Deadline）、World Context、上层已验证的结构上下文。
 - **输出**：Prepare Token、Reservation 状态、Commit/Abort 结果、变更范围和新 Revision。
-- **接口草案**（公共字段待架构源契约）：`prepare(batch) -> PreparedVoxelToken | MutationError`；`commit(txn_id, token) -> CommitResult | StableError`；`abort(txn_id, token, reason)`；`status(txn_id) -> MutationStatus`。
+- **本仓 Port 表面**（receipt/`status` 形态见架构源 `voxel-mutation-receipt`）：`prepare(batch) -> PreparedVoxelToken | MutationError`；`commit(txn_id, token) -> CommitResult | StableError`；`abort(txn_id, token, reason)`；`status(txn_id) -> MutationStatus`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -81,9 +81,9 @@ Prepared -> Indeterminate
 ## 正常数据流与失败路径
 
 - **Prepare**：批次规范化 → Chunk/Cell/Revision/容量检查 → 建立 Reservation → 返回 Token。
-- **Commit**：确认 Coordinator 已持久化 `CommitIntent`（CrossWorld）或单域调用方已批准 → CommitBatch 原子发布页与 Revision → 记录 participant receipt → 发布 `ChunkChanged` → 返回结果。
+- **Commit**：确认 Coordinator 已持久化 `CommitIntent`（CrossWorld）或单域调用方已批准 → CommitBatch 在同一原子批内发布页、Revision 并记录 participant receipt（架构源 ADR-025：`CoDurableWithWorldState`）→ 发布 `ChunkChanged` → 返回结果。
 - **Abort**：释放 Reservation，不产生可见变更；重复 Abort 幂等。
-- **失败路径**：Revision 冲突、Chunk 未加载、Cell 不可写、容量超限、租约过期、取消、Context 失效均在可见写入前拒绝；Commit 后结果丢失通过 `status(txnId)` 查询。崩溃后 receipt 如何从 Journal/Snapshot 重建由架构源协议决定。
+- **失败路径**：Revision 冲突、Chunk 未加载、Cell 不可写、容量超限、租约过期、取消、Context 失效均在可见写入前拒绝；Commit 后结果丢失通过 `status(txnId)` 查询。崩溃后 receipt 与写入一起从共同耐久批次恢复，遵循架构源 ADR-025（含 pruning handshake 与 `ResultPruned` 终态）。
 
 ## 错误分类、恢复与降级
 
@@ -116,8 +116,8 @@ Prepared -> Indeterminate
 - 本仓 [0002](../../.spec/decisions/0002-barrier-commit-batch.md)。
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：Prepare/Reservation/CommitIntent、固定 Commit 顺序和 Indeterminate 恢复。
 - 架构源 `schemas/cross-world-txn.schema.json`：正例 `fixtures/valid/cross-world-txn-committed.json`、`fixtures/valid/cross-world-txn-aborted.json`；反例 `fixtures/invalid/cross-world-txn-partial-commit.json`。
-- 架构源 `schemas/common.schema.json`：Revision 基础；Voxel Mutation 专属 Schema 尚未发布。
+- 架构源 `schemas/voxel-mutation-receipt.schema.json`：participant receipt 与 `status(txnId)`；ADR-025（`CoDurableWithWorldState`）。
 
 ## 尚未批准的决策门
 
-- **VOX-D-004**（Reservation 租约、幂等记录保留和批次上限）：临时 Prepare 不可见、重复 `TxnId` 返回原结果。崩溃后 receipt 耐久、pruning handshake 与 Duplicate/Lost Result fixture 必须在架构源冻结，不能单靠本模块有界缓存。
+- **VOX-D-004**（Reservation 租约与 receipt 表容量）：崩溃恢复协议已冻结；租约和表上限待容量测试。

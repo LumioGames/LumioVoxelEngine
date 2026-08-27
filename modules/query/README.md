@@ -34,7 +34,7 @@
 
 - **输入**：`QueryRequest`（范围/点集、目标 Revision、最大结果、预算、deadline、cancel token）、来自 `world` 的只读 Context。
 - **输出**：`QueryBatch`（typed voxel result + `RevisionStamp` + Chunk 状态）、稳定错误/取消原因和 Metrics。
-- **接口草案**（Chunk/Query Schema 尚未发布）：`begin(request) -> QueryHandle | StableError`；`poll(handle, budget) -> QueryBatch | Pending | Done`；`cancel(handle, reason)`；`read_at(context, coord) -> VoxelRead | QueryStatus`。
+- **本仓 Port 表面**（一致性与缺 Chunk 四态见架构源 `voxel-query`）：`begin(request) -> QueryHandle | StableError`；`poll(handle, budget) -> QueryBatch | Pending | Done`；`cancel(handle, reason)`；`read_at(context, coord) -> VoxelRead | QueryStatus`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -101,8 +101,8 @@ Running -> Failed
 
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：读取 Revision 与 Chunk 可用性前置条件。
 - 架构源 `schemas/common.schema.json` / `schemas/session-revision-vector.schema.json`：Revision 结构。
-- Query 专属 Schema、缺 Chunk 状态枚举和正反 Fixture 尚未发布；不得把本文状态名直接当作跨仓 Wire 枚举。
+- 架构源 `schemas/voxel-query.schema.json`：一致性模式、continuation 绑定、缺 Chunk 多态；ADR-024。批次/预算默认值仍属 VOX-D-003。
 
 ## 尚未批准的决策门
 
-- **VOX-D-003**（Query 批次、预算和缺 Chunk 枚举）：临时采用有界批次、显式 `NotLoaded/Pending/Unavailable` 内部语义，以及 `begin` 时固定目标 Revision。多 Chunk 一致性、continuation 绑定和 Pin 生命周期的公共契约回架构源。
+- **VOX-D-003**（Query 批次、预算默认值）：一致性与缺 Chunk 四态已冻结；容量与超时默认值待 Bench。

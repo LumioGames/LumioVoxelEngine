@@ -35,7 +35,7 @@
 
 - **输入**：Chunk 只读视图、目标 Revision/Generation、BuildProfile、邻接 Chunk 可用性、预算/deadline/cancel。
 - **输出**：`MeshSource`/`CollisionSource`（typed Buffer + Revision + bounds + build metadata）或稳定错误。
-- **接口草案**（Mesh/Collision Schema 尚未发布）：`build_mesh(request) -> MeshSource | StableError`；`build_collision(request) -> CollisionSource | StableError`；`invalidate(chunk_id, revision)`；`cancel(build_id)`；`evict(cache_key)`。
+- **本仓 Port 表面**（仍无跨仓 Mesh/Collision Schema，保持 P2 文档边界）：`build_mesh(request) -> MeshSource | StableError`；`build_collision(request) -> CollisionSource | StableError`；`invalidate(chunk_id, revision)`；`cancel(build_id)`；`evict(cache_key)`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -100,7 +100,7 @@ Ready(Revision) -> Stale -> Evicted
 
 - 架构源架构正文 §2.1、§14.3、§15.3：Voxel Collision/Spatial 所有权、P2 边界和 Benchmark。
 - 架构源 `schemas/host-capability.schema.json`：Native/平台能力声明；正例 `fixtures/valid/host-capability.json`。
-- Mesh/Collision Source Schema、Golden 和 Differential Fixture 尚未发布；本模块保持 P2 文档边界，不冻结 ABI。
+- 仍无跨仓 Mesh/Collision Schema；本模块保持 P2 文档边界，不冻结 ABI。
 
 ## 尚未批准的决策门
 

@@ -4,9 +4,9 @@
 
 ## 架构基线
 
-- Baseline：`LGE-V1.2-2026-08-27`
+- Baseline：`LGE-V1.3-2026-08-27`
 - 唯一架构源：`LumioGameEngineArchitecture`
-- 本地镜像：[`docs/architecture/LumioGameEngine_Architecture_v1.2.md`](docs/architecture/LumioGameEngine_Architecture_v1.2.md)
+- 本地镜像：[`docs/architecture/LumioGameEngine_Architecture_v1.3.md`](docs/architecture/LumioGameEngine_Architecture_v1.3.md)
 
 本仓库拥有 VoxelWorld 的权威数据和领域生命周期。Server 保存权威世界，Client 保存独立 VoxelReplicaWorld；LocalEmbedded 也必须创建两份实例。C# Runtime 只能通过版本化 `IVoxelWorldPort` 和生成契约访问，不能读取内部 Chunk Storage。
 
@@ -91,7 +91,7 @@ NativeCore 提供通用空间 Kernel；本仓库根据 Chunk/Block/遮挡/可用
 
 ## Generated Contract Dependencies
 
-实现阶段由本仓库负责提出和维护 Voxel 领域源 Schema、ABI 元数据、Revision/Error/Capability 定义及行为 Fixture；跨仓公共版本化契约以 `LumioGameEngineArchitecture` 发布物为准。当前架构源已发布通用 Revision/Txn/Snapshot/Capability 契约，但 Chunk/Block/Query/Streaming 等 Voxel 专属 Schema 尚待 Architecture Gate。`LumioCoreEngine` 负责聚合 Header、统一版本前缀和最终托管绑定；不得同时维护第二套 P/Invoke 签名。Runtime 只消费 `IVoxelWorldPort`/生成物。
+实现阶段由本仓库负责提出和维护 Voxel 领域源 Schema、ABI 元数据、Revision/Error/Capability 定义及行为 Fixture；跨仓公共版本化契约以 `LumioGameEngineArchitecture` 发布物为准。`LGE-V1.3-2026-08-27` 已发布 Voxel P0 契约（World/Port、Chunk/Page、Revision Stamp、Query、Mutation receipt）。Snapshot payload 与 Streaming DurabilityAck 已在架构源交付，随下次 BaselineId 收口。`LumioCoreEngine` 负责聚合 Header、统一版本前缀和最终托管绑定；不得同时维护第二套 P/Invoke 签名。Runtime 只消费 `IVoxelWorldPort`/生成物。
 
 ## Runtime Loading Relationships
 

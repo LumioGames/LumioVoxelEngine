@@ -9,7 +9,7 @@
 
 `LumioVoxelEngine` 是可复用的 Rust VoxelWorld 领域实现，拥有 Chunk 数据域、Revision、Mutation、Snapshot、Streaming 与空间数据源。
 
-- 当前架构基线是 `LGE-V1.0-2026-08-27`；公共架构与契约的唯一来源是 `LumioGameEngineArchitecture`，本仓只保存只读镜像。
+- 当前架构基线是 `LGE-V1.3-2026-08-27`；公共架构与契约的唯一来源是 `LumioGameEngineArchitecture`，本仓只保存只读镜像。
 - Server 权威世界、Client Replica 世界与 LocalEmbedded 双实例必须保持独立；C# Runtime 只能经版本化 `IVoxelWorldPort` 和生成契约访问。
 - 开工前先读 [`repository-architecture.md`](knowledge/standards/repository-architecture.md)；详细模块边界见根 [`README.md`](../README.md)。
 

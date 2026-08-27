@@ -35,7 +35,7 @@
 
 - **输入**：Chunk 创建/销毁、Load 完成页、查询坐标范围、Mutation WriteSet、Pin 视图请求、Host DurabilityAck 转发、restore 页。
 - **输出**：Block/页只读视图、变更范围、压缩页、Chunk 可用性、Dirty 状态和稳定数据错误。
-- **接口草案**（维度和字段待 VOX-D-001/架构源 Schema）：`create(coord) -> ChunkRef | StableError`；`read(view, coord) -> BlockValue | Missing`；`borrow_read(ref, scope) -> ReadView`；`borrow_write(ref, reservation) -> WriteView`；`publish(write_set)`；`clear_dirty(ack)`；`materialize_pages(decoded)`；`seal_page(ref) -> CompressedPage`；`validate(ref) -> ChunkHealth`；`unload(ref) -> Unloaded`。
+- **本仓 Port 表面**（线格式见架构源 `voxel-chunk-page`；尺寸数值属 VOX-D-001）：`create(coord) -> ChunkRef | StableError`；`read(view, coord) -> BlockValue | Missing`；`borrow_read(ref, scope) -> ReadView`；`borrow_write(ref, reservation) -> WriteView`；`publish(write_set)`；`clear_dirty(ack)`；`materialize_pages(decoded)`；`seal_page(ref) -> CompressedPage`；`validate(ref) -> ChunkHealth`；`unload(ref) -> Unloaded`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -105,9 +105,9 @@ Loading/Ready/Dirty/Evicting -> Failed
 - 本仓 [0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)。
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：Chunk 可用性、Expected ChunkRevision 和 Reservation 前置检查。
 - 架构源 `schemas/common.schema.json`：Revision/ID 基础；Snapshot 相关见 `schemas/snapshot-header.schema.json`。
-- 当前架构源尚未发布 Chunk/Block/Page Schema 和专属 Fixture；VOX-D-001/002 确认后必须补齐正向、截断、边界和损坏样例。
+- 架构源 `schemas/voxel-chunk-page.schema.json` 与 `common.schema.json#/$defs/voxelChunkId`：坐标、规范 ChunkId、页封皮；ADR-024。数值尺寸仍属 VOX-D-001。
 
 ## 尚未批准的决策门
 
-- **VOX-D-001**（Chunk 维度、坐标范围和页布局）：临时只承诺抽象坐标/页接口，禁止消费者依赖具体尺寸；需架构源 Schema 与边界 Fixture。
+- **VOX-D-001**（Chunk 数值 profile）：线格式已冻结；具体尺寸仍禁止写死到 Port，待 Bench。
 - **VOX-D-002**（Block 存储和压缩策略）：临时通过 Adapter/页接口隔离，需密度、CPU、内存、许可证和确定性 Benchmark。

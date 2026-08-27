@@ -21,8 +21,8 @@ prepare_revision_delta
      publish Dirty / change summary
      publish ChunkRevisionSet
      publish WorldRevision
+     record participant receipt
    }
--> record participant receipt
 ```
 
 - 第一个可见写入之后不得再执行可能失败的校验。多 Chunk WriteSet 是一个提交单元。
@@ -32,4 +32,4 @@ prepare_revision_delta
 
 ## 后果
 
-单域 Foundation 必须按此协议实现 Mutation。公共错误码、participant receipt 的跨仓字段仍回架构源。物理页 COW 可委托 `chunk` backend，Pin 元数据仍归 `revision`。
+单域 Foundation 必须按此协议实现 Mutation。公共错误码、participant receipt 的跨仓字段仍回架构源。receipt 位于 infallible publish 之内，与世界状态同批原子耐久，遵循架构源 `docs/adr/ADR-025-voxel-participant-receipt-durability.md`（`CoDurableWithWorldState`）。物理页 COW 可委托 `chunk` backend，Pin 元数据仍归 `revision`。

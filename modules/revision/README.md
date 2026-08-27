@@ -35,7 +35,7 @@
 
 - **输入**：World/Chunk 创建与销毁通知、读取范围、Expected Revision、Mutation 提交摘要、Snapshot Cut 请求。
 - **输出**：读取 `RevisionStamp`、Revision 比较结果、Pin/COW 句柄、提交后的新版本和稳定冲突原因。
-- **接口草案**（字段和错误枚举仍需架构源 Schema 冻结）：`current_world() -> WorldRevision`；`current_chunk(chunk_id) -> ChunkRevision`；`observe(scope) -> RevisionStamp`；`check(expected, observed) -> Ok | RevisionConflict`；`pin(cut) -> SnapshotPin | StableError`；`release(pin)`；`advance(changes) -> RevisionDelta`。
+- **本仓 Port 表面**（Stamp 形状见架构源 `voxel-revision-stamp`）：`current_world() -> WorldRevision`；`current_chunk(chunk_id) -> ChunkRevision`；`observe(scope) -> RevisionStamp`；`check(expected, observed) -> Ok | RevisionConflict`；`pin(cut) -> SnapshotPin | StableError`；`release(pin)`；`advance(changes) -> RevisionDelta`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -113,9 +113,9 @@ Requested/Pinned -> Expired | Invalidated
 - 架构源 `docs/adr/ADR-003-cross-world-txn.md`：Expected Revision、SnapshotCut、幂等和恢复语义。
 - 架构源 `schemas/common.schema.json` / `schemas/session-revision-vector.schema.json`：`revision` 与 `chunkRevisionSet`；正例 `fixtures/valid/session-revision-vector.json`，反例 `fixtures/invalid/session-revision-negative.json`。
 - 架构源 `schemas/snapshot-header.schema.json`：Snapshot 版本关联；正例 `fixtures/valid/snapshot-active.json`。
-- Chunk 专属 Revision Schema 尚未发布；发布前本文接口仅是内部边界草案。
+- 架构源 `schemas/voxel-revision-stamp.schema.json`：WorldRevision 与 ChunkRevisionSet；ADR-024。Pin/COW 策略仍属 VOX-D-005。
 
 ## 尚未批准的决策门
 
-- **VOX-D-005**（Snapshot Pin/COW 策略）：临时允许 Pin 或 COW 实现，只保证同一 Cut 的一致性；需以旧版本读取、并发写入和内存基准确认。
+- **VOX-D-005**（Snapshot Pin/COW 与子 chunk Diff 粒度）：载荷线格式已交付；物化策略待 Bench（架构源 D-014）。
 - Revision 数值宽度、溢出处理和分布式/跨 World 扩展属于公共契约问题，必须先在架构源新增 ADR/Schema，不能在本模块单独决定。

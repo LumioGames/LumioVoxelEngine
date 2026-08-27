@@ -35,7 +35,7 @@
 
 - **输入**：`LoadRequest`/`UnloadRequest`（ChunkId、优先级、deadline、预算、cancel token）、Storage Adapter 回调、World Quiesce 指令。
 - **输出**：`LoadHandle`、Chunk 可用性事件、完成页/失败原因、预算/队列水位。
-- **接口草案**（公共 Streaming Schema 待发布）：`request_load(request) -> LoadHandle | StableError`；`request_unload(chunk_id, reason)`；`cancel(handle)`；`poll_status(chunk_id) -> Availability`；`drain(budget) -> CompletionBatch`。
+- **本仓 Port 表面**（耐久回执见架构源 `voxel-durability-ack`，随下次 BaselineId 收口）：`request_load(request) -> LoadHandle | StableError`；`request_unload(chunk_id, reason)`；`cancel(handle)`；`poll_status(chunk_id) -> Availability`；`drain(budget) -> CompletionBatch`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -111,8 +111,8 @@ Pending/Ready/Evicting -> Unavailable
 - 架构源 `docs/adr/ADR-001-session-lifecycle.md`：Quiesce/销毁顺序和 World 生命周期背景。
 - 架构源 `docs/adr/ADR-010-persistence-config.md`：Snapshot/存储校验与配置快照。
 - 架构源 `schemas/host-capability.schema.json`：`Native`/`ReferenceVoxel` 能力；正例 `fixtures/valid/host-capability.json`。
-- Streaming/Chunk 专属 Schema 和失败 Fixture 尚未发布；VOX-D-003/006 确认前不冻结公共枚举。
+- 架构源 `schemas/voxel-durability-ack.schema.json`：Ack 覆盖集、驻留模式、驱逐栅栏；ADR-036。已交付，随下次 BaselineId 收口。优先级阈值仍属 VOX-D-006。
 
 ## 尚未批准的决策门
 
-- **VOX-D-006**（优先级、并发、队列容量和背压阈值）：临时所有队列有界，低优先级可拒绝/取消；P0 可禁用 Unload。需 NativeHeadless 压测、OOM/QueueFull 故障和 100 人基线。
+- **VOX-D-006**（优先级、并发和背压阈值）：耐久栅栏已交付；评分与容量待压测（架构源 D-014）。

@@ -35,7 +35,7 @@
 
 - **输入**：空间范围/射线/体积、目标 Revision 或最新视图、Chunk 可用性、预算、deadline、cancel token。
 - **输出**：候选/投影批次（带 Revision、Chunk 状态、截断原因）或稳定错误。
-- **接口草案**（Voxel Spatial Schema 尚未发布）：`project(request) -> VoxelSpatialProjection | StableError`；`candidates(request) -> CandidateBatch | Pending`；`invalidate(chunk_id, revision)`；`cancel(handle)`。
+- **本仓 Port 表面**（仍无跨仓 Spatial Schema，输出不是公共 Wire）：`project(request) -> VoxelSpatialProjection | StableError`；`candidates(request) -> CandidateBatch | Pending`；`invalidate(chunk_id, revision)`；`cancel(handle)`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -102,7 +102,7 @@ Created/Reading/Computing -> Cancelled | TimedOut | Rejected | Failed
 - 架构源 `docs/adr/ADR-014-platform-capability.md`：Capability/Preset 与实现能力声明。
 - 架构源 `schemas/host-capability.schema.json`：`ReferenceVoxel`/`Native` 能力；正例 `fixtures/valid/host-capability.json`。
 - 架构源架构正文 §10、§15：Voxel-aware AOI/Spatial 边界和 Benchmark 要求。
-- Voxel Spatial Projection Schema 尚未发布；本文输出类型不构成公共 Wire 契约。
+- 仍无跨仓 Spatial Schema；本文输出类型不构成公共 Wire 契约。缓存键必须含 World Context/Generation，见 [0005](../../.spec/decisions/0005-origin-token-and-queue-matrix.md)。
 
 ## 尚未批准的决策门
 

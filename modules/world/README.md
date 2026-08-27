@@ -36,7 +36,7 @@
 
 - **输入**：Host 创建参数（Role/WorldId/Capability/预算）、Runtime Port 调用、Barrier Tick 入口、已固定的 `SnapshotCut`、Host `DurabilityAck`、Quiesce/Destroy 指令、restore 字节。
 - **输出**：不透明 `VoxelWorldHandle`、Ready/Running 状态、Port 结果、`VoxelCaptureRef`、稳定故障和诊断事件。
-- **接口草案**（公共 ABI/字段待架构源冻结）：`create_world(config) -> VoxelWorldHandle | StableError`；`query(handle, request)`；`prepare_mutation(handle, batch)`；`commit(handle, txn_id, token)`；`abort(handle, txn_id, token, reason)`；`capture(handle, cut) -> VoxelCaptureRef`；`apply_durability_ack(handle, ack)`；`restore(handle, decoded)`；`quiesce(handle, reason)`；`destroy(handle)`。
+- **本仓 Port 表面**（字段以架构源 `voxel-world-port` 为准，本文不复制布局）：`create_world(config) -> VoxelWorldHandle | StableError`；`query(handle, request)`；`prepare_mutation(handle, batch)`；`commit(handle, txn_id, token)`；`abort(handle, txn_id, token, reason)`；`capture(handle, cut) -> VoxelCaptureRef`；`apply_durability_ack(handle, ack)`；`restore(handle, decoded)`；`quiesce(handle, reason)`；`destroy(handle)`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -112,7 +112,7 @@ Created/Initializing/Ready/Running/Quiescing/... -> Faulted
 - 架构源 `docs/adr/ADR-002-tick-determinism.md`：Simulation Owner Thread 与 Barrier。
 - 架构源 `schemas/native-managed-abi.schema.json`：Root API/Handle/错误边界；正例 `fixtures/valid/native-managed-abi.json`。
 - 架构源 `schemas/host-capability.schema.json`：Role/Capability；正例 `fixtures/valid/host-capability.json`。
-- VoxelWorld 专属 Port/状态 Schema 尚未发布；本文接口是本仓内部草案。
+- 架构源 `schemas/voxel-world-port.schema.json`：World Role/Context/生命周期与 Port 方法；ADR-024。
 
 ## 尚未批准的决策门
 
