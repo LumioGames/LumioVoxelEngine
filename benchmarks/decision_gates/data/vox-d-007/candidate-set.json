@@ -1,0 +1,1 @@
+{"seed":7,"ops":[{"seq":0,"schema_id":"voxel-query","payload":"corpus=candidate-set|worldContext=alpha|generation=1|worldRevision=10|chunkRevision=3|kind=candidate|coord=0,0,0|count=4|order=stable"},{"seq":1,"schema_id":"voxel-query","payload":"corpus=candidate-set|worldContext=alpha|generation=1|worldRevision=10|chunkRevision=3|kind=candidate|coord=1,0,0|count=4|order=stable"}]}

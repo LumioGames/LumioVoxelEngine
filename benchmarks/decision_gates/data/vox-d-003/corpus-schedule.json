@@ -1,0 +1,17 @@
+{
+  "gate": "VOX-D-003",
+  "card": "R-00059",
+  "schema_id": "voxel-query",
+  "seed": 53251,
+  "seedHex": "0x0000D003",
+  "note": "Must match corpus_schedule() in query_budget.rs. Presence labels are CHUNK_PRESENCE; this file does not redefine them.",
+  "ops": [
+    {"seq": 0, "schema_id": "voxel-query", "payload": "bound-query"},
+    {"seq": 1, "schema_id": "voxel-query", "payload": "continuation"},
+    {"seq": 2, "schema_id": "voxel-query", "payload": "target-revision-unavailable"},
+    {"seq": 3, "schema_id": "voxel-query", "payload": "Ready"},
+    {"seq": 4, "schema_id": "voxel-query", "payload": "NotLoaded"},
+    {"seq": 5, "schema_id": "voxel-query", "payload": "Pending"},
+    {"seq": 6, "schema_id": "voxel-query", "payload": "Unavailable"}
+  ]
+}

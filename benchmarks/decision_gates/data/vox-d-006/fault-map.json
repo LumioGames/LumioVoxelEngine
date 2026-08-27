@@ -1,0 +1,23 @@
+{
+  "note": "Gate fault names mapped onto shipped R-00047 FaultPoints. Visible writes use unrecoverable points only.",
+  "mappings": [
+    {
+      "fault_id": "all-resident-evict",
+      "fault_point": "PostPublication",
+      "error_id": "PartialLoadRolledBack",
+      "recoverable": false
+    },
+    {
+      "fault_id": "uncovered-evict",
+      "fault_point": "LostResult",
+      "error_id": "EvidenceMissing",
+      "recoverable": false
+    },
+    {
+      "fault_id": "missing-durability-point",
+      "fault_point": "CorruptSnapshot",
+      "error_id": "EvidenceDigestMismatch",
+      "recoverable": false
+    }
+  ]
+}

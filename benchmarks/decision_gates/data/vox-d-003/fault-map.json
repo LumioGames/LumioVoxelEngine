@@ -1,0 +1,25 @@
+{
+  "gate": "VOX-D-003",
+  "card": "R-00059",
+  "note": "Scenarios map onto shipped FaultPoints. Error ids are FaultInjector::error_id (subset of STABLE_ERROR_IDS). No new ErrorCodes.",
+  "faults": [
+    {
+      "scenario": "unbound-continuation",
+      "faultPoint": "PrePublication",
+      "stableErrorId": "InvalidHandle",
+      "recoverable": true
+    },
+    {
+      "scenario": "budget-exceeded",
+      "faultPoint": "PostPublication",
+      "stableErrorId": "PartialLoadRolledBack",
+      "recoverable": false
+    },
+    {
+      "scenario": "stale-revision",
+      "faultPoint": "StaleCompletion",
+      "stableErrorId": "StaleEpoch",
+      "recoverable": true
+    }
+  ]
+}

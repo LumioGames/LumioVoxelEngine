@@ -1,0 +1,11 @@
+{
+  "seed": 53254,
+  "schema_id": "voxel-durability-ack",
+  "ops": [
+    { "seq": 0, "schema_id": "voxel-durability-ack", "payload": "snapshot-point-ack" },
+    { "seq": 1, "schema_id": "voxel-durability-ack", "payload": "wal-point-ack" },
+    { "seq": 2, "schema_id": "voxel-durability-ack", "payload": "dirty-covered-evict" },
+    { "seq": 3, "schema_id": "voxel-durability-ack", "payload": "dirty-uncovered-deny" },
+    { "seq": 4, "schema_id": "voxel-durability-ack", "payload": "residency-all-resident" }
+  ]
+}

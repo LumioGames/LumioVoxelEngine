@@ -1,16 +1,16 @@
- VOX-D-002 Block 存储与压缩后端 — Decision Evidence
+# VOX-D-002 Block 存储与压缩后端 — Decision Evidence
 
 - Card: R-00058 (`01a04391-0687-775b-8f0d-2563b4d7de33`) / GATE-002
 - Gate: `VOX-D-002`
 - Role: Voxel 性能与架构决策工程师
 - Architecture baseline: `LGE-V1.4-2026-08-27`
-- Voxel worktree HEAD at record: `1175b08808a3fc865f70ebfbfa66c576562864e2` (detached; `feat(R-00041): add ADR-0006 seven-crate workspace and DAG guards`)
-- Recorded: 2026-08-28
+- Voxel worktree HEAD at record: `b2f0d8a3763a02f805e29cbd101560ba7fdca77b` (`feat(R-00047): add deterministic harness, faults and fixture runner`)
+- Recorded: 2026-08-28 (re-measure after R-00047)
 - Produces: `DecisionEvidenceVOXD002`; `BlockStorageProposal`
-- Exclusive files: this document; `benchmarks/decision_gates/block_storage.rs`
+- Exclusive files: this document; `benchmarks/decision_gates/block_storage.rs` (optional data dir unused)
 - `approvalStatus=blocked`
 
-This is a research gate. It does not select a Block page representation, compression backend, or production default. It does not add crates or unaudited dependencies.
+This is a research gate. It does not select a Block page representation, compression backend, or production default. It does not add crates or unaudited dependencies. `benchmarks/decision_gates/block_storage.rs` is **not** a workspace member.
 
 **Explicit:** no Schema, ID Registry, ABI, generated Artifact, or default config was modified by this card.
 
@@ -19,28 +19,29 @@ This is a research gate. It does not select a Block page representation, compres
 | Item | Value |
 | --- | --- |
 | Architecture baseline | `LGE-V1.4-2026-08-27` |
-| Voxel HEAD | `1175b08808a3fc865f70ebfbfa66c576562864e2` |
+| Voxel HEAD | `b2f0d8a3763a02f805e29cbd101560ba7fdca77b` |
 | V1.4 architecture document SHA-256 | `f1d36acf33a1f5e8326a9e58d609fcf7d9fa85177f9b5b60bb3f4742c1afebd0` |
 | Implementation blueprint SHA-256 | `32e76066eb298aad20f4149760abbeddacb6d6c43e096945f1cf0ea75b2471aa` |
 | V1.3 `DECISION_GATES.md` SHA-256 | `4850057dd8926c11c8c3beebe109d18dffdb7e84cd451426d7d635860be5ede2` |
 | V1.3 `MANIFEST.sha256` file SHA-256 | `8c94d6b2680e331007dfab6961ef094a9745faee2084993f5ac0498f7161d3e6` |
-| Toolchain (declared) | `rust-toolchain.toml` channel `1.98.0`; `rustc 1.98.0`; `cargo 1.98.0` |
+| Seam `block_storage.rs` SHA-256 | `812f1219c606a541679e9887341a4abd156204e7381d408e104d2a7b22fbce51` |
+| Toolchain (declared / ran) | `rust-toolchain.toml` channel `1.98.0`; `rustc 1.98.0 (88d9e12ae 2026-08-18)`; `cargo 1.98.0 (797e8a9bc 2026-08-05)` |
 | Prerequisite R-00034 | Consumable (`in_review` with evidence). |
-| Prerequisite R-00047 | **Unmet.** No `VoxelPortHarness`. |
-| Prerequisite of R-00047: R-00045 | Blocked. R-00037 `GateResult.ready=false`. |
+| Prerequisite R-00047 | **Met** at HEAD `b2f0d8a`. Shipped: `DeterministicExecutor` / `Schedule` / `Trace`, `VoxelPortHarness` / `GeneratedVoxelOperation`, `FaultPoint`. |
+| Prerequisite of R-00047: R-00045 | Consumable (`c938868` generated artifacts). R-00037 `GateResult.ready=true`. |
 
 Historical unapproved source only (not authority, not a selected default): [`docs/LumioVoxelEngine_Framework_Design_LGE-V1.3/DECISION_GATES.md`](../../LumioVoxelEngine_Framework_Design_LGE-V1.3/DECISION_GATES.md) lists `VOX-D-002` as `unapproved` with rule “Expose configuration/measurement seam only; do not select a default or algorithm.”
 
 ## 2. Candidate list (names / kinds only)
 
-No candidate is selected. The first row is not a conclusion. Exclude-reason values are **placeholders**. No crate was fetched, so license / version / crate source Hash are not computed.
+No candidate is selected. The first row is **not** a conclusion (`selected_backend() == None`). Exclude-reason values are placeholders until a real compressor is licensed and measured. No crate was fetched, so license / version / crate source Hash are not computed.
 
 | Name | Kind | Version | License | Source Hash | exclude-reason |
 | --- | --- | --- | --- | --- | --- |
-| DenseUncompressedAdapter | storage-backend (dense page, no compressor) | unversioned-internal | N/A (in-tree adapter family; not added) | not-computed | pending-measurement |
+| DenseUncompressedAdapter | storage-backend (dense page, no compressor) | unversioned-internal | N/A (in-tree adapter family; not added) | not-computed | not-selected; pending-measurement |
 | PaletteRleAdapter | storage-backend (palette + run encoding) | unversioned-internal | N/A (in-tree adapter family; not added) | not-computed | pending-measurement |
-| ExternalLz4PageAdapter | storage-backend (OSS page compressor via Adapter) | pending-fetch | pending-license-audit | not-computed | pending-license-audit |
-| ExternalZstdPageAdapter | storage-backend (OSS page compressor via Adapter) | pending-fetch | pending-license-audit | not-computed | pending-license-audit |
+| ExternalLz4PageAdapter | storage-backend (OSS page compressor via Adapter) | pending-fetch | pending-license-audit | not-computed | pending-license-audit; unaudited crate forbidden |
+| ExternalZstdPageAdapter | storage-backend (OSS page compressor via Adapter) | pending-fetch | pending-license-audit | not-computed | pending-license-audit; unaudited crate forbidden |
 
 Selected default: **none**. Strong copyleft or unaudited crates are a stop condition; they were not introduced.
 
@@ -48,32 +49,37 @@ Selected default: **none**. Strong copyleft or unaudited crates are a stop condi
 
 | Class | What | Status |
 | --- | --- | --- |
-| Frozen contract (V1.4 schema exists) | ADR-024 page envelope (`schemas/voxel-chunk-page.schema.json`); `common.schema.json` `CompressionCodec` identity enum (codec *name* space, not a default codec); Adapter / Storage Port isolation in `modules/chunk/README.md` and ADR-0006 (storage backends enter through domain Storage Port, never `ops` / `world`). | Frozen by architecture source. This card did not copy Schema fields. |
-| Internal candidate | The four backend families in §2. Measurement-only names. Not compiled into production crates. No `Cargo.toml` dependency added. | Internal. Not production policy. |
+| Frozen contract (V1.4 schema exists) | ADR-024 page envelope (`schemas/voxel-chunk-page.schema.json`); generated schema ids `voxel-chunk-page`, `voxel-query`, `voxel-mutation-receipt`; `common.schema.json` `CompressionCodec` identity enum (codec *name* space, not a default codec); Adapter / Storage Port isolation in `modules/chunk/README.md` and ADR-0006 (storage backends enter through domain Storage Port, never `ops` / `world`). | Frozen by architecture source. This card did not copy Schema fields. |
+| Internal candidate | The four backend families in §2. Measurement-only names in the seam. Not compiled into production crates. No `Cargo.toml` dependency added. | Internal. Not production policy. |
 | Public value awaiting architecture-owner approval | Default page representation, default compressor, dictionary policy, determinism/thread-count contract for the chosen backend, and any generated config field naming a backend. After approval, public config must be generated by the architecture repository. | Unapproved. |
 
-## 4. Measurements — **not executed**
+## 4. Measurements
 
-R-00047 `VoxelPortHarness` is unmet. Benchmarks that require the harness were **not started**. No compression ratios, latencies, peak memory, or result hashes.
+R-00047 is met. The seam `use`s shipped `DeterministicExecutor` / `Schedule`, `GeneratedVoxelOperation` / `VoxelPortHarness`, and `FaultPoint`. It does **not** implement or select a compressor.
 
-Planned statistical method (not applied): three repeats of the same seed / corpus / schedule; SHA-256 of each raw encode/decode trace; require byte-identical hashes across thread counts for a candidate to remain eligible.
+Statistical method (encoded in seam; process not executed — see commands): three `DeterministicExecutor::run` of the identical `Schedule` (`SCHEDULE_SEED = 0x0002_D002`); compare `Trace` and `Trace.snapshot` for byte identity.
 
-Intended corpus / matrix (names only):
+Corpus (payload **labels**, not compressor bytes): `air` / `repeated` / `high-entropy`, each crossed with generated schema ids `voxel-chunk-page` / `voxel-query` / `voxel-mutation-receipt` (9 ops).
 
-- Occupancy classes: air, repeated, high-entropy
-- Metrics: compression ratio, random access, COW isolation, encode determinism, peak memory
-- Negative / fault: truncated page, corrupt dictionary, decompress cap, thread-count output divergence, backend unavailable
+Fault matrix mapped onto shipped unrecoverable-after-visible-write `FaultPoint`s (no unaudited codec crate):
 
-Commands that **would have been** run after R-00047:
+| Label | `FaultPoint` | expected `recoverable` | stable error id |
+| --- | --- | --- | --- |
+| `corrupt-page` | `CorruptSnapshot` | false | `EvidenceDigestMismatch` |
+| `mixed-backend` | `PostPublication` | false | `PartialLoadRolledBack` |
+| `unaudited-codec` | `LostResult` | false | `EvidenceMissing` |
 
-| # | Command | Exit |
-| --- | --- | --- |
-| 1 | `cargo test -p lumio-voxel-test-support --all-features` (harness + fault injector) | 未执行 |
-| 2 | Encode/decode air / repeated / high-entropy corpus through Storage Port Adapter, three repeats, hash compare | 未执行 |
-| 3 | Negative matrix: truncated page, corrupt dictionary, decompress cap, thread-count divergence, backend unavailable | 未执行 |
-| 4 | License / SBOM audit of any OSS crate that would be proposed | 未执行 |
+Real encode/decode ratios, random-access, COW isolation, peak memory, and the historical negative names (truncated page, corrupt dictionary, decompress cap, thread-count divergence, backend unavailable) were **not** measured: that would require a production Storage Port plus an audited compressor crate. No bytes under `benchmarks/decision_gates/data/vox-d-002/`. No invented run hashes.
 
-No imaginary numbers. No invented run hashes.
+Commands actually run (cwd = this worktree):
+
+| # | Command | Exit | Key output |
+| --- | --- | --- | --- |
+| 1 | `cargo test -p lumio-voxel-test-support --all-features` | 1 | compiled `lumio-voxel-contracts` + `lumio-voxel-test-support`; lib-test link failed: linker `link.exe` not found (MSVC) |
+| 2 | `cargo build -p lumio-voxel-test-support --lib --all-features` | 0 | Finished dev profile in 0.02s. rlibs: `liblumio_voxel_contracts-a62c2cca441f7fde.rlib`, `liblumio_voxel_test_support-6da53ff03bc58986.rlib` |
+| 3 | `rustc --edition 2024 --crate-type rlib --crate-name vox_d_002_seam -L target/debug/deps --extern lumio_voxel_test_support=target\debug\deps\liblumio_voxel_test_support-6da53ff03bc58986.rlib --extern lumio_voxel_contracts=target\debug\deps\liblumio_voxel_contracts-a62c2cca441f7fde.rlib benchmarks/decision_gates/block_storage.rs -o C:\Users\g923\AppData\Local\Temp\grok-goal-05389858a0e6\implementer\seam-out\vox-d-002.rlib` | 0 | compile artifact `vox-d-002.rlib` size 78828; SHA-256 `35c6437d30abe84b6bbba590110e0397402e716de9ffda1bac3c46aad9324cbc` (rlib bytes, **not** a corpus run hash) |
+
+`where.exe link.exe` exit 1 (not on PATH). Full transcript: `C:\Users\g923\AppData\Local\Temp\grok-goal-05389858a0e6\implementer\agent-R-00058.log`.
 
 ## 5. Approval
 
@@ -91,17 +97,22 @@ No imaginary numbers. No invented run hashes.
   "version": null,
   "license": null,
   "benchmarks": {
-    "status": "not-executed",
-    "exit": "未执行",
-    "reason": "R-00047 VoxelPortHarness unmet"
+    "status": "harness-seam-compiled",
+    "exit": {
+      "cargo_test_lumio_voxel_test_support_all_features": 1,
+      "cargo_build_lib_all_features": 0,
+      "rustc_vox_d_002_seam_rlib": 0
+    },
+    "reason": "R-00047 met; cargo test missing link.exe; rustc rlib compiled against shipped harness; three-run Trace.snapshot not executed as a process; no production backend selected"
   },
-  "determinism": "not-measured",
+  "determinism": "not-executed-as-process; three identical Schedule runs and Trace.snapshot compare are encoded in the seam",
   "sourceHashes": {
     "architectureBaselineId": "LGE-V1.4-2026-08-27",
-    "voxelHead": "1175b08808a3fc865f70ebfbfa66c576562864e2",
+    "voxelHead": "b2f0d8a3763a02f805e29cbd101560ba7fdca77b",
     "architectureMirrorSha256": "f1d36acf33a1f5e8326a9e58d609fcf7d9fa85177f9b5b60bb3f4742c1afebd0",
     "v13DecisionGatesSha256": "4850057dd8926c11c8c3beebe109d18dffdb7e84cd451426d7d635860be5ede2",
-    "blueprintSha256": "32e76066eb298aad20f4149760abbeddacb6d6c43e096945f1cf0ea75b2471aa"
+    "blueprintSha256": "32e76066eb298aad20f4149760abbeddacb6d6c43e096945f1cf0ea75b2471aa",
+    "blockStorageSeamSha256": "812f1219c606a541679e9887341a4abd156204e7381d408e104d2a7b22fbce51"
   },
   "approvalStatus": "blocked"
 }
@@ -109,7 +120,7 @@ No imaginary numbers. No invented run hashes.
 
 ## 6. Blocked requirements and continuable scope
 
-Cannot proceed until this freeze is architecture-owner approved **and** measurements plus license audit exist:
+Cannot proceed until this freeze is architecture-owner approved **and** compressor measurements plus license audit exist:
 
 - R-00066 `[程序·配置] 建立不可变 Voxel 配置快照` — must not fill a blocked backend default.
 - R-00073 `[程序·Chunk] 实现不可变 Payload、四态 Slot 与 Directory Root` — depends on R-00057 / R-00058 / R-00066.
@@ -120,7 +131,7 @@ May continue (does **not** need this freeze):
 - Nothing that requires a frozen Block storage / compression backend.
 - Independent work: crate DAG, artifact-gate evidence, sibling VOX-D cards that do not select this backend.
 
-Stop thresholds (qualitative): non-deterministic bytes across thread counts; unaudited or strong-copyleft dependency; decompress-bomb accepted; truncated/corrupt page accepted as valid payload.
+Stop thresholds (qualitative): non-deterministic bytes across thread counts; unaudited or strong-copyleft dependency; decompress-bomb accepted; truncated/corrupt page accepted as valid payload; mixed backend or unaudited codec treated as a recoverable retry after a visible write.
 
 ## 7. Contract
 
