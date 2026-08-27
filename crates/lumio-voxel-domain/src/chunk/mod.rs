@@ -6,12 +6,21 @@
 
 #![forbid(unsafe_code)]
 
+mod delta;
 mod directory;
+mod dirty;
 mod payload;
+mod replacement;
 mod slot;
 
+pub use delta::{ChunkDeltaBuilder, StagedEdit};
 pub use directory::{ChunkDirectoryBuilder, ChunkDirectoryRoot};
+pub use dirty::{
+    CoveredChunkAck, DirtyCoverage, DirtyError, DirtyFrontier, DurabilityAckContext,
+    DurabilityAckEvidence,
+};
 pub use payload::{ChunkPage, ChunkPayload};
+pub use replacement::{ChunkReplacement, ReplacementSet};
 pub use slot::ChunkSlot;
 
 use lumio_voxel_contracts::STABLE_ERROR_IDS;
