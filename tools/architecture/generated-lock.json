@@ -1,8 +1,212 @@
 {
   "files": [
     {
-      "rel": ".gitkeep",
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "rel": "csharp/Lumio.Gen.CanonicalSerializer/CanonicalSerializer.cs",
+      "sha256": "e396c10e68268cb63f352700741652cf982c8fb45e6d2618ebcc3e419265aedf"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.CanonicalSerializer/Lumio.Gen.CanonicalSerializer.csproj",
+      "sha256": "40fce7a6ade00ad8daf7680905d235365c23ec877bff75250f7a8e5196b395d9"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.CanonicalSerializer/artifact.descriptor.json",
+      "sha256": "4247e821d8e1ef80b68a8dd5c5958b6967b6f7e95ab8eb66b4b5005a7b27d0f7"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.ContractRuntime/ContractRuntime.cs",
+      "sha256": "6942487e3d152de3681a86a3921acf332a452958e5faeafe80783534dd99d1a8"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.ContractRuntime/Lumio.Gen.ContractRuntime.csproj",
+      "sha256": "40fce7a6ade00ad8daf7680905d235365c23ec877bff75250f7a8e5196b395d9"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.ContractRuntime/artifact.descriptor.json",
+      "sha256": "2fece5bb6e65855b76c963623b073de3c0046deee0995b8a0a3761f91655b0d8"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.ContractTypes/ContractTypes.cs",
+      "sha256": "f04f982f7a6b4985c9dacd857767ad4da421989106f8a6e0864725847c1a73cb"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.ContractTypes/Lumio.Gen.ContractTypes.csproj",
+      "sha256": "40fce7a6ade00ad8daf7680905d235365c23ec877bff75250f7a8e5196b395d9"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.ContractTypes/artifact.descriptor.json",
+      "sha256": "d0d311cdedc55735d8b71d64585ca6633632547a11c178170ff27a1458a5fe34"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.LanguageBinding/Bindings.cs",
+      "sha256": "de72cf4fd1f05f2bfa6e765488cbe34a68005738932cf99001ecd6ee2315c5af"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.LanguageBinding/Lumio.Gen.LanguageBinding.csproj",
+      "sha256": "40fce7a6ade00ad8daf7680905d235365c23ec877bff75250f7a8e5196b395d9"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.LanguageBinding/artifact.descriptor.json",
+      "sha256": "dd7be48b0f7ad499271c7ad4f961113f3e996afbe466f32e7408ea38fd1859f0"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.MappingTable/Lumio.Gen.MappingTable.csproj",
+      "sha256": "40fce7a6ade00ad8daf7680905d235365c23ec877bff75250f7a8e5196b395d9"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.MappingTable/MappingTable.cs",
+      "sha256": "060cc8040c23d486ce73c8f1696ca907eaba1111c1d5e25a339927df21adfa27"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.MappingTable/artifact.descriptor.json",
+      "sha256": "5dadb3a0a8fb1c77fdc77953c21a8a05cc5cc8409318ef247923e7800b07d780"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.ProtocolPermissionValidator/ActivePermissionFields.cs",
+      "sha256": "40fbd65301f9c3076c556965352249bee39efe0967349f7f47c406fbf7eb9ec7"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.ProtocolPermissionValidator/Lumio.Gen.ProtocolPermissionValidator.csproj",
+      "sha256": "40fce7a6ade00ad8daf7680905d235365c23ec877bff75250f7a8e5196b395d9"
+    },
+    {
+      "rel": "csharp/Lumio.Gen.ProtocolPermissionValidator/artifact.descriptor.json",
+      "sha256": "a130a9f18728b5ac54875361d8ed53a9e6f89359898d9338818473617966c906"
+    },
+    {
+      "rel": "descriptors/canonical-serializer-csharp.json",
+      "sha256": "4247e821d8e1ef80b68a8dd5c5958b6967b6f7e95ab8eb66b4b5005a7b27d0f7"
+    },
+    {
+      "rel": "descriptors/canonical-serializer-rust.json",
+      "sha256": "d7e4e3330f2a9a1da4d6921a3dfcd357b74e66d4372a3999985db54d51eeaa4c"
+    },
+    {
+      "rel": "descriptors/contract-runtime-csharp.json",
+      "sha256": "2fece5bb6e65855b76c963623b073de3c0046deee0995b8a0a3761f91655b0d8"
+    },
+    {
+      "rel": "descriptors/contract-runtime-rust.json",
+      "sha256": "f40197e64c2b505d16b6ad7e10f0ddce9a36a7e4c87cf40a3f5807401661bea3"
+    },
+    {
+      "rel": "descriptors/contract-types-csharp.json",
+      "sha256": "d0d311cdedc55735d8b71d64585ca6633632547a11c178170ff27a1458a5fe34"
+    },
+    {
+      "rel": "descriptors/contract-types-rust.json",
+      "sha256": "7f2144567eaaa57f18ea58edfc74abe7a23ab6e13db5297a80fa727735ffdbe7"
+    },
+    {
+      "rel": "descriptors/language-binding-csharp.json",
+      "sha256": "dd7be48b0f7ad499271c7ad4f961113f3e996afbe466f32e7408ea38fd1859f0"
+    },
+    {
+      "rel": "descriptors/language-binding-rust.json",
+      "sha256": "49e3d079a2cb9ac3c241aa6a83d1279e9fe97df95e47ddba83e2d686873c4e82"
+    },
+    {
+      "rel": "descriptors/mapping-table-csharp.json",
+      "sha256": "5dadb3a0a8fb1c77fdc77953c21a8a05cc5cc8409318ef247923e7800b07d780"
+    },
+    {
+      "rel": "descriptors/mapping-table-rust.json",
+      "sha256": "a255babfcecdba642c8ed57c4fd470a4a9a341837b9c5fab3cf12b9ce5c0eab3"
+    },
+    {
+      "rel": "descriptors/protocol-permission-validator-csharp.json",
+      "sha256": "a130a9f18728b5ac54875361d8ed53a9e6f89359898d9338818473617966c906"
+    },
+    {
+      "rel": "descriptors/protocol-permission-validator-rust.json",
+      "sha256": "2a9f8de6060125ad21257e772294b8fca906ee9d06108b89a2c63ef193ac4462"
+    },
+    {
+      "rel": "index.json",
+      "sha256": "15cbfe4431b04c745e689fb70b40f65f3d74590270bc9983c7b4cb55c7f4dfda"
+    },
+    {
+      "rel": "rust/lumio-gen-canonical-serializer/CHECKSUM_DOMAIN.md",
+      "sha256": "663d7253a78509118367a9a81065cac16cfaae3a7c794db2cef98923798a0d8d"
+    },
+    {
+      "rel": "rust/lumio-gen-canonical-serializer/Cargo.toml",
+      "sha256": "ca9ab41c07b5c7b6fc8777932f1d5dbe4f286686f3270f65fc982f3e717b4dc9"
+    },
+    {
+      "rel": "rust/lumio-gen-canonical-serializer/artifact.descriptor.json",
+      "sha256": "d7e4e3330f2a9a1da4d6921a3dfcd357b74e66d4372a3999985db54d51eeaa4c"
+    },
+    {
+      "rel": "rust/lumio-gen-canonical-serializer/src/lib.rs",
+      "sha256": "95091cbf4896e6a317243e630fade8e709eee35f9321862a1ea088f4d0a0eb77"
+    },
+    {
+      "rel": "rust/lumio-gen-contract-runtime/Cargo.toml",
+      "sha256": "250bc8645717de2bde4cfcbe9740f191115a387d3398e4e2170faaac4b5a044c"
+    },
+    {
+      "rel": "rust/lumio-gen-contract-runtime/artifact.descriptor.json",
+      "sha256": "f40197e64c2b505d16b6ad7e10f0ddce9a36a7e4c87cf40a3f5807401661bea3"
+    },
+    {
+      "rel": "rust/lumio-gen-contract-runtime/src/lib.rs",
+      "sha256": "14925086b3583a9f817e45395935ea088de25cbd174b79fde2947c6a27146231"
+    },
+    {
+      "rel": "rust/lumio-gen-contract-runtime/src/sha256.rs",
+      "sha256": "4c3ac1ffa5c8ebccbab8ea071fce0979e9d73a3819f38dc46cbbcf9eb5ad7727"
+    },
+    {
+      "rel": "rust/lumio-gen-contract-runtime/tests/chain.rs",
+      "sha256": "77ebb2ede0ea4cc1d57b2fefda25266fa1fb3ec0ff5f777ed1b0a23669e29279"
+    },
+    {
+      "rel": "rust/lumio-gen-contract-types/Cargo.toml",
+      "sha256": "1ffd5a8f59f9161810099e00eb31e89e7be55f71d5dcfa24928504e41484c7bc"
+    },
+    {
+      "rel": "rust/lumio-gen-contract-types/artifact.descriptor.json",
+      "sha256": "7f2144567eaaa57f18ea58edfc74abe7a23ab6e13db5297a80fa727735ffdbe7"
+    },
+    {
+      "rel": "rust/lumio-gen-contract-types/src/lib.rs",
+      "sha256": "73b8f2b7cf9bc3d0f7518c82115dda41d20417f65c68ffbfdbc9013ea3c0d1dd"
+    },
+    {
+      "rel": "rust/lumio-gen-language-binding/Cargo.toml",
+      "sha256": "57a598dc084ec9fe0428d8b3d253dd747612c4de38917dd6b94cd1ff9baaf5a7"
+    },
+    {
+      "rel": "rust/lumio-gen-language-binding/artifact.descriptor.json",
+      "sha256": "49e3d079a2cb9ac3c241aa6a83d1279e9fe97df95e47ddba83e2d686873c4e82"
+    },
+    {
+      "rel": "rust/lumio-gen-language-binding/src/lib.rs",
+      "sha256": "1ede88163e5d2b6645dcc87fc80234e1ebde5339afbacf431d5d601b441d1671"
+    },
+    {
+      "rel": "rust/lumio-gen-mapping-table/Cargo.toml",
+      "sha256": "b32a7d8a4c2ac9aeb262d702e14eb3936e8155a3b86195aa00613144ad682344"
+    },
+    {
+      "rel": "rust/lumio-gen-mapping-table/artifact.descriptor.json",
+      "sha256": "a255babfcecdba642c8ed57c4fd470a4a9a341837b9c5fab3cf12b9ce5c0eab3"
+    },
+    {
+      "rel": "rust/lumio-gen-mapping-table/src/lib.rs",
+      "sha256": "6361e2a74b58b0f69b0dfa25d71977340e3f33bc6645d68c220cdea2d845803b"
+    },
+    {
+      "rel": "rust/lumio-gen-protocol-permission-validator/Cargo.toml",
+      "sha256": "303b126109cb9ee2616d1091f1137d065129e0ce6aa6733bbee22e93557fb6c3"
+    },
+    {
+      "rel": "rust/lumio-gen-protocol-permission-validator/artifact.descriptor.json",
+      "sha256": "2a9f8de6060125ad21257e772294b8fca906ee9d06108b89a2c63ef193ac4462"
+    },
+    {
+      "rel": "rust/lumio-gen-protocol-permission-validator/src/lib.rs",
+      "sha256": "a832222a2084d8a76991f6ab83b8a91d8819aa18e868a69e915a010373baab49"
     }
   ]
 }
