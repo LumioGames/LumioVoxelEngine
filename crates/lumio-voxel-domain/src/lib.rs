@@ -6,3 +6,5 @@
 #![forbid(unsafe_code)]
 
 pub const CRATE_NAME: &str = "lumio-voxel-domain";
+
+pub mod config_snapshot;
