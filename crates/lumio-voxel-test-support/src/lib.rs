@@ -11,6 +11,7 @@ pub mod deterministic_executor;
 pub mod fault_injection;
 pub mod fixture_runner;
 pub mod generated_clean;
+pub mod mvp_harness;
 pub mod reference_harness;
 
 pub const CRATE_NAME: &str = "lumio-voxel-test-support";
