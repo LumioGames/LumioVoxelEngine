@@ -253,4 +253,14 @@ impl DirtyFrontier {
         }
         Ok(DirtyCoverage { covered })
     }
+
+    /// Returns a new frontier with covered entries removed. Does not mutate `self`.
+    /// Not named clear_dirty. The World DurabilityAck path is the only caller.
+    pub fn except_covered(&self, coverage: &DirtyCoverage) -> Self {
+        let mut next = self.clone();
+        for id in coverage.covered.keys() {
+            next.entries.remove(id);
+        }
+        next
+    }
 }

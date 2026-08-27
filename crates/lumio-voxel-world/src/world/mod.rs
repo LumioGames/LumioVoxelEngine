@@ -8,6 +8,7 @@ mod capture;
 mod capture_admission;
 mod command;
 mod diagnostics;
+mod durability_ack;
 mod events;
 mod fault;
 mod instance;
@@ -22,6 +23,7 @@ pub use barrier::{BarrierScope, ForbiddenWork, reject_forbidden};
 pub use capture::{CaptureEvidence, capture};
 pub use capture_admission::RuntimeSnapshotCut;
 pub use diagnostics::{DiagnosticsView, WorldDiagnostics};
+pub use durability_ack::{AckEvidence, DurabilityReceipt, apply_durability_ack};
 pub use events::{FailureBundleFragment, WorldEvent, WorldEventSink};
 pub use fault::{FaultEvidence, WorldFaultPort};
 pub use instance::{
