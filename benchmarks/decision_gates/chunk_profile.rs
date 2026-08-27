@@ -1,4 +1,4 @@
-/! VOX-D-001 measurement seam (R-00057).
+//! VOX-D-001 measurement seam (R-00057).
 //!
 //! Not a workspace member. Do not add this path to Cargo.toml.
 //! Does not encode a production numeric default (no chunk extent, page size,
