@@ -1,0 +1,118 @@
+# mutation 模块
+
+> 单域 Mutation、Prepare/Reservation、幂等 Commit/Abort、Expected Revision 冲突与恢复摘要。
+
+## 模块定位与目标
+
+`mutation` 是 VoxelWorld 唯一的写入入口。它将上层命令转换为受边界保护的变更批次，在 Prepare 阶段完成所有可失败检查并创建不可见 Reservation，在固定 Barrier 由 Coordinator 决定后幂等 Commit 或 Abort。它只判断 Voxel 结构条件，不判断 Gameplay 权限、扣费或资源语义。
+
+## 负责什么
+
+- 校验坐标、Chunk 可用性、Cell 可写性、容量、Expected `ChunkRevision` 和 Context/Generation。
+- 创建带租约的不可见 `MutationReservation`/`PreparedVoxelToken`，防止 Prepare 产生可见副作用。
+- 在 Simulation Barrier 应用已批准的 Block 变化，递增 `WorldRevision/ChunkRevision` 并返回变更摘要。
+- 按 `TxnId` 和命令身份保存幂等结果；重复 Commit 返回原结果，不重复写入或收费（收费语义由 Game 侧负责）。
+- 支持 Abort、超时、取消、租约到期和 Chunk Unloaded 的稳定原因。
+- 为 Runtime Coordinator 提供 Voxel 参与者状态、结果 Revision 和恢复所需标记。
+
+## 明确不负责什么
+
+- 不拥有 CrossWorld 协调、Game/ECS CommandBuffer 或 CommitIntent Journal 的最终持久化（归 Runtime/Host）。
+- 不做玩家权限、阵营、隐身、库存、扣费、Ability 或其他 Gameplay 判断；只接受上层已完成的结构前置条件上下文。
+- 不直接加载 Chunk、不绕过 [query](../query/README.md) 的只读边界、不持有跨模块 Storage 锁。
+- 不在 Native 锁内回调 C#，不由 Worker 线程直接触发 Hot Gameplay。
+- 不允许无 Expected Revision 的静默覆盖写入。
+
+## 拥有的状态与资源
+
+- 活跃 Reservation、租约截止和已锁定 Chunk/Cell 范围。
+- `TxnId -> CommitResult` 的有界幂等缓存/日志引用。
+- Prepare 失败原因、Abort 原因、变更摘要和待提交 Revision。
+- Barrier 内的临时 Write Plan；不长期持有 Chunk 可变引用。
+
+## 输入、输出与稳定接口
+
+- **输入**：Mutation Batch（坐标/新值/Expected Revision/TxnId/Deadline）、World Context、上层已验证的结构上下文。
+- **输出**：Prepare Token、Reservation 状态、Commit/Abort 结果、变更范围和新 Revision。
+- **接口草案**（公共字段待架构源契约）：`prepare(batch) -> PreparedVoxelToken | MutationError`；`commit(txn_id, token) -> CommitResult | StableError`；`abort(txn_id, token, reason)`；`status(txn_id) -> MutationStatus`。
+
+## 上游与下游依赖
+
+- **上游**：[world](../world/README.md)（Context/Barrier）、Runtime Coordinator（CrossWorldTxn 状态）。
+- **下游**：[chunk](../chunk/README.md)（可写视图）、[revision](../revision/README.md)（版本提交）、[snapshot](../snapshot/README.md)（变更/恢复输入）、[streaming](../streaming/README.md)（可用性）。
+- **旁路**：Host/Runtime 持久化 `TxnJournal`；本模块只提供可持久化标记和幂等结果。
+
+## 生命周期与状态机
+
+单域 Mutation：
+
+```text
+Created -> Validating -> Prepared -> Committed
+                         |          |
+                         v          v
+                       Aborted   Duplicate
+Prepared -> Expired | Cancelled | ChunkUnavailable
+Created/Validating -> Rejected
+```
+
+CrossWorld 参与者遵循架构源 `CrossWorldTxnV1`：
+
+```text
+Created -> Prepared -> CommitIntent -> Committed
+       \-> Aborted
+Prepared -> Indeterminate
+```
+
+- Prepare 阶段不得改变可见 Block 或 Revision。
+- Commit 必须在 `VoxelCommit` Barrier 顺序执行；重复 `TxnId` 只能返回原结果。
+- `Indeterminate` 不由本模块猜测成功/失败；Runtime 通过 Journal 标记和状态查询解决。
+
+## 线程、队列与并发所有权
+
+- Prepare 可在受控调用路径执行只读校验；Reservation 的建立、Commit、Abort 和 Revision 更新在 Voxel Barrier 串行化。
+- Reservation 表是有界状态；租约清理可由 Worker 触发请求，但实际状态变更回到 Barrier。
+- Commit 期间只持有必要的 Chunk 写视图，不跨 FFI 或异步边界持锁。
+- Mutation 请求/结果队列必须声明容量和满载动作；可靠写入不能静默丢弃，满载由 Runtime/Host 停止接入或拒绝。
+
+## 正常数据流与失败路径
+
+- **Prepare**：批次规范化 → Chunk/Cell/Revision/容量检查 → 建立 Reservation → 返回 Token。
+- **Commit**：Coordinator 持久化 `CommitIntent` → `VoxelCommit` 应用 → 递增 Revision → 写参与者标记 → 返回结果。
+- **Abort**：释放 Reservation，不产生可见变更；重复 Abort 幂等。
+- **失败路径**：Revision 冲突、Chunk 未加载、Cell 不可写、容量超限、租约过期、取消、Context 失效均在可见写入前拒绝；Commit 后结果丢失通过 `status(txnId)` 查询。
+
+## 错误分类、恢复与降级
+
+- **可重试**：Chunk 暂不可用、短暂 Reservation 资源不足、结果丢失（状态查询后按幂等规则重试）。
+- **可拒绝**：RevisionConflict、ChunkUnloaded、ValidationFailed、DeadlineExceeded、Cancelled、Context/Generation 不匹配。
+- **可致命**：Commit 后无法维护幂等记录、检测到写入不变量破坏；上报 World/进程故障域并停止新写入。
+- **降级**：只允许显式 Abort 或重新读版本后生成新 Mutation；禁止强制覆盖、部分静默提交或把 `Indeterminate` 当成功。
+
+## 配置、Capability 与安全约束
+
+- Reservation 租约、批次大小、单 Tick 写预算和幂等记录上限来自不可变配置快照。
+- 所有输入先做长度、坐标、资源上限和 Revision 校验；Token 是不透明值，不携带权限。
+- LocalEmbedded 与 RemoteDS 复用同一 Prepare/Commit/Abort 语义；本地路径不得旁路验证。
+- 破坏性 Chunk/Revision 变化必须保留旧 Fixture、Migration 和失败恢复路径。
+
+## 日志、Metrics、Trace 与 Audit
+
+- Diagnostic：Prepare/Commit/Abort 状态、冲突、租约、队列和结果丢失。
+- Metrics：Prepare/Commit 延迟、冲突率、Reservation 数/租约超时、幂等命中率、写入字节和批次大小。
+- Audit/TxnJournal 由 Runtime/Host 持久化；模块提供 `txnId/sessionId/tickId/chunkId/worldRevision/chunkRevision/traceId` 关联片段。
+
+## 测试面、故障矩阵与性能指标
+
+- **测试面**：Prepare 无副作用、Revision 冲突、重复 Commit/Abort、租约到期、批次边界、稳定排序、World/Chunk Revision 单调性。
+- **故障矩阵**：Chunk Unloaded、Lost Result、Deadline、取消、Commit 前崩溃、Voxel/Game 两参与者之间崩溃、幂等恢复、QueueFull。
+- **性能指标**：Prepare/Commit p50/p95/p99、每 Tick 批量写入吞吐、Reservation 内存、冲突重试成本、Reference/Native Differential。
+
+## 对应 ADR、Schema 与 Fixture
+
+- 架构源 `docs/adr/ADR-003-cross-world-txn.md`：Prepare/Reservation/CommitIntent、固定 Commit 顺序和 Indeterminate 恢复。
+- 架构源 `schemas/cross-world-txn.schema.json`：正例 `fixtures/valid/cross-world-txn-committed.json`、`fixtures/valid/cross-world-txn-aborted.json`；反例 `fixtures/invalid/cross-world-txn-partial-commit.json`。
+- 架构源 `schemas/common.schema.json`：Revision 基础；Voxel Mutation 专属 Schema 尚未发布。
+
+## 尚未批准的决策门
+
+- **VOX-D-004**（Reservation 租约、幂等记录保留和批次上限）：临时 Prepare 不可见、重复 `TxnId` 返回原结果；需 CrossWorld 崩溃/超时/丢结果 Fixture 与测量。

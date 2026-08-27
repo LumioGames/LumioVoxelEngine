@@ -12,7 +12,7 @@
 
 ## Architecture Gate
 
-Voxel Contract、Revision/Snapshot Schema、ID Registry、正向/失败 Fixture 和契约校验器只维护在 `LumioGameEngineArchitecture`。Chunk/World 格式变更必须先更新源 Schema、Migration/Fixture 和 Baseline，再生成本仓库使用的只读产物；校验命令为 `python3 tools/lumio_contract.py validate`（在架构源执行）。
+跨仓公共 Voxel Contract、Revision/Snapshot Schema、ID Registry、正向/失败 Fixture 和契约校验器只在 `LumioGameEngineArchitecture` 发布与校验；本仓库的 Voxel 领域源 Schema 必须与该基线同步。Chunk/World 格式变更必须先更新源 Schema、Migration/Fixture 和 Baseline，再生成本仓库使用的只读产物；校验命令为 `python3 tools/lumio_contract.py validate`（在架构源执行）。
 
 ## 拥有的状态与生命周期
 
@@ -25,18 +25,20 @@ Host 负责创建和销毁实例，VoxelEngine 负责实例内部状态转换和
 
 ## 子模块
 
+模块地图、依赖方向、状态所有权和各模块边界契约见 [`modules/README.md`](modules/README.md)。
+
 | 子模块 | 责任 | 首批状态 |
 | --- | --- | --- |
-| `world` | VoxelWorld 实例、权限域和实例生命周期 | P0 |
-| `chunk` | Chunk 布局、Block、坐标、压缩页和加载状态 | P0 |
-| `revision` | World/Chunk Revision、比较和 Snapshot Pin | P0 |
-| `query` | 只读批量查询、缺 Chunk 结果和版本返回 | P0 |
-| `mutation` | 单域 Mutation、Prepare Token、幂等 Commit/Abort | P0 |
-| `snapshot` | Snapshot/Diff、Canonical 编码、校验和恢复 | P1 |
-| `streaming` | Load/Unload、优先级、预算、取消和背压 | P1 |
-| `spatial` | Voxel 候选、遮挡和带 Revision 的空间 Source | P1 |
-| `migration` | Chunk/World Schema 转换、校验和失败保留 | P1 |
-| `mesh-collision` | Mesh/Collision Source 构建，不拥有 Gameplay 规则 | P2 |
+| [`world`](modules/world/README.md) | VoxelWorld 实例、Role/Context 和实例生命周期 | P0 |
+| [`chunk`](modules/chunk/README.md) | Chunk 布局、Block、坐标、压缩页和加载状态 | P0 |
+| [`revision`](modules/revision/README.md) | World/Chunk Revision、比较和 Snapshot Pin | P0 |
+| [`query`](modules/query/README.md) | 只读批量查询、缺 Chunk 结果和版本返回 | P0 |
+| [`mutation`](modules/mutation/README.md) | 单域 Mutation、Prepare Token、幂等 Commit/Abort | P0 |
+| [`snapshot`](modules/snapshot/README.md) | Snapshot/Diff、Canonical 编码、校验和恢复 | P1 |
+| [`streaming`](modules/streaming/README.md) | Load/Unload、优先级、预算、取消和背压 | P1 |
+| [`spatial`](modules/spatial/README.md) | Voxel 候选、遮挡和带 Revision 的空间 Source | P1 |
+| [`migration`](modules/migration/README.md) | Chunk/World Schema 转换、校验和失败保留 | P1 |
+| [`mesh-collision`](modules/mesh-collision/README.md) | Mesh/Collision Source 构建，不拥有 Gameplay 规则 | P2 |
 
 ## 职责
 
@@ -89,7 +91,7 @@ NativeCore 提供通用空间 Kernel；本仓库根据 Chunk/Block/遮挡/可用
 
 ## Generated Contract Dependencies
 
-本仓库拥有 Voxel 源 Schema、ABI 元数据、Revision/Error/Capability 定义和行为 Fixture。`LumioCoreEngine` 负责聚合 Header、统一版本前缀和最终托管绑定；不得同时维护第二套 P/Invoke 签名。Runtime 只消费 `IVoxelWorldPort`/生成物。
+实现阶段由本仓库负责提出和维护 Voxel 领域源 Schema、ABI 元数据、Revision/Error/Capability 定义及行为 Fixture；跨仓公共版本化契约以 `LumioGameEngineArchitecture` 发布物为准。当前架构源已发布通用 Revision/Txn/Snapshot/Capability 契约，但 Chunk/Block/Query/Streaming 等 Voxel 专属 Schema 尚待 Architecture Gate。`LumioCoreEngine` 负责聚合 Header、统一版本前缀和最终托管绑定；不得同时维护第二套 P/Invoke 签名。Runtime 只消费 `IVoxelWorldPort`/生成物。
 
 ## Runtime Loading Relationships
 
