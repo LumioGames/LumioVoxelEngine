@@ -192,6 +192,18 @@ impl ReceiptLedger {
         Ok(())
     }
 
+    /// Drop every in-flight reservation. Completed receipts stay put.
+    pub fn abort_in_flight(&mut self) {
+        self.entries.retain(|_, entry| entry.receipt.is_some());
+    }
+
+    pub fn in_flight_count(&self) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| entry.receipt.is_none())
+            .count()
+    }
+
     fn check_request(&self, request: &MutationRequest) -> Result<(), LedgerError> {
         if request.txn_id.is_empty() || request.world_id.is_empty() {
             return Err(LedgerError::invalid_handle());

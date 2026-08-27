@@ -5,18 +5,26 @@
 mod admission;
 mod barrier;
 mod command;
+mod diagnostics;
+mod events;
+mod fault;
 mod instance;
 mod routing;
+mod shutdown;
 mod state;
 mod write_lane;
 
 pub use admission::{AdmittedCommand, WorldCommand, WorldEndpoint};
 pub use barrier::{BarrierScope, ForbiddenWork, reject_forbidden};
+pub use diagnostics::{DiagnosticsView, WorldDiagnostics};
+pub use events::{FailureBundleFragment, WorldEvent, WorldEventSink};
+pub use fault::{FaultEvidence, WorldFaultPort};
 pub use instance::{
     InstanceGenerationGuard, VoxelWorld, WorldConfigAdapter, WorldDescriptor, WorldStateView,
     intern_local_embedded_pair, intern_role,
 };
 pub use routing::WorldRouter;
+pub use shutdown::WorldShutdown;
 pub use write_lane::{WorldWriteLane, WriteLease};
 
 use lumio_voxel_contracts::STABLE_ERROR_IDS;
