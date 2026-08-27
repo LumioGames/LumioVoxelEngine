@@ -6,9 +6,15 @@
 #![forbid(unsafe_code)]
 
 pub mod allocator;
+pub mod pin;
+pub mod read_view;
+pub mod retention;
 pub mod stamp;
 
 pub use allocator::{
     ChunkRevision, RevisionAllocator, RevisionError, RevisionReservation, WorldRevision,
 };
-pub use stamp::{to_generated_stamp, GeneratedRevisionStamp, REVISION_STAMP_SCHEMA};
+pub use pin::{PinError, PinRegistry, RevisionPin};
+pub use read_view::ReadViewLease;
+pub use retention::RetentionFrontier;
+pub use stamp::{GeneratedRevisionStamp, REVISION_STAMP_SCHEMA, to_generated_stamp};
