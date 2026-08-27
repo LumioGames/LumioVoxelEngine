@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub mod b0_harness;
+pub mod b2_harness;
 pub mod crate_dag;
 pub mod deterministic_executor;
 pub mod fault_injection;
