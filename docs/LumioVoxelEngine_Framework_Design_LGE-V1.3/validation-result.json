@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "errors": [],
+  "warnings": [
+    "one or more physical crate aliases require W0 source resolution"
+  ],
+  "package_count": 10,
+  "task_count": 31,
+  "owned_file_count": 118
+}

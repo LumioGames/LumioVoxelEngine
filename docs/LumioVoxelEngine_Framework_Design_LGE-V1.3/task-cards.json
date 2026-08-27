@@ -1,0 +1,1420 @@
+[
+  {
+    "id": "VOX-T-0001",
+    "wave": "W0",
+    "lane": "GOV",
+    "package": "integration",
+    "title": "Resolve frozen crate aliases and generated inputs",
+    "dependencies": [],
+    "owned_files": [
+      "docs/evidence/crate-map-resolution.md",
+      "docs/evidence/generated-input-inventory.md"
+    ],
+    "outcome": "A reviewed evidence record maps all seven physical crates and generated contract inputs to authoritative sources.",
+    "steps": [
+      "Record exact ADR/module README source lines.",
+      "Verify L0–L5 edges and generated file locations.",
+      "Fail closed on any unresolved alias; do not create replacement crates."
+    ],
+    "tests": [
+      "architecture/source inventory check"
+    ],
+    "acceptance": [
+      "Seven exact crate names and owners recorded.",
+      "No Cargo/source file created.",
+      "Baseline and source hashes recorded."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0002",
+    "wave": "W0",
+    "lane": "GOV",
+    "package": "integration",
+    "title": "Install architecture dependency and generated-file guards",
+    "dependencies": [
+      "VOX-T-0001"
+    ],
+    "owned_files": [
+      "tools/architecture/check_dependency_direction.py",
+      "tools/architecture/check_generated_clean.py",
+      "tests/architecture/dependency_direction.rs"
+    ],
+    "outcome": "Automated checks reject forbidden dependency edges and handwritten generated-contract edits.",
+    "steps": [
+      "Encode only frozen layer rules.",
+      "Hash/compare generated outputs against architecture source.",
+      "Wire checks into existing spec validation entrypoint."
+    ],
+    "tests": [
+      "negative fixtures for each forbidden edge",
+      "generated-file mutation fixture"
+    ],
+    "acceptance": [
+      "Each forbidden edge fails with source reference.",
+      "No public schema is reproduced by the checker."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0101",
+    "wave": "W1",
+    "lane": "CORE-A",
+    "package": "revision",
+    "title": "Implement revision allocator and immutable read view",
+    "dependencies": [
+      "VOX-T-0002"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/revision/mod.rs",
+      "<CRATE_DOMAIN>/src/revision/clock.rs",
+      "<CRATE_DOMAIN>/src/revision/read_view.rs",
+      "<CRATE_DOMAIN>/tests/revision_monotonicity.rs"
+    ],
+    "outcome": "Monotonic internal revisions and stable pinned views exist without publication yet.",
+    "steps": [
+      "Import generated revision/ID types.",
+      "Implement reservation/abandon/finalize lifecycle.",
+      "Implement immutable view pin lifetime."
+    ],
+    "tests": [
+      "monotonic property test",
+      "abandoned reservation test",
+      "long-lived view test"
+    ],
+    "acceptance": [
+      "No revision reuse.",
+      "No public contract duplicate.",
+      "No hard-coded pin budget."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0102",
+    "wave": "W1",
+    "lane": "CORE-A",
+    "package": "revision",
+    "title": "Implement single atomic published-state root",
+    "dependencies": [
+      "VOX-T-0101"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/revision/published.rs",
+      "<CRATE_DOMAIN>/src/revision/publication.rs",
+      "<CRATE_DOMAIN>/tests/publication_atomicity.rs"
+    ],
+    "outcome": "A sealed token can atomically replace a complete immutable world cut.",
+    "steps": [
+      "Define immutable aggregate roots.",
+      "Make token construction crate-private.",
+      "Audit post-swap path for infallibility."
+    ],
+    "tests": [
+      "old-or-new root race",
+      "stale token rejection",
+      "fault injection before swap"
+    ],
+    "acceptance": [
+      "Exactly one visible publication primitive.",
+      "Readers never observe mixed roots."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0201",
+    "wave": "W1",
+    "lane": "CORE-A",
+    "package": "chunk",
+    "title": "Implement chunk payload, slot, and directory roots",
+    "dependencies": [
+      "VOX-T-0102"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/chunk/mod.rs",
+      "<CRATE_DOMAIN>/src/chunk/payload.rs",
+      "<CRATE_DOMAIN>/src/chunk/slot.rs",
+      "<CRATE_DOMAIN>/src/chunk/directory.rs",
+      "<CRATE_DOMAIN>/tests/chunk_state_machine.rs"
+    ],
+    "outcome": "Immutable payloads and explicit Ready/NotLoaded/Pending/Unavailable slots are representable and validated.",
+    "steps": [
+      "Import generated ChunkId/status adapters.",
+      "Implement exhaustive legal-transition validation.",
+      "Implement immutable directory builder."
+    ],
+    "tests": [
+      "state transition table",
+      "absence-does-not-collapse-state",
+      "old-view COW test"
+    ],
+    "acceptance": [
+      "No Option/bool boundary erases four states.",
+      "No I/O dependency."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0202",
+    "wave": "W1",
+    "lane": "CORE-A",
+    "package": "chunk",
+    "title": "Implement staged deltas and dirty frontier",
+    "dependencies": [
+      "VOX-T-0201"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/chunk/delta.rs",
+      "<CRATE_DOMAIN>/src/chunk/dirty.rs",
+      "<CRATE_DOMAIN>/tests/chunk_cow_isolation.rs",
+      "<CRATE_DOMAIN>/tests/dirty_ack_coverage.rs"
+    ],
+    "outcome": "Private chunk edits freeze into replacement roots and revision-aware dirty records.",
+    "steps": [
+      "Build copy-on-write delta/freeze path.",
+      "Record dirty revision without clearing API.",
+      "Implement pure ack-coverage calculation; World remains apply authority."
+    ],
+    "tests": [
+      "COW isolation",
+      "old ack preserves new dirty",
+      "failed builder leaves published root"
+    ],
+    "acceptance": [
+      "Chunk package exposes no direct publish or dirty-clear operation."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0301",
+    "wave": "W1",
+    "lane": "READ",
+    "package": "query",
+    "title": "Implement deterministic query planner",
+    "dependencies": [
+      "VOX-T-0201"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/query/mod.rs",
+      "<CRATE_DOMAIN>/src/query/plan.rs",
+      "<CRATE_DOMAIN>/src/query/budget.rs",
+      "<CRATE_DOMAIN>/tests/query_determinism.rs"
+    ],
+    "outcome": "Generated requests become canonical immutable plans against one captured config/view.",
+    "steps": [
+      "Validate through generated adapters.",
+      "Canonicalize chunk order.",
+      "Consume config snapshot without selecting values."
+    ],
+    "tests": [
+      "hash-seed determinism",
+      "config snapshot stability",
+      "invalid request no side effect"
+    ],
+    "acceptance": [
+      "Planner performs no I/O or world mutation."
+    ],
+    "blocked_by": [
+      "VOX-D-001",
+      "VOX-D-002"
+    ],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0302",
+    "wave": "W1",
+    "lane": "READ",
+    "package": "query",
+    "title": "Implement immutable query execution and result mapping",
+    "dependencies": [
+      "VOX-T-0301",
+      "VOX-T-0201"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/query/execute.rs",
+      "<CRATE_DOMAIN>/src/query/chunk_access.rs",
+      "<CRATE_DOMAIN>/src/query/result_assembly.rs",
+      "<CRATE_DOMAIN>/tests/query_cut_consistency.rs",
+      "<CRATE_DOMAIN>/tests/query_missing_states.rs"
+    ],
+    "outcome": "Queries return deterministic source-compatible outcomes while preserving four chunk states.",
+    "steps": [
+      "Resolve every access from one ReadView.",
+      "Keep missing-state evidence through assembly.",
+      "Map errors/status only through generated table."
+    ],
+    "tests": [
+      "concurrent commit cut consistency",
+      "four-state response matrix",
+      "cancellation purity"
+    ],
+    "acceptance": [
+      "No implicit load trigger.",
+      "No mixed revisions in one result."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0401",
+    "wave": "W1",
+    "lane": "WRITE",
+    "package": "mutation",
+    "title": "Implement canonical request fingerprint and receipt lookup",
+    "dependencies": [
+      "VOX-T-0202"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/mutation/mod.rs",
+      "<CRATE_DOMAIN>/src/mutation/request_fingerprint.rs",
+      "<CRATE_DOMAIN>/src/mutation/receipt_ledger.rs",
+      "<CRATE_DOMAIN>/tests/mutation_txn_replay.rs"
+    ],
+    "outcome": "TxnId replay can distinguish equivalent and conflicting canonical requests and preserve original receipts.",
+    "steps": [
+      "Use generated canonicalization rules.",
+      "Store immutable original receipt representation.",
+      "Expose reserve/finalize API without choosing retention policy."
+    ],
+    "tests": [
+      "same Txn replay",
+      "different fingerprint rejection",
+      "receipt identity/equality"
+    ],
+    "acceptance": [
+      "Replay does not execute mutation again.",
+      "No eviction default is chosen."
+    ],
+    "blocked_by": [
+      "VOX-D-003"
+    ],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0402",
+    "wave": "W1",
+    "lane": "WRITE",
+    "package": "mutation",
+    "title": "Implement side-effect-free Prepare",
+    "dependencies": [
+      "VOX-T-0401",
+      "VOX-T-0202"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/mutation/preconditions.rs",
+      "<CRATE_DOMAIN>/src/mutation/prepare.rs",
+      "<CRATE_DOMAIN>/src/mutation/plan.rs",
+      "<CRATE_DOMAIN>/tests/mutation_prepare_purity.rs"
+    ],
+    "outcome": "All fallible validation, allocation, derived-index build, receipt build, and replacement-root staging occur privately.",
+    "steps": [
+      "Capture one base view.",
+      "Build immutable replacements off-tree.",
+      "Pre-reserve ledger/revision/bookkeeping.",
+      "Seal single-use prepared token."
+    ],
+    "tests": [
+      "fault at every prepare boundary",
+      "state snapshot before/after failures",
+      "batch staging"
+    ],
+    "acceptance": [
+      "Lifecycle, roots, ledger, dirty frontier, and stream state are unchanged on failure."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0403",
+    "wave": "W2",
+    "lane": "WRITE",
+    "package": "mutation",
+    "title": "Implement commit linearization and idempotent replay",
+    "dependencies": [
+      "VOX-T-0402",
+      "VOX-T-0102"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/mutation/commit.rs",
+      "<CRATE_DOMAIN>/tests/mutation_atomic_batch.rs",
+      "<CRATE_DOMAIN>/tests/mutation_fault_escalation.rs"
+    ],
+    "outcome": "A final recheck followed by one visible publication and infallible finalize produces the original receipt.",
+    "steps": [
+      "Recheck generation/preconditions/ledger.",
+      "Publish one aggregate root.",
+      "Move prebuilt dirty/receipt records.",
+      "Route impossible invariant to World fault port."
+    ],
+    "tests": [
+      "old-or-new batch visibility",
+      "concurrent duplicate Txn",
+      "post-publication invariant trap"
+    ],
+    "acceptance": [
+      "No ordinary fallible operation after publication.",
+      "Only mutation path can request mutation publication."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0501",
+    "wave": "W2",
+    "lane": "WORLD",
+    "package": "world",
+    "title": "Implement World lifecycle and generation-safe command admission",
+    "dependencies": [
+      "VOX-T-0402"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/world/mod.rs",
+      "<CRATE_DOMAIN>/src/world/state.rs",
+      "<CRATE_DOMAIN>/src/world/command.rs",
+      "<CRATE_DOMAIN>/src/world/admission.rs",
+      "<CRATE_DOMAIN>/tests/world_lifecycle.rs"
+    ],
+    "outcome": "World accepts/rejects typed commands according to frozen lifecycle and instance generation.",
+    "steps": [
+      "Represent only source-defined lifecycle mapping.",
+      "Require internal instance generation.",
+      "Keep command payloads typed and private."
+    ],
+    "tests": [
+      "model-based lifecycle matrix",
+      "stale instance command",
+      "illegal transition no side effect"
+    ],
+    "acceptance": [
+      "No public lifecycle enum duplicate."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0502",
+    "wave": "W2",
+    "lane": "WORLD",
+    "package": "world",
+    "title": "Implement serial write lane and typed short barriers",
+    "dependencies": [
+      "VOX-T-0501",
+      "VOX-T-0403"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/world/write_lane.rs",
+      "<CRATE_DOMAIN>/src/world/barrier.rs",
+      "<CRATE_DOMAIN>/tests/world_barrier_order.rs"
+    ],
+    "outcome": "All state-changing commands linearize per World; barrier scopes prohibit I/O and callbacks.",
+    "steps": [
+      "Implement non-cloneable lease.",
+      "Define mutation/cut/ack/restore/stream apply scopes.",
+      "Add trace hooks outside correctness path."
+    ],
+    "tests": [
+      "command order model",
+      "no-I/O barrier instrumentation",
+      "slow reader nonblocking"
+    ],
+    "acceptance": [
+      "No process-global write lane.",
+      "Barrier contains bounded work categories, not guessed timing."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0503",
+    "wave": "W2",
+    "lane": "WORLD",
+    "package": "world",
+    "title": "Implement target-World fault containment",
+    "dependencies": [
+      "VOX-T-0502"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/world/fault.rs",
+      "<CRATE_DOMAIN>/src/world/events.rs",
+      "<CRATE_DOMAIN>/tests/world_fault_isolation.rs"
+    ],
+    "outcome": "Invariant breaches fault only the target World and reject subsequent writes through existing mapping.",
+    "steps": [
+      "Preallocate fault record path where required.",
+      "Separate external operation errors from invariants.",
+      "Emit non-vetoing internal events."
+    ],
+    "tests": [
+      "two-world fault isolation",
+      "event failure cannot change commit",
+      "faulted admission matrix"
+    ],
+    "acceptance": [
+      "No new public ErrorCode.",
+      "Other Worlds continue."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0601",
+    "wave": "W3",
+    "lane": "SNAP",
+    "package": "snapshot",
+    "title": "Implement immutable VoxelCaptureRef and capture read port",
+    "dependencies": [
+      "VOX-T-0502"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/snapshot/capture.rs",
+      "<CRATE_DOMAIN>/src/snapshot/ref.rs",
+      "<CRATE_DOMAIN>/src/snapshot/manifest_view.rs",
+      "<CRATE_DOMAIN>/tests/snapshot_ref_lifetime.rs"
+    ],
+    "outcome": "Voxel can pin one coherent published cut for background readers without exposing mutable World.",
+    "steps": [
+      "Bind ref to World generation/revision.",
+      "Own immutable roots/pins.",
+      "Expose minimal enumerate/read metadata port."
+    ],
+    "tests": [
+      "ref survives later mutation",
+      "drop releases pins",
+      "close/restore race"
+    ],
+    "acceptance": [
+      "VoxelCaptureRef is internal and unforgeable."
+    ],
+    "blocked_by": [
+      "VOX-D-004"
+    ],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0602",
+    "wave": "W3",
+    "lane": "SNAP",
+    "package": "snapshot",
+    "title": "Implement snapshot-cut World command",
+    "dependencies": [
+      "VOX-T-0601"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/snapshot/cut.rs",
+      "<CRATE_DOMAIN>/tests/snapshot_cut_atomicity.rs",
+      "<CRATE_DOMAIN>/tests/snapshot_dirty_frontier.rs"
+    ],
+    "outcome": "World captures roots/revision/dirty frontier under a short barrier and returns immediately.",
+    "steps": [
+      "Add BeginSnapshotCut command handler.",
+      "Allocate required ref material before/inside approved in-memory scope.",
+      "Release barrier before job handoff."
+    ],
+    "tests": [
+      "cut consistency race",
+      "barrier trace",
+      "failed cut no dirty clear"
+    ],
+    "acceptance": [
+      "No encoder or I/O reachable inside barrier."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0701",
+    "wave": "W3",
+    "lane": "PERSIST",
+    "package": "persistence",
+    "title": "Implement generated-manifest adapters and deterministic codec",
+    "dependencies": [
+      "VOX-T-0601",
+      "VOX-T-0002"
+    ],
+    "owned_files": [
+      "<CRATE_PERSISTENCE>/src/persistence/mod.rs",
+      "<CRATE_PERSISTENCE>/src/persistence/encode.rs",
+      "<CRATE_PERSISTENCE>/src/persistence/decode.rs",
+      "<CRATE_PERSISTENCE>/src/persistence/manifest_adapter.rs",
+      "<CRATE_PERSISTENCE>/tests/persistence_roundtrip.rs"
+    ],
+    "outcome": "Capture data roundtrips through generated manifest/codec rules without schema duplication.",
+    "steps": [
+      "Wrap generated builders.",
+      "Implement deterministic object ordering.",
+      "Reject incompatibility per generated registry."
+    ],
+    "tests": [
+      "architecture golden fixtures",
+      "unknown version policy fixture",
+      "deterministic encode"
+    ],
+    "acceptance": [
+      "No handwritten Manifest field/value."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0702",
+    "wave": "W3",
+    "lane": "PERSIST",
+    "package": "persistence",
+    "title": "Implement durable-store transaction and ack candidate",
+    "dependencies": [
+      "VOX-T-0701",
+      "VOX-T-0602"
+    ],
+    "owned_files": [
+      "<CRATE_PERSISTENCE>/src/persistence/store_port.rs",
+      "<CRATE_PERSISTENCE>/src/persistence/durability_ack.rs",
+      "<CRATE_PERSISTENCE>/tests/persistence_failure_dirty.rs"
+    ],
+    "outcome": "Manifest becomes visible only after referenced objects are durable; only then can an ack candidate exist.",
+    "steps": [
+      "Define SDK-neutral store port.",
+      "Implement object/write/manifest commit ordering.",
+      "Construct source-valid ack candidate after commit."
+    ],
+    "tests": [
+      "crash step matrix",
+      "retry idempotency harness",
+      "store failure leaves dirty"
+    ],
+    "acceptance": [
+      "Persistence cannot clear World dirty state.",
+      "No retry/backoff default."
+    ],
+    "blocked_by": [
+      "VOX-D-005"
+    ],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0703",
+    "wave": "W3",
+    "lane": "WORLD",
+    "package": "persistence",
+    "title": "Implement World durability-ack apply",
+    "dependencies": [
+      "VOX-T-0702",
+      "VOX-T-0502"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/world/durability_ack.rs",
+      "<CRATE_DOMAIN>/tests/durability_ack_apply.rs"
+    ],
+    "outcome": "A generation/cut-valid ack clears only dirty entries it covers under World barrier.",
+    "steps": [
+      "Validate World generation and generated ack evidence.",
+      "Compute covered set.",
+      "Apply clear in serial lane; preserve newer dirty revisions."
+    ],
+    "tests": [
+      "old ack vs new mutation",
+      "duplicate ack idempotency",
+      "wrong World rejection"
+    ],
+    "acceptance": [
+      "This is the only dirty-clear path."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0710",
+    "wave": "W3",
+    "lane": "RESTORE",
+    "package": "persistence",
+    "title": "Implement restore preflight and shadow builder",
+    "dependencies": [
+      "VOX-T-0701",
+      "VOX-T-0202"
+    ],
+    "owned_files": [
+      "<CRATE_PERSISTENCE>/src/restore/mod.rs",
+      "<CRATE_PERSISTENCE>/src/restore/preflight.rs",
+      "<CRATE_PERSISTENCE>/src/restore/shadow_builder.rs",
+      "<CRATE_PERSISTENCE>/tests/restore_atomicity.rs"
+    ],
+    "outcome": "A complete immutable candidate state is decoded/validated without touching the live World.",
+    "steps": [
+      "Validate generated compatibility/hashes.",
+      "Build all chunk/index roots off-tree.",
+      "Prebuild source-required reset/bookkeeping data."
+    ],
+    "tests": [
+      "corruption matrix",
+      "build failure old-world unchanged",
+      "fixture roundtrip"
+    ],
+    "acceptance": [
+      "No live World mutable reference in persistence."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0711",
+    "wave": "W4",
+    "lane": "RESTORE",
+    "package": "persistence",
+    "title": "Implement restore admission and atomic publication",
+    "dependencies": [
+      "VOX-T-0710",
+      "VOX-T-0502",
+      "VOX-T-0801"
+    ],
+    "owned_files": [
+      "<CRATE_PERSISTENCE>/src/restore/publish_request.rs",
+      "<CRATE_DOMAIN>/src/world/restore.rs",
+      "<CRATE_PERSISTENCE>/tests/restore_streaming_exclusion.rs"
+    ],
+    "outcome": "A sealed shadow state publishes once under an exclusive restore barrier, never interleaved with streaming apply.",
+    "steps": [
+      "Obtain restore admission token.",
+      "Close/coordinate streaming tickets per frozen policy.",
+      "Final validate and atomically publish.",
+      "Release admission."
+    ],
+    "tests": [
+      "restore vs stream race",
+      "failure before publish",
+      "stale World generation"
+    ],
+    "acceptance": [
+      "No partial chunk restore is visible.",
+      "No timeout/retry policy invented."
+    ],
+    "blocked_by": [
+      "VOX-D-006"
+    ],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0801",
+    "wave": "W3",
+    "lane": "STREAM",
+    "package": "streaming",
+    "title": "Implement demand/ticket coordinator and source port",
+    "dependencies": [
+      "VOX-T-0502",
+      "VOX-T-0201"
+    ],
+    "owned_files": [
+      "<CRATE_STREAMING>/src/streaming/mod.rs",
+      "<CRATE_STREAMING>/src/streaming/demand.rs",
+      "<CRATE_STREAMING>/src/streaming/ticket.rs",
+      "<CRATE_STREAMING>/src/streaming/coordinator.rs",
+      "<CRATE_STREAMING>/src/streaming/source_port.rs",
+      "<CRATE_STREAMING>/tests/streaming_state_matrix.rs"
+    ],
+    "outcome": "Explicit demand creates/deduplicates generation-safe tickets and drives NotLoaded→Pending only through World.",
+    "steps": [
+      "Define SDK-neutral source port.",
+      "Bind tickets to World/chunk generation.",
+      "Capture config per ticket."
+    ],
+    "tests": [
+      "duplicate demand",
+      "four-state transition matrix",
+      "restore admission rejection"
+    ],
+    "acceptance": [
+      "No queue/concurrency/retry constants.",
+      "Query does not call coordinator implicitly."
+    ],
+    "blocked_by": [
+      "VOX-D-007",
+      "VOX-D-008"
+    ],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0802",
+    "wave": "W3",
+    "lane": "STREAM",
+    "package": "streaming",
+    "title": "Implement worker decode and sealed apply result",
+    "dependencies": [
+      "VOX-T-0801",
+      "VOX-T-0701"
+    ],
+    "owned_files": [
+      "<CRATE_STREAMING>/src/streaming/decode.rs",
+      "<CRATE_STREAMING>/src/streaming/apply.rs",
+      "<CRATE_STREAMING>/src/streaming/cancel.rs",
+      "<CRATE_STREAMING>/tests/streaming_stale_result.rs"
+    ],
+    "outcome": "Workers fetch/decode candidates outside World and submit ticket-bound results/failures.",
+    "steps": [
+      "Decode using source-compatible adapter.",
+      "Never retain mutable World pointer.",
+      "Make cancellation/stale completion explicit."
+    ],
+    "tests": [
+      "cancel during fetch",
+      "decode corruption",
+      "World recreate stale result"
+    ],
+    "acceptance": [
+      "Worker cannot publish roots directly."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0803",
+    "wave": "W4",
+    "lane": "WORLD",
+    "package": "streaming",
+    "title": "Implement World streaming apply handler",
+    "dependencies": [
+      "VOX-T-0802",
+      "VOX-T-0502"
+    ],
+    "owned_files": [
+      "<CRATE_DOMAIN>/src/world/streaming_apply.rs",
+      "<CRATE_STREAMING>/tests/streaming_restore_exclusion.rs",
+      "<CRATE_STREAMING>/tests/streaming_world_isolation.rs"
+    ],
+    "outcome": "World revalidates ticket/basis and atomically transitions matching slot; stale results cannot overwrite newer state.",
+    "steps": [
+      "Check lifecycle/restore exclusion.",
+      "Check ticket, World generation, chunk basis.",
+      "Publish replacement root or reject stale result."
+    ],
+    "tests": [
+      "mutation vs load race",
+      "restore vs apply race",
+      "two-World isolation"
+    ],
+    "acceptance": [
+      "All four states preserved.",
+      "No stale overwrite."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0901",
+    "wave": "W4",
+    "lane": "RUNTIME",
+    "package": "runtime",
+    "title": "Implement Runtime registry and generation-safe World handles",
+    "dependencies": [
+      "VOX-T-0503"
+    ],
+    "owned_files": [
+      "<CRATE_RUNTIME>/src/runtime/mod.rs",
+      "<CRATE_RUNTIME>/src/runtime/registry.rs",
+      "<CRATE_RUNTIME>/src/runtime/world_handle.rs",
+      "<CRATE_RUNTIME>/src/runtime/operation.rs",
+      "<CRATE_RUNTIME>/tests/runtime_world_isolation.rs"
+    ],
+    "outcome": "Runtime hosts independent Worlds and rejects stale handles after close/recreate.",
+    "steps": [
+      "Implement registry with internal instance generations.",
+      "Route commands through endpoints only.",
+      "Contain operation/fault state per World."
+    ],
+    "tests": [
+      "stale handle",
+      "parallel two-World progress",
+      "fault isolation"
+    ],
+    "acceptance": [
+      "No raw mutable World pointer escapes."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0902",
+    "wave": "W4",
+    "lane": "RUNTIME",
+    "package": "runtime",
+    "title": "Implement immutable config snapshots and job supervisor",
+    "dependencies": [
+      "VOX-T-0901"
+    ],
+    "owned_files": [
+      "<CRATE_RUNTIME>/src/runtime/config_snapshot.rs",
+      "<CRATE_RUNTIME>/src/runtime/jobs.rs",
+      "<CRATE_RUNTIME>/src/runtime/shutdown.rs",
+      "<CRATE_RUNTIME>/tests/runtime_shutdown.rs"
+    ],
+    "outcome": "Operations/tickets capture immutable policy and shutdown safely controls workers.",
+    "steps": [
+      "Validate required approved decision values.",
+      "Create new snapshots on reload.",
+      "Implement source-defined admission/drain/cancel phases."
+    ],
+    "tests": [
+      "reload in-flight stability",
+      "shutdown with capture/ticket",
+      "worker panic containment"
+    ],
+    "acceptance": [
+      "No live mutable global config.",
+      "No timeout default."
+    ],
+    "blocked_by": [
+      "VOX-D-001",
+      "VOX-D-002",
+      "VOX-D-003",
+      "VOX-D-004",
+      "VOX-D-005",
+      "VOX-D-006",
+      "VOX-D-007",
+      "VOX-D-008"
+    ],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0903",
+    "wave": "W4",
+    "lane": "RUNTIME",
+    "package": "runtime",
+    "title": "Implement snapshot and streaming orchestrators",
+    "dependencies": [
+      "VOX-T-0902",
+      "VOX-T-0602",
+      "VOX-T-0703",
+      "VOX-T-0803"
+    ],
+    "owned_files": [
+      "<CRATE_RUNTIME>/src/runtime/snapshot_orchestrator.rs",
+      "<CRATE_RUNTIME>/src/runtime/streaming_orchestrator.rs",
+      "<CRATE_RUNTIME>/tests/runtime_snapshot_orchestration.rs"
+    ],
+    "outcome": "Runtime owns operation state, releases barriers before I/O, and routes generation-safe completions.",
+    "steps": [
+      "Orchestrate cut→job→ack.",
+      "Orchestrate demand→ticket→worker→apply.",
+      "Map outcomes through generated adapters."
+    ],
+    "tests": [
+      "barrier release before I/O",
+      "stale ack/result",
+      "cancel/retry operation"
+    ],
+    "acceptance": [
+      "No persistence/streaming worker directly mutates World."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-0904",
+    "wave": "W4",
+    "lane": "RUNTIME",
+    "package": "runtime",
+    "title": "Implement LocalEmbedded two-tree composition",
+    "dependencies": [
+      "VOX-T-0903"
+    ],
+    "owned_files": [
+      "<CRATE_RUNTIME>/src/runtime/local_embedded.rs",
+      "<CRATE_RUNTIME>/tests/local_embedded_no_alias.rs"
+    ],
+    "outcome": "LocalEmbedded creates two physically independent trees connected only by generated-contract-equivalent messages.",
+    "steps": [
+      "Instantiate independent registries/Worlds/coordinators.",
+      "Enforce message serialization/equivalent adapter.",
+      "Add object-identity graph audit."
+    ],
+    "tests": [
+      "no shared roots/payloads/ledgers/tickets/capture refs",
+      "remote-equivalence trace",
+      "one-tree fault isolation"
+    ],
+    "acceptance": [
+      "No direct domain object references cross trees."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-1001",
+    "wave": "W5",
+    "lane": "VERIFY",
+    "package": "integration",
+    "title": "Implement total generated-contract adapters",
+    "dependencies": [
+      "VOX-T-0002",
+      "VOX-T-0901"
+    ],
+    "owned_files": [
+      "<CRATE_FFI>/src/adapter/mod.rs",
+      "<CRATE_FFI>/src/adapter/generated_types.rs",
+      "<CRATE_FFI>/src/adapter/error_mapping.rs",
+      "<CRATE_FFI>/src/adapter/ownership.rs"
+    ],
+    "outcome": "Boundary conversion is total, source-compatible, and cannot bypass Runtime/World authority.",
+    "steps": [
+      "Wrap generated types directly.",
+      "Implement exhaustive error/status mapping.",
+      "Enforce handle/buffer ownership rules from source."
+    ],
+    "tests": [
+      "generated ABI fixtures",
+      "unknown/forward variant fixture",
+      "lifetime misuse negative test"
+    ],
+    "acceptance": [
+      "No new public type/field/code/capability."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-1002",
+    "wave": "W5",
+    "lane": "VERIFY",
+    "package": "integration",
+    "title": "Implement deterministic executor, model oracle, and fault injection",
+    "dependencies": [
+      "VOX-T-0503"
+    ],
+    "owned_files": [
+      "<CRATE_TESTKIT>/src/deterministic_executor.rs",
+      "<CRATE_TESTKIT>/src/model_oracle.rs",
+      "<CRATE_TESTKIT>/src/fault_injection.rs",
+      "<CRATE_TESTKIT>/src/fixture_runner.rs"
+    ],
+    "outcome": "Concurrency/failure tests are deterministic and encode only frozen state rules.",
+    "steps": [
+      "Provide controlled task completion.",
+      "Model lifecycle/chunk/ticket transitions.",
+      "Expose named pre-publication and I/O fault points."
+    ],
+    "tests": [
+      "self-tests for schedule exploration",
+      "model/implementation differential harness"
+    ],
+    "acceptance": [
+      "Production crates do not depend on testkit.",
+      "No recoverable injection after mutation visibility."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  },
+  {
+    "id": "VOX-T-1003",
+    "wave": "W5",
+    "lane": "VERIFY",
+    "package": "integration",
+    "title": "Run end-to-end architecture fixture matrix",
+    "dependencies": [
+      "VOX-T-0711",
+      "VOX-T-0803",
+      "VOX-T-0904",
+      "VOX-T-1001",
+      "VOX-T-1002"
+    ],
+    "owned_files": [
+      "<CRATE_TESTKIT>/src/topology_harness.rs",
+      "<CRATE_TESTKIT>/tests/contract_fixtures.rs",
+      "<CRATE_TESTKIT>/tests/end_to_end_mutation.rs",
+      "<CRATE_TESTKIT>/tests/snapshot_restore.rs",
+      "<CRATE_TESTKIT>/tests/streaming_races.rs",
+      "<CRATE_TESTKIT>/tests/local_embedded_equivalence.rs",
+      "<CRATE_TESTKIT>/tests/failure_domains.rs"
+    ],
+    "outcome": "All frozen architecture fixtures and cross-module scenarios pass with evidence tied to exact source revisions.",
+    "steps": [
+      "Load fixture registry from architecture output.",
+      "Run remote and LocalEmbedded topologies.",
+      "Emit evidence with seed/schedule/commit/source hash."
+    ],
+    "tests": [
+      "full fixture matrix",
+      "dependency guard",
+      "generated clean guard"
+    ],
+    "acceptance": [
+      "Expected public data is unchanged.",
+      "All failure domains and no-alias properties pass."
+    ],
+    "blocked_by": [],
+    "forbidden_changes": [
+      "public ABI/Manifest/ErrorCode/Capability/ID/fixture definitions",
+      "effective ADR 0001–0006 or frozen module boundaries",
+      "new physical crate or reversed L0–L5 dependency",
+      "unapproved numerical policy/default",
+      "production gameplay/business behavior"
+    ],
+    "evidence": [
+      "tests named on card",
+      "source baseline/hash",
+      "implementation commit",
+      "architecture guard output"
+    ]
+  }
+]
