@@ -9,6 +9,9 @@ pub mod mutation;
 pub mod query;
 
 #[cfg(feature = "snapshot")]
+pub mod snapshot;
+
+#[cfg(feature = "snapshot")]
 pub const SNAPSHOT_FEATURE: bool = true;
 
 #[cfg(not(feature = "snapshot"))]
