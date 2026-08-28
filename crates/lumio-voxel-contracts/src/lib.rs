@@ -11,11 +11,19 @@ mod lumio_gen_canonical_serializer;
 #[path = "../generated/rust/lumio-gen-contract-runtime/src/lib.rs"]
 #[rustfmt::skip]
 mod lumio_gen_contract_runtime;
+// The vendored generated tree is published upstream as independent library crates, where
+// every item is crate-public and reachable. Here it is `#[path]`-included into private
+// modules, so anything this crate does not re-export becomes unreachable and trips
+// `dead_code` — notably the ADR-040 Root ABI surface, which Voxel does not consume.
+// Allow it at the seam rather than re-exporting items nothing here uses (that would grow
+// the public API to silence a lint) or patching the generated files (forbidden).
 #[path = "../generated/rust/lumio-gen-contract-types/src/lib.rs"]
 #[rustfmt::skip]
+#[allow(dead_code)]
 mod lumio_gen_contract_types;
 #[path = "../generated/rust/lumio-gen-language-binding/src/lib.rs"]
 #[rustfmt::skip]
+#[allow(dead_code)]
 mod lumio_gen_language_binding;
 #[path = "../generated/rust/lumio-gen-mapping-table/src/lib.rs"]
 #[rustfmt::skip]
