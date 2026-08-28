@@ -36,3 +36,4 @@
 | [0006](0006-crate-map.md) | 按分层合并 crate，不按逻辑模块开仓 | 生效 |
 | [0007](0007-v1.4-implementation-baseline.md) | 采用 LGE-V1.4 作为实现基线 | 生效 |
 | [0008](0008-interned-contract-tables-as-static.md) | 三张 interned 契约表以 `static` 而非 `const` 再导出 | 生效 |
+| [0009](0009-consume-adr-040-041-artifacts.md) | 随镜像同步消费上游已发布的 ADR-040 / ADR-041 产物 | 生效 |

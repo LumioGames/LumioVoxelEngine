@@ -2,7 +2,7 @@
 
 - Card: R-00146 [测试·集成]
 - Baseline: `LGE-V1.4-2026-08-27`
-- Branch / HEAD at measurement: `fix/rust-workspace-checks` @ `80a80c90f30dc1a8dc5769a3993c96c8aa64528f`
+- Branch / HEAD at measurement: **`main` @ `4ced801`** — pushed; `origin/main` == `4ced801`
 - rustc: `1.98.0 (88d9e12ae 2026-08-18)` host **`aarch64-apple-darwin`** (LLVM 22.1.8)
 - Toolchain invocation: `cargo +1.98.0-aarch64-apple-darwin …` (rustup default host here is
   `x86_64-apple-darwin` under Rosetta; the aarch64 toolchain is selected explicitly)
@@ -19,17 +19,17 @@ had ever executed. This revision is the **first real linked run**.
 On first execution step 4 (`commit`) failed, cascading steps 5–10 to *"not reached"*. That was a real
 production defect, now fixed.
 
-**All 10 steps now execute and pass.** The test target still fails — for one reason only, which is *not*
-the slice: `MvpIntegrationReport::all_ok()` also gates on `artifact_hashes`, and that is the R-00143
-cluster-A blocker. See §3.
+**All 10 steps execute and pass, and the target itself now passes.** The `artifact_hashes` gate inside
+`all_ok()` — the R-00143 cluster-A blocker that previously held this target red — is closed upstream and
+mirrored in. Workspace: **158 passed / 0 failed**, exit 0.
 
 ## 1. Commands actually run
 
 | # | Command | Exit | Reading |
 | --- | --- | ---: | --- |
-| 1 | `cargo +1.98.0-aarch64-apple-darwin test -p lumio-voxel-test-support --test mvp_vertical_slice --all-features` | **101** | 1 passed / 1 failed — **all 10 steps `ok: true`**; failure is the `artifact_hashes` gate inside `all_ok()` |
-| 2 | `cargo +1.98.0-aarch64-apple-darwin test --workspace --all-features --no-fail-fast` | 101 | 153 passed / 5 failed, all 5 = cluster A |
-| 3 | `cargo +1.98.0-aarch64-apple-darwin test … -- --test-threads=1` | 101 | identical set → not parallelism-dependent |
+| 1 | `cargo +1.98.0-aarch64-apple-darwin test -p lumio-voxel-test-support --test mvp_vertical_slice --all-features` | **0** | **2 passed / 0 failed**; all 10 steps `ok: true` |
+| 2 | `cargo +1.98.0-aarch64-apple-darwin test --workspace --all-features --no-fail-fast` | **0** | **158 passed / 0 failed** |
+| 3 | `cargo +1.98.0-aarch64-apple-darwin test … -- --test-threads=1` | 0 | 158 / 0 (deterministic) |
 | 4 | `cargo +1.98.0-aarch64-apple-darwin fmt --all -- --check` | 0 | clean |
 | 5 | `cargo +1.98.0-aarch64-apple-darwin clippy --workspace --all-targets --all-features -- -D warnings` | 0 | clean |
 | 6 | `cargo +1.98.0-aarch64-apple-darwin check --workspace --no-default-features` | 0 | clean |
@@ -61,7 +61,7 @@ receipt back. The previous revision recorded this as a known gap ("`PreparedMuta
 second call went through `prepare_mutation` instead of a second `commit`"); commit `105ef06` closed that
 gap, and this run is the first execution that actually proves it.
 
-## 3. Why the target still fails, and the defect the run exposed
+## 3. The defects this run exposed, and the gate that used to hold the target red
 
 ### 3.1 The step-4 defect (fixed)
 
@@ -71,29 +71,14 @@ Step 4 originally reported *"commit did not publish a new identity"*. Root cause
 `incorporate_replacement`, so the recorded identity could never equal the published one. Full analysis and
 the applied fix are in `b2-verification.md` §3. Fixed under explicit user authorization (§5).
 
-### 3.2 The remaining failure is not the slice
+### 3.2 The gate that used to hold this target red
 
-```
-assert!(report.all_ok(), "MVP vertical slice failed: steps={:?}", report.steps)
-```
-
-`all_ok()` is:
-
-```rust
-self.steps.len() == STEP_COUNT
-    && self.steps.iter().all(|step| step.ok)
-    && self.authority_identity != self.replica_identity
-    && !self.artifact_hashes.starts_with("verify_artifact_hashes:")
-```
-
-The first three conjuncts hold. The fourth does not: `verify_artifact_hashes()` fails with
-`HashMismatch { artifact_id: "canonical-serializer-rust" }`, so `report.artifact_hashes` carries the error
-string. That is the **cluster A** blocker — the generated Rust SHA-256 carries a wrong round constant
-(`K[28] = 0xc6eabbdc`, FIPS 180-4 says `0xc6e00bf3`), originating upstream in
-`LumioGameEngineArchitecture/tools/lumio_generate.py:168`. Full analysis in `b0-verification.md` §4.
-
-**The vertical slice itself is complete and green.** The gate that fails is an artifact-integrity
-precondition owned by another repository.
+`all_ok()` requires `steps.len() == STEP_COUNT`, every step `ok`, `authority_identity !=
+replica_identity`, and `!artifact_hashes.starts_with("verify_artifact_hashes:")`. The first three always
+held; the fourth failed because `verify_artifact_hashes()` returned
+`HashMismatch { artifact_id: "canonical-serializer-rust" }` — the **cluster A** blocker (generated Rust
+SHA-256 round constant `K[28]`). That is fixed upstream and mirrored in (`51c2836`, merged as `4ced801`),
+so all four conjuncts now hold and the target passes. Full analysis in `b0-verification.md` §4.
 
 ## 4. Acceptance criteria
 
@@ -102,28 +87,24 @@ precondition owned by another repository.
 | 1 | Full MVP chain completes on the generated Port; steps, Revision, receipt, snapshot/restore/ack hashes auditable, no internal shortcuts | **PASS** — 10/10 steps executed through `GeneratedVoxelWorldPortAdapter` |
 | 2 | Native and Reference byte-identical on the same corpus; races produce only permitted old-or-new traces | **PARTIAL** — Reference-side `DeterministicExecutor` hashes agree across seeds `0xA11CE0`/`0xB05EED`; Reference `VoxelPortHarness` still cannot observe Native world identity, so alignment is op seq/payload only |
 | 3 | Dual instances share nothing; Prepare/Commit, Capture/Restore, Dirty Ack and shutdown failure domains satisfy B0/B2 evidence | **PASS** — steps 1, 3–6, 8–10; B2 12/12 rows pass |
-| 4 | Full closing commands truly succeed and a replayable report is produced; missing external Artifact/Gate is an explicit block rather than a hand-written substitute | **FAIL (explicit block)** — `cargo test` exits 101 on cluster A; blocked, not substituted |
+| 4 | Full closing commands truly succeed and a replayable report is produced; missing external Artifact/Gate is an explicit block rather than a hand-written substitute | **PASS** — every closing command exits 0 on `4ced801`, which is on `origin/main`; nothing was hand-substituted while the gate was missing |
 
-**Verdict for this card: slice PASS, delivery BLOCKED** on cluster A. Owner: `LumioGameEngineArchitecture`.
+**Verdict for this card: slice PASS, target PASS, workspace green (158/0).** Criterion 2 remains PARTIAL for a structural reason (see §5), not for a blocker.
 
 ## 5. Known gaps
 
-- **Cluster A blocks the target.** The 10 steps pass; `all_ok()` cannot return true until the generated
-  SHA-256 is corrected upstream, regenerated, and re-locked.
 - **Production code modified by a test card.** The step-4 fix touches `lumio-voxel-ops` and
   `lumio-voxel-domain` (owners R-00104, R-00078), departing from this card's
   「不得为通过测试改生产代码」 boundary. Done on explicit user authorization; owner cards need annotating.
-- **`origin/main` is currently RED.** It is `8e10823` (merge of PR #1), which **contains** `80a80c9` (5
-  failing tests, cluster-A P0) and **does not contain** the fixes `17ef95c` / `34ffdc1` / `dc6926b` — the
-  step-4 fix in §3.1 is therefore *not* on the published branch. An earlier revision said `origin/main` =
-  `47cbfdd` with these commits unpushed; that was true when first measured and is now false.
-- **Acceptance criterion 2 was worded optimistically.** "Native and Reference byte-identical" is *not*
-  proven: the Reference harness cannot observe Native world identity, so only op sequence and payload were
-  aligned. The PARTIAL marking is honest; the phrasing overstated what the alignment covers.
+- **`origin/main` is green and contains this evidence's measurement point** (`4ced801`). Two earlier
+  revisions of this bullet were wrong in opposite directions; both were true when written and were
+  overtaken by events.
+- **Criterion 2 is structurally unprovable with the current harness.** `reference_harness.rs` exposes only
+  `snapshot_hash()` and has no world-identity accessor, so "Native and Reference byte-identical" cannot be
+  asserted at all — only op sequence and payload are aligned. This is a harness capability gap, not a
+  measurement that failed; closing it needs a Reference-side identity accessor.
 - **Concurrent writer.** Five commits on `fix/rust-workspace-checks` were authored during this session by
-  an actor other than the executing agent; the user confirmed them and elected to keep them. In particular
-  `0f8cf0c` corrected `K[28]` only in the test-only crate, leaving the generated copy broken — so a green
-  `check-generated-clean` must not be read as artifact-hash verification.
+  an actor other than the executing agent; the user confirmed them and elected to keep them.
 - Four-state / post-restore Ready fixtures still go through copied B2 `PublicationAuthority` helpers
   rather than adapter traffic, because adapter mutation can only overlay `Ready` slots.
 - `run_b0_matrix` / `run_b2_matrix` are reachable from `matrix_entry_points()` and are now genuinely

@@ -2,29 +2,29 @@
 
 - Card: R-00145 [测试·B2]
 - Baseline: `LGE-V1.4-2026-08-27`
-- Branch / HEAD at measurement: `fix/rust-workspace-checks` @ `80a80c90f30dc1a8dc5769a3993c96c8aa64528f`
+- Branch / HEAD at measurement: **`main` @ `4ced801`** — pushed; `origin/main` == `4ced801`
 - rustc: `1.98.0 (88d9e12ae 2026-08-18)` host **`aarch64-apple-darwin`** (LLVM 22.1.8)
 - Toolchain invocation: `cargo +1.98.0-aarch64-apple-darwin …` (rustup default host here is
   `x86_64-apple-darwin` under Rosetta; the aarch64 toolchain is selected explicitly)
 - Harness: `lumio_voxel_test_support::b2_harness::run_b2_matrix` → `B2VerificationReport`
 - Tests: `crates/lumio-voxel-test-support/tests/b2_transaction_recovery.rs`
 
-## 0. What changed since the previous revision
+## 0. Result
 
-The previous revision was **type-check 口径** — that host lacked `link.exe`, `cargo test` ended at link
-(exit 101), and none of the 12 rows had ever executed. This revision is the **first real linked run**.
+**All 12 rows pass, and the workspace is green: `158 passed / 0 failed`, exit 0.**
 
-On first execution 3 of the 12 rows failed. All three traced to one production defect, now fixed.
-
-**All 12 rows now pass.** `b2_transaction_recovery`: **10 passed, 0 failed.**
+Two earlier revisions are superseded: the original recorded a **type-check 口径** (no `link.exe`, every
+`cargo test` exit 101, none of the 12 rows ever executed); the second recorded the first linked run at
+`80a80c9`/`85df75e`, where 3 of 12 rows failed on one production defect and the workspace was still red
+on the R-00143 cluster-A blocker. That blocker is now closed upstream and mirrored in (`4ced801`).
 
 ## 1. Commands actually run
 
 | # | Command | Exit | Reading |
 | --- | --- | ---: | --- |
 | 1 | `cargo +1.98.0-aarch64-apple-darwin test -p lumio-voxel-test-support --test b2_transaction_recovery --all-features` | **0** | **10 passed / 0 failed** |
-| 2 | `cargo +1.98.0-aarch64-apple-darwin test --workspace --all-features --no-fail-fast` | 101 | 153 passed / 5 failed — none in B2; all 5 are the R-00143 cluster-A blocker |
-| 3 | `cargo +1.98.0-aarch64-apple-darwin test … -- --test-threads=1` | 101 | identical set → not parallelism-dependent |
+| 2 | `cargo +1.98.0-aarch64-apple-darwin test --workspace --all-features --no-fail-fast` | **0** | **158 passed / 0 failed** |
+| 3 | `cargo +1.98.0-aarch64-apple-darwin test … -- --test-threads=1` | 0 | 158 / 0 (deterministic) |
 | 4 | `cargo +1.98.0-aarch64-apple-darwin fmt --all -- --check` | 0 | clean |
 | 5 | `cargo +1.98.0-aarch64-apple-darwin clippy --workspace --all-targets --all-features -- -D warnings` | 0 | clean |
 | 6 | `cargo +1.98.0-aarch64-apple-darwin check --workspace --no-default-features` | 0 | clean |
@@ -103,10 +103,10 @@ Two further production defects surfaced by the same run are recorded in `b0-veri
 | 1 | B2 report covers all transactions, lifecycle, Capture/Restore/Ack and fault interleavings, no implicit skips | **PASS** — 12 rows executed, none skipped |
 | 2 | Prepare failure leaves all state unchanged; Commit all-old/all-new with duplicate returning the original receipt; target fault does not cross World | **PASS** — rows 4, 5, 6, 7 |
 | 3 | Native/Reference outcome, error, receipt, snapshot bytes and Trace conform under the generated Port | **PASS** — row 11 |
-| 4 | All commands truly succeed, report replayable, test card did not modify production code | **PARTIAL** — B2's own target exits 0; but the workspace run exits 101 on the R-00143 blocker, and production code *was* modified under user authorization |
+| 4 | All commands truly succeed, report replayable, test card did not modify production code | **PARTIAL** — every command now exits 0 and `4ced801` is on `origin/main`, so the run is replayable; but production code *was* modified under explicit user authorization (see §5) |
 
-**Verdict for this card: 12/12 rows PASS; delivery conditional.** B2 itself is green. The workspace is not,
-because of cluster A (owner: `LumioGameEngineArchitecture`), and criterion 4 is not cleanly met.
+**Verdict for this card: 12/12 rows PASS; workspace green (158/0).** The only criterion not cleanly met is
+4, because production code was modified by a test card under explicit user authorization.
 
 ## 5. Known gaps
 
@@ -116,11 +116,10 @@ because of cluster A (owner: `LumioGameEngineArchitecture`), and criterion 4 is 
 - **Receipt bytes changed for new commits.** No locked fixture depends on them, and
   `mutation_receipt` / `mutation_commit` / `mutation_atomic_batch` stay green — but downstream consumers
   that recorded pre-fix receipt bytes would see a difference.
-- **`origin/main` is currently RED.** It is `8e10823` (merge of PR #1), which **contains** `80a80c9` (5
-  failing tests, cluster-A P0) and **does not contain** the fixes `17ef95c` / `34ffdc1` / `dc6926b` — the
-  cluster-D fix recorded in §3 is therefore *not* on the published branch. An earlier revision said
-  `origin/main` = `47cbfdd` with these commits unpushed; that was true when first measured and is now
-  false (the merge happened mid-session).
+- **`origin/main` is green and contains this evidence's measurement point.** It is `4ced801`
+  (merges of PR #2 and PR #3), containing the cluster-D fix recorded in §3 and the upstream mirror.
+  Two earlier revisions of this bullet were wrong in opposite directions (first "unpushed, `origin/main` =
+  `47cbfdd`", then "`origin/main` is RED"); both were true when written and were overtaken by events.
 - **Concurrent writer.** Five commits on this branch were authored during the session by another actor;
   the user confirmed and elected to keep them. Measurements were re-verified after `80a80c9`.
 - Reference `VoxelPortHarness` still cannot observe Native world identity; alignment remains op
