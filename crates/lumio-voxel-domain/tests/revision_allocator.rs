@@ -1,9 +1,7 @@
 //! R-00070: monotonic allocator, abandon holes, double-finalize, stamp mapping.
 
 use lumio_voxel_contracts::{SCHEMA_IDS, STABLE_ERROR_IDS};
-use lumio_voxel_domain::revision::{
-    to_generated_stamp, RevisionAllocator, REVISION_STAMP_SCHEMA,
-};
+use lumio_voxel_domain::revision::{REVISION_STAMP_SCHEMA, RevisionAllocator, to_generated_stamp};
 
 #[test]
 fn world_and_chunk_domains_are_independent_and_monotonic() {

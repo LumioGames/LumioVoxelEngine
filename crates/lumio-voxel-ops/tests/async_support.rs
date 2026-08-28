@@ -1,13 +1,13 @@
 //! R-00068: OriginToken, bounded port from approved snapshot, completion dispositions.
 
-use lumio_voxel_contracts::{sha256, BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
-    VoxelConfigSnapshot, P0_DECISION_GATES,
+    P0_DECISION_GATES, VoxelConfigSnapshot,
 };
 use lumio_voxel_ops::async_support::{
-    full_load_action, validate_completion, BoundedJobPort, CompletionDisposition, OriginEnvelope,
-    OriginToken, APPLY_PHASES,
+    APPLY_PHASES, BoundedJobPort, CompletionDisposition, OriginEnvelope, OriginToken,
+    full_load_action, validate_completion,
 };
 use std::collections::BTreeMap;
 
@@ -34,7 +34,12 @@ fn approved_snapshot() -> std::sync::Arc<VoxelConfigSnapshot> {
     };
     let digests: BTreeMap<String, String> = P0_DECISION_GATES
         .iter()
-        .map(|g| ((*g).to_string(), hex32(&sha256(format!("approved-{g}").as_bytes()))))
+        .map(|g| {
+            (
+                (*g).to_string(),
+                hex32(&sha256(format!("approved-{g}").as_bytes())),
+            )
+        })
         .collect();
     let ev: Vec<DecisionEvidence> = P0_DECISION_GATES
         .iter()

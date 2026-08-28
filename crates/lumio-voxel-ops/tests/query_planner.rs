@@ -1,20 +1,20 @@
 //! R-00080: deterministic query planner and adapter-internal budget admission.
 
-use lumio_voxel_contracts::{sha256, BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
 use lumio_voxel_domain::chunk::{
     ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkSlot, DirtyFrontier,
 };
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
-    VoxelConfigSnapshot, P0_DECISION_GATES,
+    P0_DECISION_GATES, VoxelConfigSnapshot,
 };
 use lumio_voxel_domain::publication::{
     PublicationAuthority, PublishedReadView, PublishedStateRoot,
 };
 use lumio_voxel_domain::revision::{
-    GeneratedRevisionStamp, PinRegistry, RevisionAllocator, WorldRevision, REVISION_STAMP_SCHEMA,
+    GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
 };
-use lumio_voxel_ops::query::{GeneratedVoxelQueryRequest, QueryPlanner, QUERY_SCHEMA};
+use lumio_voxel_ops::query::{GeneratedVoxelQueryRequest, QUERY_SCHEMA, QueryPlanner};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;

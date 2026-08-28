@@ -19,10 +19,7 @@ pub struct CompletionEnvelope<R> {
     pub outcome: Result<R, &'static str>,
 }
 
-pub fn validate_completion(
-    expected: &OriginToken,
-    current: &OriginToken,
-) -> CompletionDisposition {
+pub fn validate_completion(expected: &OriginToken, current: &OriginToken) -> CompletionDisposition {
     let _ = STABLE_ERROR_IDS.contains(&"StaleEpoch");
     if expected.world_context_id() != current.world_context_id() {
         return CompletionDisposition::WrongWorld;
