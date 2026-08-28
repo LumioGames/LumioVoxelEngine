@@ -113,7 +113,13 @@ precondition owned by another repository.
 - **Production code modified by a test card.** The step-4 fix touches `lumio-voxel-ops` and
   `lumio-voxel-domain` (owners R-00104, R-00078), departing from this card's
   「不得为通过测试改生产代码」 boundary. Done on explicit user authorization; owner cards need annotating.
-- **Evidence cites unpushed commits.** `80a80c9` is not on `origin/main` (= `47cbfdd`).
+- **`origin/main` is currently RED.** It is `8e10823` (merge of PR #1), which **contains** `80a80c9` (5
+  failing tests, cluster-A P0) and **does not contain** the fixes `17ef95c` / `34ffdc1` / `dc6926b` — the
+  step-4 fix in §3.1 is therefore *not* on the published branch. An earlier revision said `origin/main` =
+  `47cbfdd` with these commits unpushed; that was true when first measured and is now false.
+- **Acceptance criterion 2 was worded optimistically.** "Native and Reference byte-identical" is *not*
+  proven: the Reference harness cannot observe Native world identity, so only op sequence and payload were
+  aligned. The PARTIAL marking is honest; the phrasing overstated what the alignment covers.
 - **Concurrent writer.** Five commits on `fix/rust-workspace-checks` were authored during this session by
   an actor other than the executing agent; the user confirmed them and elected to keep them. In particular
   `0f8cf0c` corrected `K[28]` only in the test-only crate, leaving the generated copy broken — so a green

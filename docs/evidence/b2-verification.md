@@ -116,7 +116,11 @@ because of cluster A (owner: `LumioGameEngineArchitecture`), and criterion 4 is 
 - **Receipt bytes changed for new commits.** No locked fixture depends on them, and
   `mutation_receipt` / `mutation_commit` / `mutation_atomic_batch` stay green — but downstream consumers
   that recorded pre-fix receipt bytes would see a difference.
-- **Evidence cites unpushed commits.** `80a80c9` is not on `origin/main` (= `47cbfdd`).
+- **`origin/main` is currently RED.** It is `8e10823` (merge of PR #1), which **contains** `80a80c9` (5
+  failing tests, cluster-A P0) and **does not contain** the fixes `17ef95c` / `34ffdc1` / `dc6926b` — the
+  cluster-D fix recorded in §3 is therefore *not* on the published branch. An earlier revision said
+  `origin/main` = `47cbfdd` with these commits unpushed; that was true when first measured and is now
+  false (the merge happened mid-session).
 - **Concurrent writer.** Five commits on this branch were authored during the session by another actor;
   the user confirmed and elected to keep them. Measurements were re-verified after `80a80c9`.
 - Reference `VoxelPortHarness` still cannot observe Native world identity; alignment remains op

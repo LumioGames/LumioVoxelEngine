@@ -105,8 +105,14 @@ Blast radius beyond this card:
   a broken hasher.
 
 Root cause is **upstream**: `LumioGameEngineArchitecture/tools/lumio_generate.py:168` (the generator) and
-`LumioGameEngineArchitecture/packages/rust/lumio-gen-contract-runtime/src/sha256.rs:8`. The correct
-constant appears nowhere in that repository.
+`LumioGameEngineArchitecture/packages/rust/lumio-gen-contract-runtime/src/sha256.rs:8`.
+
+Upstream status as of this record: **a fix is in flight but not yet committed.** The architecture repo's
+working tree already carries `0xc6e00bf3` at both sites (~27 files modified, including a regenerated
+`sha256.rs`), but its committed `HEAD` (`7f6c0c6`) still carries `0xc6eabbdc`. So the correct constant does
+exist upstream — as uncommitted work, not as a published artifact. An earlier revision of this document
+stated it "appears nowhere in that repository"; that was true when first measured and is now false. The
+distinction matters for routing: this is "finish and publish the in-flight fix", not "discover and fix".
 
 Per `.spec/rules/system.md` (**生成物不得手改**) this cannot be fixed here. It requires an upstream
 correction, regeneration, re-emission of the affected `outputHash` values, and a re-lock.
@@ -132,9 +138,14 @@ artifact hash chain verifies.**
 ## 6. Known gaps
 
 - **Cluster A is unresolved and is the sole remaining test failure.** Requires an upstream fix.
-- **Evidence cites unpushed commits.** `80a80c9` and its four predecessors on `fix/rust-workspace-checks`
-  are not on `origin/main` (`origin/main` = `47cbfdd`). This violates the standing rule that evidence may
-  only cite pushed commits; recorded here explicitly rather than silently.
+- **`origin/main` is currently RED, and this is the most actionable gap in this document.**
+  `origin/main` = `8e10823` (merge of PR #1). It **contains** `80a80c9` — the state with 5 failing tests
+  and the cluster-A P0 — and **does not contain** the three fixes `17ef95c` / `34ffdc1` / `dc6926b`. So the
+  published branch is the worse of the two states available. An earlier revision of this document said
+  `origin/main` = `47cbfdd` and that these commits were unpushed; that was true when first measured and is
+  now false — the merge happened mid-session. Evidence here still cites commits that are *not* on
+  `origin/main`, so the "evidence must cite pushed commits" rule remains unmet, but in the opposite
+  direction from what was first recorded.
 - **Production code was modified by a test card.** Clusters C/D/F were fixed on explicit user
   authorization, overriding this card's 「不得为通过测试改生产代码」 boundary. The changes are genuine
   defect fixes, not assertion-weakening, but they belong to R-00056/R-00142, R-00078 and R-00104 and

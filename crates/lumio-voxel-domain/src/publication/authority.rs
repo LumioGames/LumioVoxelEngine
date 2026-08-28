@@ -115,6 +115,12 @@ impl PublicationAuthority {
         if token.generation != self.generation {
             return Err(PublishError::stale_epoch());
         }
+        // Defense in depth, and currently unreachable through the public API: `seal` is
+        // one-shot and `PublicationToken` is neither `Clone` nor re-constructible outside
+        // this module, so a genuine double release is caught there. Before the ordering
+        // above was corrected this branch *was* reachable — but only for foreign tokens
+        // whose per-authority id happened to collide, i.e. it only ever fired wrongly.
+        // Keep it: it is the invariant's last line, not dead code to delete.
         if inner.used_ids.contains(&token.id) {
             return Err(PublishError::handle_double_release());
         }
