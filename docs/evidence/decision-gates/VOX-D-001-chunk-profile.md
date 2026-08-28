@@ -11,6 +11,11 @@
 - `approvalStatus=approved`
 - Architecture owner approval: **`LGE-V1.4-VOX-D-P0-2026-08-28`** (Architecture `5f06822`, [VOX-D-P0-OWNER-CONFIRMATION.md](../../../../LumioGameEngineArchitecture/docs/architecture/VOX-D-P0-OWNER-CONFIRMATION.md))
 - Selected internal family: `IsolatedCubicExtentFamily` (adapter-internal; **no public Schema extent**)
+- Owner-stated precondition (「macOS 环境首次真实跑通测试矩阵」): **partially met** — the matrix was linked
+  and executed on `aarch64-apple-darwin` for the first time on 2026-08-28 (153 passed / 5 failed). The 5
+  failures share one upstream root cause unrelated to this gate: a wrong SHA-256 round constant in the
+  generated contract runtime (see [`../b0-verification.md`](../b0-verification.md) §4). This gate's own
+  seam is still not a workspace member and `measure()` remains unexecuted (§4).
 
 This is a research gate plus owner confirmation. It still does **not** freeze a public Chunk extent, world bound, page size, or overflow policy into generated config. `approval_status()` returns `"approved"` citing the owner confirmation. Concrete dimensions remain adapter-internal.
 
