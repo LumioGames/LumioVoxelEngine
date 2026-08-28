@@ -165,6 +165,10 @@ fn unquote(s: &str) -> String {
 }
 
 /// Build the live workspace graph via `cargo tree` (same method as NativeCore).
+///
+/// Each crate is queried on its own: `cargo tree` must not be passed
+/// `--workspace` here, because that overrides `-p` and prints every member's
+/// tree, which would give every crate the union of all depth-1 edges.
 pub fn live_graph(
     workspace_root: &std::path::Path,
 ) -> Result<BTreeMap<String, Vec<String>>, String> {
@@ -178,16 +182,7 @@ pub fn live_graph(
 fn direct_deps(workspace_root: &std::path::Path, krate: &str) -> Result<Vec<String>, String> {
     let out = std::process::Command::new("cargo")
         .args([
-            "tree",
-            "-p",
-            krate,
-            "-e",
-            "normal",
-            "--depth",
-            "1",
-            "--prefix",
-            "depth",
-            "--workspace",
+            "tree", "-p", krate, "-e", "normal", "--depth", "1", "--prefix", "depth",
         ])
         .current_dir(workspace_root)
         .output()
