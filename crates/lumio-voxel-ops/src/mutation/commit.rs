@@ -41,10 +41,7 @@ pub fn commit(
 ) -> Result<GeneratedMutationReceipt, MutationError> {
     debug_assert!(SCHEMA_IDS.contains(&MUTATION_RECEIPT_SCHEMA));
     let view = authority.capture();
-    recheck_prepared(&prepared, &view, ledger)?;
-    // Prepare-time check rejects InFlight/Duplicate; commit re-runs presence then lookup.
-    recheck_presence(prepared.request(), &view)?;
-
+    // Idempotent replay must not require the unpublished base. Lookup first.
     match ledger
         .lookup(prepared.request())
         .map_err(MutationError::from_ledger)?
@@ -55,6 +52,8 @@ pub fn commit(
         LookupOutcome::Vacant => return Err(MutationError::invalid_handle()),
         LookupOutcome::InFlight => {}
     }
+    recheck_prepared(&prepared, &view, ledger)?;
+    recheck_presence(prepared.request(), &view)?;
 
     let plan = MutationPlanner::build(prepared.request())?;
     let replacement = prepared.replacement().clone();

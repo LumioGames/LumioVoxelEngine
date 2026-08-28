@@ -34,4 +34,23 @@ fn mvp_vertical_slice_step_count_and_dual_instance() {
         "MVP vertical slice failed: steps={:?}",
         report.steps
     );
+    let duplicate = report
+        .steps
+        .iter()
+        .find(|step| step.name == "duplicate_replay")
+        .expect("duplicate_replay step");
+    assert!(
+        duplicate.detail.contains("original receipt"),
+        "duplicate_replay must drive adapter.commit and keep the original receipt: {}",
+        duplicate.detail
+    );
+    assert_eq!(
+        report
+            .receipts
+            .iter()
+            .filter(|receipt| receipt.txn_id == "txn-mvp")
+            .count(),
+        1,
+        "duplicate commit must not record a second txn-mvp receipt"
+    );
 }

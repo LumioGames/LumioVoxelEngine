@@ -124,6 +124,15 @@ impl MutationPreconditions {
             return Err(MutationError::stale_epoch());
         }
 
+        // Same-fingerprint Duplicate is idempotent replay: skip the expected-revision
+        // check (the published stamp already advanced). InFlight stays rejected.
+        match ledger.lookup(request) {
+            Ok(LookupOutcome::Duplicate { .. }) => return Ok(()),
+            Ok(LookupOutcome::InFlight) => return Err(MutationError::invalid_handle()),
+            Ok(LookupOutcome::Vacant) => {}
+            Err(err) => return Err(MutationError::from_ledger(err)),
+        }
+
         let plan = MutationPlanner::build(request)?;
         if plan.expected_world_revision() != stamp.world_revision {
             return Err(MutationError::revision_conflict());
@@ -149,13 +158,7 @@ impl MutationPreconditions {
             }
         }
 
-        match ledger.lookup(request) {
-            Ok(LookupOutcome::Vacant) => Ok(()),
-            Ok(LookupOutcome::InFlight) | Ok(LookupOutcome::Duplicate { .. }) => {
-                Err(MutationError::invalid_handle())
-            }
-            Err(err) => Err(MutationError::from_ledger(err)),
-        }
+        Ok(())
     }
 }
 

@@ -36,7 +36,7 @@ Runtime column is **not executed**: the only `cargo test` invocation ended at li
 | 2 | query | four-state ids + absent `c:4:0:0` through `adapter.query`; no implicit load (absent / NotLoaded / Pending / Unavailable do not become Ready) | not run (101) |
 | 3 | prepare | `adapter.prepare_mutation` with `world_revision` + `c:0:0:0/cell-0`; identity unchanged | not run (101) |
 | 4 | commit | `adapter.commit`; new published identity; receipt recorded | not run (101) |
-| 5 | duplicate_replay | second `adapter.prepare_mutation` of the same txn; `PreparedMutation` is move-only so a second commit token is not reachable; identity unchanged | not run (101) |
+| 5 | duplicate_replay | second `adapter.prepare_mutation` of the same TxnId then `adapter.commit`; original receipt bytes/hash returned; published identity unchanged | not run (101) |
 | 6 | capture | `adapter.capture` + `RuntimeSnapshotCut::from_live`; CaptureCut released | not run (101) |
 | 7 | encode | `encode_capture` on the captured ref outside the barrier | not run (101) |
 | 8 | restore | `RestorePreflight::validate` + `RestoreShadowBuilder::build` + `adapter.restore` | not run (101) |
@@ -81,7 +81,7 @@ No production crate `src/` edits (`contracts` / `domain` / `ops` / `world` / `pr
 ## 5. Concerns
 
 - Slice assertions have not run on this host. Type-check + clippy are not evidence that query four-state, commit identity swap, restore, durability coverage, or dual-instance isolation passed.
-- Duplicate replay cannot drive a second `adapter.commit`: `PreparedMutation` is move-only, and a second `prepare_mutation` of the same txn is rejected (`RevisionConflict` or `InvalidHandle`) with identity unchanged.
+- Duplicate replay now drives `adapter.commit` of the same TxnId after a same-fingerprint second `prepare_mutation`. The shipped commit path returns the original receipt without a second publish. Runtime still not executed here (`link.exe` missing).
 - Four-state / post-restore Ready fixtures go through copied B2 `PublicationAuthority` helpers, not the adapter.
 - Prerequisite cards R-00142 / R-00143 / R-00145 were `in_review` on the card face; this harness calls their shipped APIs in-tree.
 - `cargo test` exit 101 is the MSVC linker gap, identical to B0/B2. It is not a slice PASS.

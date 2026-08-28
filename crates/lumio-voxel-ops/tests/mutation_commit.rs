@@ -265,6 +265,13 @@ fn duplicate_txn_returns_original_receipt_without_second_publish() {
     assert_eq!(replayed.receipt, first.receipt);
     assert_eq!(auth2.capture().root().identity(), hash2);
     assert_eq!(auth.capture().root().identity(), identity);
+
+    let prepared_same = prepare(&req, &auth.capture(), &mut ledger)
+        .expect("same-fingerprint prepare after commit");
+    let replayed_same = commit(prepared_same, &auth, &mut ledger).expect("same-world duplicate");
+    assert_eq!(replayed_same.receipt, first.receipt);
+    assert_eq!(replayed_same.txn_id, first.txn_id);
+    assert_eq!(auth.capture().root().identity(), identity);
 }
 
 #[test]

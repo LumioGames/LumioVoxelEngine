@@ -200,6 +200,7 @@ struct LiveSlice {
     snap: Arc<VoxelConfigSnapshot>,
     replica_identity: [u8; 32],
     mutation: Option<OriginEnvelope<MutationRequest>>,
+    original_receipt: Option<GeneratedMutationReceipt>,
 }
 
 fn step_create(report: &mut MvpIntegrationReport) -> Result<LiveSlice, String> {
@@ -266,6 +267,7 @@ fn step_create(report: &mut MvpIntegrationReport) -> Result<LiveSlice, String> {
         snap,
         replica_identity,
         mutation: None,
+        original_receipt: None,
     })
 }
 
@@ -373,6 +375,7 @@ fn step_commit(
         .commands
         .push("GeneratedVoxelWorldPortAdapter::commit".into());
     push_receipt(report, &receipt.payload);
+    live.original_receipt = Some(receipt.payload.clone());
     let after = identity_of(&live.authority);
     if receipt.payload.txn_id != "txn-mvp" || receipt.payload.evidence.txn_id != "txn-mvp" {
         return Err("commit txn mismatch".into());
@@ -394,28 +397,43 @@ fn step_duplicate_replay(
     let Some(dup_env) = live.mutation.clone() else {
         return Err("duplicate replay missing original MutationRequest".into());
     };
+    let original = live
+        .original_receipt
+        .clone()
+        .ok_or_else(|| "duplicate replay missing original receipt".to_string())?;
     let before = identity_of(&live.authority);
-    let err = {
+    let prepared = {
         let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut live.authority);
         adapter
             .prepare_mutation(dup_env)
-            .err()
-            .ok_or_else(|| "duplicate prepare succeeded".to_string())?
+            .map_err(|err| format!("duplicate prepare: {}", err.error_id()))?
     };
     report
         .commands
         .push("GeneratedVoxelWorldPortAdapter::prepare_mutation duplicate".into());
-    require_stable(err.error_id())?;
-    if err.error_id() != "RevisionConflict" && err.error_id() != "InvalidHandle" {
-        return Err(format!("duplicate replay {}", err.error_id()));
+    let replayed = {
+        let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut live.authority);
+        adapter
+            .commit(prepared)
+            .map_err(|err| format!("duplicate commit: {}", err.error_id()))?
+    };
+    report
+        .commands
+        .push("GeneratedVoxelWorldPortAdapter::commit duplicate TxnId".into());
+    if replayed.payload.txn_id != original.txn_id
+        || replayed.payload.evidence.txn_id != original.evidence.txn_id
+    {
+        return Err("duplicate commit txn mismatch".into());
+    }
+    if replayed.payload.receipt != original.receipt
+        || replayed.payload.evidence.receipt_hash != original.evidence.receipt_hash
+    {
+        return Err("duplicate commit returned a different receipt".into());
     }
     if identity_of(&live.authority) != before {
-        return Err("duplicate prepare mutated the published identity".into());
+        return Err("duplicate commit published a second root".into());
     }
-    Ok(format!(
-        "second prepare of same txn {}; identity unchanged (PreparedMutation is move-only, no second commit token)",
-        err.error_id()
-    ))
+    Ok("adapter.commit of the same TxnId returned the original receipt; identity unchanged".into())
 }
 
 fn step_capture(
