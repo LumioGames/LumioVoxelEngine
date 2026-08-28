@@ -288,7 +288,6 @@ fn adapter_mutation_matches_direct_receipt_txn() {
     let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut via_world);
     let prepared = adapter.prepare_mutation(via_env).expect("adapter prepare");
     let via_receipt = adapter.commit(prepared).expect("adapter commit");
-    drop(adapter);
     assert_eq!(via_receipt.payload.txn_id, "txn-port");
     assert_eq!(via_receipt.payload.evidence.txn_id, "txn-port");
 
@@ -326,7 +325,6 @@ fn adapter_capture_restore_and_durability_ack_are_callable() {
     encode_capture(&captured, &mut writer).expect("encode after capture");
     let bytes = writer.as_slice().to_vec();
     drop(captured);
-    drop(adapter);
 
     let decoded = RestorePreflight::validate(
         &bytes,
@@ -338,7 +336,6 @@ fn adapter_capture_restore_and_durability_ack_are_callable() {
     let candidate = RestoreShadowBuilder::build(&decoded).expect("shadow");
     let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut world);
     adapter.restore(candidate).expect("adapter restore");
-    drop(adapter);
 
     let ack = empty_ack(&world);
     GeneratedVoxelWorldPortAdapter::new(&mut world)

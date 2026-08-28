@@ -23,18 +23,27 @@ fn empty_gitkeep_matches_lock() {
 
 #[test]
 fn handwritten_generated_file_is_rejected() {
-    let root = workspace_root_from_manifest(env!("CARGO_MANIFEST_DIR"));
-    let json = fs::read_to_string(root.join(generated_clean::LOCK_PATH)).unwrap();
-    let locked = generated_clean::lock_from_json(&json);
-    let generated = generated_clean::workspace_generated_dir(&root);
+    // Runs against a temp tree: writing the rogue file into the real generated
+    // dir races with empty_gitkeep_matches_lock, which scans that same dir.
+    let dir = std::env::temp_dir().join("lve-generated-clean-handwritten");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join(".gitkeep"), b"").unwrap();
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let rogue = generated.join(format!("handwritten-{nonce}.rs"));
-    fs::write(&rogue, b"pub struct FakeDto;").unwrap();
-    let v = generated_clean::violations(&generated, &locked);
-    let _ = fs::remove_file(&rogue);
+    fs::write(
+        dir.join(format!("handwritten-{nonce}.rs")),
+        b"pub struct FakeDto;",
+    )
+    .unwrap();
+    let locked = vec![LockedFile {
+        rel: ".gitkeep".into(),
+        sha256: generated_clean::sha256_hex(b""),
+    }];
+    let v = generated_clean::violations(&dir, &locked);
+    let _ = fs::remove_dir_all(&dir);
     assert!(
         v.iter().any(|s| s.contains("未锁定文件")),
         "expected handwritten file to fail, got {v:?}"

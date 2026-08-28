@@ -8,6 +8,6 @@ pub mod bounded_port;
 pub mod completion;
 pub mod origin;
 
-pub use bounded_port::{full_load_action, BoundedJobPort, SubmitError};
-pub use completion::{validate_completion, CompletionDisposition, CompletionEnvelope};
-pub use origin::{OriginEnvelope, OriginError, OriginToken, APPLY_PHASES};
+pub use bounded_port::{BoundedJobPort, SubmitError, full_load_action};
+pub use completion::{CompletionDisposition, CompletionEnvelope, validate_completion};
+pub use origin::{APPLY_PHASES, OriginEnvelope, OriginError, OriginToken};
