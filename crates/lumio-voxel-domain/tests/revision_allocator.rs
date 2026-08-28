@@ -17,7 +17,27 @@ fn world_and_chunk_domains_are_independent_and_monotonic() {
     let fc0 = c0.finalize().unwrap();
     assert!(fw1 > fw0);
     assert_eq!(fc0.value(), 0);
-    assert_ne!(fw0.value(), fc0.value());
+    assert_eq!(
+        fw0.value(),
+        0,
+        "finalize returns the reserved value unchanged"
+    );
+    // Independence is domain isolation, not different starting numbers: both domains
+    // start at 0 by design, and the type system already forbids comparing a
+    // WorldRevision with a ChunkRevision. Prove instead that each counter advances
+    // only on its own domain's reservations.
+    let c1 = a.reserve_chunk().unwrap();
+    assert_eq!(
+        c1.value().value(),
+        1,
+        "two world reservations must not advance the chunk domain"
+    );
+    let w2 = a.reserve_world().unwrap();
+    assert_eq!(
+        w2.value().value(),
+        2,
+        "chunk reservations must not advance the world domain"
+    );
 }
 
 #[test]

@@ -13,6 +13,11 @@
 - `approvalStatus=approved`
 - Architecture owner approval: **`LGE-V1.4-VOX-D-P0-2026-08-28`** (Architecture `5f06822`)
 - Selected internal family: `GenerationBoundLeaseFamily` (tick/generation lease, never wall clock)
+- Owner-stated precondition (「macOS 环境首次真实跑通测试矩阵」): **partially met** — the matrix was linked
+  and executed on `aarch64-apple-darwin` for the first time on 2026-08-28 (153 passed / 5 failed). The 5
+  failures share one upstream root cause unrelated to this gate: a wrong SHA-256 round constant in the
+  generated contract runtime (see [`../b0-verification.md`](../b0-verification.md) §4). This gate's own
+  seam is still not a workspace member and `measure()` remains unexecuted.
 
 This is a research gate plus owner confirmation. It does **not** freeze a public receipt-table capacity Schema column. It does **not** invent abort reasons. `approval_status()` returns `"approved"`.
 
@@ -192,4 +197,6 @@ Stop thresholds (qualitative; none frozen as numerics): re-execution of a commit
 
 ## 7. Contract
 
-No Schema / ID / default config was modified. No abort reason was added. `approval_status()` remains `"blocked"`.
+No Schema / ID / default config was modified. No abort reason was added. `approval_status()` returns
+`"approved"`, citing `LGE-V1.4-VOX-D-P0-2026-08-28`; the lease/receipt numerics it selected
+(`GenerationBoundLeaseFamily`) stay adapter-internal, so no public default was generated.

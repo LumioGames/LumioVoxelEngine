@@ -11,11 +11,19 @@ mod lumio_gen_canonical_serializer;
 #[path = "../generated/rust/lumio-gen-contract-runtime/src/lib.rs"]
 #[rustfmt::skip]
 mod lumio_gen_contract_runtime;
+// The vendored generated tree is published upstream as independent library crates, where
+// every item is crate-public and reachable. Here it is `#[path]`-included into private
+// modules, so anything this crate does not re-export becomes unreachable and trips
+// `dead_code` — notably the ADR-040 Root ABI surface, which Voxel does not consume.
+// Allow it at the seam rather than re-exporting items nothing here uses (that would grow
+// the public API to silence a lint) or patching the generated files (forbidden).
 #[path = "../generated/rust/lumio-gen-contract-types/src/lib.rs"]
 #[rustfmt::skip]
+#[allow(dead_code)]
 mod lumio_gen_contract_types;
 #[path = "../generated/rust/lumio-gen-language-binding/src/lib.rs"]
 #[rustfmt::skip]
+#[allow(dead_code)]
 mod lumio_gen_language_binding;
 #[path = "../generated/rust/lumio-gen-mapping-table/src/lib.rs"]
 #[rustfmt::skip]
@@ -36,10 +44,19 @@ pub use lumio_gen_contract_runtime::{
     hash_chain_verify, sha256,
 };
 pub use lumio_gen_contract_types::{
-    BASELINE_ID, CHUNK_PRESENCE, MACHINE_IDS, SCHEMA_IDS, STABLE_ERROR_IDS, Transition,
-    VOXEL_WORLD_ROLES, machine_ids, state_transition_table,
+    BASELINE_ID, MACHINE_IDS, STABLE_ERROR_IDS, Transition, VOXEL_WORLD_ROLES, machine_ids,
+    state_transition_table,
 };
-pub use lumio_gen_language_binding::{BINDINGS, Binding};
+pub use lumio_gen_language_binding::Binding;
+
+// Re-exported as `static`, not `pub use` of the generated `const`. A `const` is inlined
+// at every use site, so each consuming crate materializes its own copy and there is no
+// canonical address for an interned identifier — `std::ptr::eq` against the table then
+// compares two distinct per-crate allocations. These three tables are the ones the
+// intern seams hand back by reference, so they must have exactly one materialization.
+pub static CHUNK_PRESENCE: &[&str] = lumio_gen_contract_types::CHUNK_PRESENCE;
+pub static SCHEMA_IDS: &[&str] = lumio_gen_contract_types::SCHEMA_IDS;
+pub static BINDINGS: &[Binding] = lumio_gen_language_binding::BINDINGS;
 pub use lumio_gen_mapping_table::{MAPPING_REQUIRED, MAPPING_ROLES};
 pub use lumio_gen_protocol_permission_validator::{ACTIVE_PERMISSION_FIELDS, is_active_field};
 

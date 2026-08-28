@@ -61,11 +61,13 @@ pub fn commit(
     let new_dir = overlay_directory(&view, &replacement, &overlay_ids)?;
     let new_stamp = build_stamp(&prepared, &view, &replacement, &overlay_ids)?;
     let new_root = PublishedStateRoot::new(new_stamp, new_dir, prepared.dirty().clone());
-    let new_identity = new_root.identity();
     let world = world_revision(prepared.target_world_revision())?;
     let mut publication = authority
         .prepare(world, new_root, replacement)
         .map_err(MutationError::from_publish)?;
+    // `prepare` folds the replacement digest into the cut identity; the value computed
+    // before `prepare` is not what `publish_once` will make visible.
+    let new_identity = publication.new_root_identity();
     let token = publication.seal().map_err(MutationError::from_publish)?;
 
     let request = prepared.request().clone();

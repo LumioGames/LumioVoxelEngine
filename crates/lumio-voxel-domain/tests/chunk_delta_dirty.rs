@@ -301,6 +301,93 @@ fn dirty_frontier_newer_dirty_not_covered_by_older_ack() {
     assert_stable_error(err.error_id());
 }
 
+/// Strips Rust comments so the guard scans executable source, not prose.
+///
+/// The forbidden tokens below describe forbidden *code*. A doc comment that names a
+/// token in order to state the rule is obeyed (dirty.rs: "Not named clear_dirty") is
+/// documentation of compliance, not a violation; scanning raw file text made this
+/// guard fire on its own success. String literals are preserved so a token that really
+/// does appear in code is still caught.
+///
+/// Char literals are skipped explicitly: a bare `'"'` would otherwise flip the string
+/// state and swallow everything up to the next quote, making the guard scan *less* than
+/// it claims to. That fails open, which is the same class of silent-miss as the bug this
+/// helper was written for. Raw strings (`r#"…"#`) are still not modelled — none of the
+/// scanned files uses one; add handling here before that changes.
+fn code_only(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut chars = src.chars().peekable();
+    let mut in_line_comment = false;
+    let mut block_depth = 0usize;
+    let mut in_str = false;
+    let mut escaped = false;
+    while let Some(c) = chars.next() {
+        if in_line_comment {
+            if c == '\n' {
+                in_line_comment = false;
+                out.push(c);
+            }
+            continue;
+        }
+        if block_depth > 0 {
+            if c == '/' && chars.peek() == Some(&'*') {
+                chars.next();
+                block_depth += 1;
+            } else if c == '*' && chars.peek() == Some(&'/') {
+                chars.next();
+                block_depth -= 1;
+            } else if c == '\n' {
+                out.push(c);
+            }
+            continue;
+        }
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_str = false;
+            }
+            out.push(c);
+            continue;
+        }
+        match c {
+            '\'' => {
+                // Char literal or lifetime. Consume a `'x'` / `'\x'` literal wholesale so a
+                // quote inside it cannot flip `in_str`; a lifetime just falls through.
+                out.push(c);
+                let mut probe = chars.clone();
+                let first = probe.next();
+                if first == Some('\\') {
+                    probe.next();
+                }
+                if probe.next() == Some('\'') {
+                    for _ in 0..(if first == Some('\\') { 3 } else { 2 }) {
+                        if let Some(lit) = chars.next() {
+                            out.push(lit);
+                        }
+                    }
+                }
+            }
+            '"' => {
+                in_str = true;
+                out.push(c);
+            }
+            '/' if chars.peek() == Some(&'/') => {
+                chars.next();
+                in_line_comment = true;
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                block_depth = 1;
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 #[test]
 fn chunk_delta_dirty_source_has_no_publish_clear_or_fs() {
     let sources = [
@@ -309,6 +396,7 @@ fn chunk_delta_dirty_source_has_no_publish_clear_or_fs() {
         include_str!("../src/chunk/replacement.rs"),
     ];
     for src in sources {
+        let src = code_only(src);
         assert!(!src.contains("std::fs"), "must not use std::fs");
         assert!(!src.contains("::File"), "must not use File");
         assert!(!src.contains("clear_dirty"), "must not clear dirty");

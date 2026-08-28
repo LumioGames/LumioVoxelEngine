@@ -41,6 +41,13 @@ impl PreparedPublication {
         }
     }
 
+    /// Identity of the bound cut, after `prepare` folded the replacement digest in.
+    /// Callers must read the new root identity here, never from the value they handed
+    /// to `prepare` — that one predates `incorporate_replacement` and is never published.
+    pub fn new_root_identity(&self) -> [u8; 32] {
+        self.new_root.identity()
+    }
+
     /// First call yields the one-shot token. A second call is `HandleDoubleRelease`.
     pub fn seal(&mut self) -> Result<PublicationToken, PublishError> {
         if self.sealed {
