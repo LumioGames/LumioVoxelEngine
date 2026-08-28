@@ -105,14 +105,18 @@ impl PublicationAuthority {
 
     pub fn publish_once(&self, token: PublicationToken) -> Result<PublishedReadView, PublishError> {
         let mut inner = self.write();
-        if inner.used_ids.contains(&token.id) {
-            return Err(PublishError::handle_double_release());
-        }
+        // Identity first: `token.id` comes from a per-authority counter, so ids from a
+        // foreign world/session collide numerically with our own. Interpreting a foreign
+        // id against this authority's one-shot ledger would report HandleDoubleRelease
+        // for a token that was never published anywhere.
         if token.world_id != self.world_id || token.context_id != self.context_id {
             return Err(PublishError::session_mismatch());
         }
         if token.generation != self.generation {
             return Err(PublishError::stale_epoch());
+        }
+        if inner.used_ids.contains(&token.id) {
+            return Err(PublishError::handle_double_release());
         }
         if token.base_identity != inner.root.identity() {
             return Err(PublishError::snapshot_base_mismatch());
