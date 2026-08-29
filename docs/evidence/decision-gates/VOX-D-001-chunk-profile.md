@@ -188,3 +188,72 @@ Stop thresholds (qualitative; no numeric SLA frozen): non-deterministic encode; 
 ## 7. Contract
 
 No Schema / ID / default config was modified. Root `Cargo.toml` / `Cargo.lock` / crate manifests were not edited; the seam is not a workspace member.
+
+## 8. 2026-08-29 修复后复测 — retest on the corrected SHA-256
+
+Retested 2026-08-29 on macOS (Darwin 25.5.0, Apple Silicon) at commit `cc868e4`, after `51c2836`
+(`fix(contracts): re-mirror generated artifacts with corrected SHA-256 K[28]`) replaced the wrong round
+constant `K[28] = 0xc6eabbdc` (FIPS 180-4: `0xc6e00bf3`) in the generated contract runtime. Root-cause
+forensics: [`VOX-D-006-streaming.md`](VOX-D-006-streaming.md) §8.1 and [`../b0-verification.md`](../b0-verification.md) §4.
+Question answered here: did any number recorded above come from the defective digest? **No.**
+§1–§7 are the 2026-08-28 record and stay unchanged; `approvalStatus=approved` is untouched — the
+`LGE-V1.4-VOX-D-P0-2026-08-28` signature is the architecture owner's, not this session's to re-issue.
+
+### 8.1 Every §1 hash reproduces with system `shasum`(not polluted)
+
+Each SHA-256 recorded in §1 was recomputed with `/usr/bin/shasum -a 256` (FIPS 180-4) over
+`git show 54b488f:<path>` — `54b488f` is the commit that carries this document's recorded revision
+(identical bytes at the recorded worktree HEAD `b2f0d8a` for these files). The architecture mirror,
+blueprint, V1.3 `DECISION_GATES.md`, V1.3 `MANIFEST.sha256`, seam `chunk_profile.rs`
+(`90c65e89b00030acc9da76282171bf2a36186f814e701744e4943f7759cb1601`), and toolchain values all match
+bit-for-bit. The defective implementation returns a wrong digest for **every** input, so a match with
+`shasum` proves these values never went through it.
+
+`chunk_profile.rs` at current HEAD hashes to
+`afa26ff839ca77c2a6e33dace39fd8c48da1296d347c5023ccb9eeb7f9a10f60`, ≠ §1 — explained drift, not
+tampering: `31cb6a2` recorded the D-013 owner freeze (`approval_status()` `"blocked"` → `"approved"`,
+plus new `approval_reference()` / `selected_family()`); the seed/corpus/fault logic is byte-unchanged
+(`git diff 54b488f HEAD -- benchmarks/decision_gates/chunk_profile.rs`).
+
+### 8.2 `measure()` executed for the first time(§4 recorded 未执行)
+
+§4/§4.3 recorded that no host could link a binary; `traceHashes` was `null` and stayed honest. The gate
+seam is now executed as a process through `benchmarks/decision_gates/run_seam_replay.sh chunk_profile_replay`.
+The committed driver `benchmarks/decision_gates/chunk_profile_replay.rs` (added in `cc868e4`) only adds
+`--test` entry points via `#[path]`; the seam file itself stays byte-untouched, so the §1 seam hash above
+remains the drift check. Two legs, plus a full-runner process re-run, all line-identical:
+
+| Leg | Toolchain | Result |
+| --- | --- | --- |
+| x86_64-apple-darwin (Rosetta) | pinned `1.98.0` → `rustc 1.98.0 (88d9e12ae 2026-08-18)` | 3 passed / 0 failed |
+| aarch64-apple-darwin (native) | `SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin` | 3 passed / 0 failed; output line-identical to x86_64 leg |
+
+First executed values (`MEASURE_SEED = 0x0000_D001_0000_0057`, 10 ops, three
+`DeterministicExecutor::run` repeats):
+
+```text
+VOX-D-001 traces_byte_identical true
+VOX-D-001 snapshot 089e8bb0d24f64f48071989735314c4ab5d11e3d9cde16355e14891624165bc7
+VOX-D-001 negative illegal-dimension point=PrePublication error=InvalidHandle recoverable=true visible_write=false matches_injector=true
+VOX-D-001 negative extreme-coordinate point=StaleCompletion error=StaleEpoch recoverable=true visible_write=false matches_injector=true
+VOX-D-001 negative memory-pressure point=LostResult error=EvidenceMissing recoverable=false visible_write=true matches_injector=true
+VOX-D-001 negative memory-pressure point=PostPublication error=PartialLoadRolledBack recoverable=false visible_write=true matches_injector=true
+VOX-D-001 negative cross-profile-misread point=CorruptSnapshot error=EvidenceDigestMismatch recoverable=false visible_write=true matches_injector=true
+```
+
+The executed negative matrix equals the §4.2 planned table row-for-row; visible-write faults stay
+unrecoverable. The snapshot above is the first executed one for this gate — §4 recorded none, so there
+is no old/new comparison to make; nothing in the original record is superseded by it.
+
+### 8.3 Counterfactual under the defective digest
+
+The same replay rebuilt and run in a temporary worktree at `54b488f` (pre-fix, defective `K[28]` still
+in the mirror) yields snapshot `4d5e27970cc8d81ce0988c370725142a70904a900b338658027eda71d8608bac` —
+what the record would have contained had the 2026-08-28 session invented an "executed" number through
+the then-defective runtime. It recorded `null` instead. The worktree was removed after the run.
+
+### 8.4 Verdict
+
+**未被污染。** No number in this document came from the defective SHA-256: all static hashes reproduce
+under `shasum`, and no executed trace hash was ever recorded (`traceHashes: null` was accurate). This
+section adds the first executed dual-architecture replay; `approvalStatus` and §1–§7 are unchanged.

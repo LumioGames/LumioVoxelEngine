@@ -200,3 +200,76 @@ Stop thresholds (qualitative; none frozen as numerics): re-execution of a commit
 No Schema / ID / default config was modified. No abort reason was added. `approval_status()` returns
 `"approved"`, citing `LGE-V1.4-VOX-D-P0-2026-08-28`; the lease/receipt numerics it selected
 (`GenerationBoundLeaseFamily`) stay adapter-internal, so no public default was generated.
+
+## 8. 2026-08-29 修复后复测 — retest on the corrected SHA-256
+
+Retested 2026-08-29 on macOS (Darwin 25.5.0, Apple Silicon) at commit `cc868e4`, after `51c2836`
+corrected the generated contract runtime's SHA-256 round constant `K[28] = 0xc6eabbdc → 0xc6e00bf3`
+(forensics: [`VOX-D-006-streaming.md`](VOX-D-006-streaming.md) §8.1, [`../b0-verification.md`](../b0-verification.md) §4).
+Question answered: did any number recorded above come from the defective digest? **No.** §1–§7 stay
+unchanged; `approvalStatus=approved` is untouched (the owner's signature is not this session's to re-issue).
+
+### 8.1 Every §1 hash reproduces with system `shasum`(one line-ending artifact explained)
+
+Each SHA-256 in §1 was recomputed with `/usr/bin/shasum -a 256` over `git show 54b488f:<path>`
+(`54b488f` carries this document's recorded revision; identical at the recorded HEAD `b2f0d8a` for
+these files). The document set, ADR 0007, `rust-toolchain.toml`, the R-00047 sources
+(`lib.rs`, `reference_harness.rs`, `deterministic_executor.rs`, `fault_injection.rs`) and the seam
+`reservation_receipt.rs` (`6fe271b63b1a00fbcba4b4984ce86e14317fbda995d10d343edf7b320ff45e1b`) all
+match bit-for-bit.
+
+One §1 value does not match the repo bytes and is a line-ending artifact, not pollution: the recorded
+`LICENSE` hash `077012ac…c9842e` is exactly `shasum -a 256` of the **CRLF rendering** of
+`b2f0d8a:LICENSE` (the recording host was Windows; `.gitattributes` pins `eol=lf` only for `*.md`).
+The same bytes with repository LF endings hash to `7818d824…f72ee4`. So the digest function was
+correct; only the checkout rendering differed. (`LICENSE` at current HEAD differs again for an
+unrelated reason: `47cbfdd chore: fix LICENSE copyright notice`.)
+
+The seam and `lib.rs` at current HEAD hash differently from §1 — explained drift: `31cb6a2` recorded
+the D-013 owner freeze in the seam (`"blocked"` → `"approved"` plus `approval_reference()` /
+`selected_family()`; measurement logic byte-unchanged), and later test cards (`72564f8`, `1e07b76`,
+`07886b9`) added harness modules to `lib.rs`. `reservation_receipt.rs` at HEAD:
+`b9de118ddcee36cfb8c0bae416cfaae62cdd02ea303c5863d738ac82434f6e90`.
+
+### 8.2 Three-repeat replay executed for the first time(§4 recorded 未执行, `traceHashes: []`)
+
+§4 recorded the binary replay as 未执行 and kept `traceHashes` empty. It is now executed through
+`benchmarks/decision_gates/run_seam_replay.sh reservation_receipt_replay`; the committed driver
+`reservation_receipt_replay.rs` (added in `cc868e4`) only adds `--test` entry points via `#[path]` and
+leaves the seam byte-untouched. Two legs (x86_64-apple-darwin Rosetta on pinned `1.98.0`;
+`SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin`), plus a full-runner process re-run: all line-identical,
+`rustc 1.98.0 (88d9e12ae 2026-08-18)`, 3 passed / 0 failed per leg.
+
+First executed values (`MEASUREMENT_SEED = 0x0000_D004`, 5 receipt ops, three repeats; trace hash =
+`lumio_voxel_contracts::sha256` over the §4 documented `encode_trace` layout, 289 bytes):
+
+```text
+VOX-D-004 run1 trace_hash 408124503257a22bc1924f9e3536c4a20ff932ce143b64e9798fdcee99ba99ef
+VOX-D-004 run1 snapshot fff5e5641aa2f5c758b8e51dfb45d54257fac4e01ad4c0670e9ec1a2c3d22d59
+VOX-D-004 run2 trace_hash 408124503257a22bc1924f9e3536c4a20ff932ce143b64e9798fdcee99ba99ef
+VOX-D-004 run2 snapshot fff5e5641aa2f5c758b8e51dfb45d54257fac4e01ad4c0670e9ec1a2c3d22d59
+VOX-D-004 run3 trace_hash 408124503257a22bc1924f9e3536c4a20ff932ce143b64e9798fdcee99ba99ef
+VOX-D-004 run3 snapshot fff5e5641aa2f5c758b8e51dfb45d54257fac4e01ad4c0670e9ec1a2c3d22d59
+VOX-D-004 fault commit-intent-leak point=PostPublication error=PartialLoadRolledBack recoverable=false
+VOX-D-004 fault applied-missing-result point=LostResult error=EvidenceMissing recoverable=false
+VOX-D-004 fault lease-expired point=PrePublication error=InvalidHandle recoverable=true
+```
+
+The executed fault matrix equals the §4 mapping row-for-row (`lease-expired` stays a pre-visible-write
+recoverable reject; no invented `LeaseExpired`). §4 recorded no trace hash, so nothing in the original
+record is superseded; these are the first. The card-level capacity axes (`repeated-txn`, `long-txn`,
+`crash-replay`, `capacity-pressure`, `prune-safety-point`) remain unmeasured exactly as §4 states —
+they need a real receipt ledger (R-00093), which this retest does not add.
+
+### 8.3 Counterfactual under the defective digest
+
+The same replay at `54b488f` (pre-fix) yields `trace_hash bdabf699c62fc875b79b252be8b24cb8feccde7d57a87a6d85f08fa896460362`
+and `snapshot 5db220a70db24745a652612c841c0428df775b3d902bf48e2abdf535cca637f0` — what the defective
+runtime would have recorded. The 2026-08-28 record contains no such numbers, consistent with its
+`traceHashes: []`.
+
+### 8.4 Verdict
+
+**未被污染。** All static hashes reproduce under `shasum` (the single `LICENSE` mismatch is a CRLF
+checkout rendering of the same bytes, verified byte-for-byte); no executed trace hash was ever
+recorded. First executed dual-architecture replay added above; `approvalStatus` and §1–§7 unchanged.
