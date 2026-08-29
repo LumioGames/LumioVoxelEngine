@@ -138,10 +138,33 @@ fn decode_rejects_duplicate_member_names() {
 /// A UTF-16 surrogate half is not a scalar value. C# strings can hold one and
 /// .NET's default UTF-8 encoder folds it onto U+FFFD, which would give two
 /// different strings one digest; refusing the escape keeps that off this side.
+///
+/// The refusal covers a *paired* surrogate escape too, which is a deliberate choice
+/// and not an oversight: the encoder emits `\u` only for C0 controls, so
+/// `\ud83d\ude00` would be a second spelling of a character that already has one,
+/// and a second spelling is a second path to one meaning. Nor is it an inability to
+/// carry astral characters — the same character round-trips as raw UTF-8, asserted
+/// at the end. Anyone later teaching the parser to combine surrogate pairs, on the
+/// reasonable-sounding grounds that JSON allows it, should have this fail.
 #[test]
-fn decode_rejects_a_lone_surrogate_escape() {
+fn decode_rejects_surrogate_escapes_in_every_form() {
+    // lone high half, lone low half
     assert_eq!(decode(b"{\"a\":\"\\ud800\"}"), Err(DecodeError::Malformed));
     assert_eq!(decode(b"{\"a\":\"\\udfff\"}"), Err(DecodeError::Malformed));
+    // a well-formed pair spelling U+1F600
+    assert_eq!(
+        decode(b"{\"a\":\"\\ud83d\\ude00\"}"),
+        Err(DecodeError::Malformed)
+    );
+    // a high half followed by an ordinary character
+    assert_eq!(decode(b"{\"a\":\"\\ud83db\"}"), Err(DecodeError::Malformed));
+
+    // ...while the character itself is carried, in the one spelling that exists.
+    let mut object = CanonicalObject::new();
+    object.insert_text("a", "\u{1f600}").expect("first insert");
+    let bytes = object.encode_bytes();
+    assert_eq!(bytes, "{\"a\":\"\u{1f600}\"}".as_bytes());
+    assert_eq!(decode(&bytes).expect("astral round trip"), object);
 }
 
 #[test]
