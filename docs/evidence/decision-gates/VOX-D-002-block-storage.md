@@ -145,3 +145,61 @@ Stop thresholds (qualitative): non-deterministic bytes across thread counts; una
 ## 7. Contract
 
 No Schema / ID / default config was modified.
+
+## 8. 2026-08-29 修复后复测 — retest on the corrected SHA-256
+
+Retested 2026-08-29 on macOS (Darwin 25.5.0, Apple Silicon) at commit `cc868e4`, after `51c2836`
+corrected the generated contract runtime's SHA-256 round constant `K[28] = 0xc6eabbdc → 0xc6e00bf3`
+(forensics: [`VOX-D-006-streaming.md`](VOX-D-006-streaming.md) §8.1, [`../b0-verification.md`](../b0-verification.md) §4).
+Question answered: did any number recorded above come from the defective digest? **No.** §1–§7 stay
+unchanged; `approvalStatus=approved` is untouched (the owner's signature is not this session's to re-issue).
+
+### 8.1 Every §1 hash reproduces with system `shasum`(not polluted)
+
+Each SHA-256 in §1 was recomputed with `/usr/bin/shasum -a 256` over `git show 54b488f:<path>`
+(`54b488f` carries this document's recorded revision). All match bit-for-bit, including the seam
+`block_storage.rs` (`812f1219c606a541679e9887341a4abd156204e7381d408e104d2a7b22fbce51`). The §4 rlib
+SHA-256 (`35c6437d…`) is a Windows build artifact explicitly labeled "not a corpus run hash"; rlib
+bytes are host/toolchain-dependent and are not re-derivable here — it carries no measurement content.
+
+`block_storage.rs` at current HEAD hashes to
+`f4acb63129754d9508dfc2cc40140c4ac0be624002e06050d71b582bca9677e1`, ≠ §1 — explained drift:
+`31cb6a2` recorded the D-013 owner freeze (`"blocked"` → `"approved"` plus `approval_reference()` /
+`selected_family()`); the seed/corpus/fault logic is byte-unchanged.
+
+### 8.2 Three-run replay executed for the first time(§4 recorded process not executed)
+
+§4 recorded the three-run `Trace.snapshot` compare as encoded-but-not-executed (no `link.exe`). It is
+now executed through `benchmarks/decision_gates/run_seam_replay.sh block_storage_replay`; the committed
+driver `block_storage_replay.rs` (added in `cc868e4`) only adds `--test` entry points via `#[path]` and
+leaves the seam byte-untouched. Two legs (x86_64-apple-darwin Rosetta on the pinned `1.98.0`, and
+`SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin`), plus a full-runner process re-run: all line-identical,
+`rustc 1.98.0 (88d9e12ae 2026-08-18)`, 3 passed / 0 failed per leg.
+
+First executed values (`SCHEDULE_SEED = 0x0002_D002`, 9 ops = 3 labels × 3 generated schema ids):
+
+```text
+VOX-D-002 run1 snapshot a73e12ba1bb503a56a62eaefa88385c25885c4a62a0bcce11f7876702f54192a
+VOX-D-002 run2 snapshot a73e12ba1bb503a56a62eaefa88385c25885c4a62a0bcce11f7876702f54192a
+VOX-D-002 run3 snapshot a73e12ba1bb503a56a62eaefa88385c25885c4a62a0bcce11f7876702f54192a
+VOX-D-002 fault corrupt-page point=CorruptSnapshot error=Some("EvidenceDigestMismatch") recoverable=false
+VOX-D-002 fault mixed-backend point=PostPublication error=Some("PartialLoadRolledBack") recoverable=false
+VOX-D-002 fault unaudited-codec point=LostResult error=Some("EvidenceMissing") recoverable=false
+```
+
+The executed fault matrix equals the §4 planned table row-for-row; all three stay unrecoverable.
+§4 recorded no run hash, so nothing in the original record is superseded; this is the first one.
+Real compressor ratios / random-access / peak-memory remain unmeasured exactly as §4 states — they
+need a production Storage Port plus an audited codec crate, which this retest does not add.
+
+### 8.3 Counterfactual under the defective digest
+
+The same replay at `54b488f` (pre-fix) yields snapshot
+`afb6854b96ed9af057439d93630bd15a6a2943224dde310361148bc665d330b9` — what the defective runtime would
+have produced. The 2026-08-28 record contains no such number, consistent with its "not executed as a
+process" statement.
+
+### 8.4 Verdict
+
+**未被污染。** All static hashes reproduce under `shasum`; no executed run hash was ever recorded.
+First executed dual-architecture replay added above; `approvalStatus` and §1–§7 unchanged.
