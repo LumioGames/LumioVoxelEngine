@@ -150,3 +150,47 @@ fn completion_dispositions_are_exclusive() {
         CompletionDisposition::WrongWorld
     );
 }
+
+fn envelope(snap: &VoxelConfigSnapshot, req: &str, payload: u8) -> OriginEnvelope<u8> {
+    OriginEnvelope {
+        origin: origin("world-a", 1, req, 0, "VoxelCommit"),
+        config_hash: snap.config_hash().to_string(),
+        payload,
+    }
+}
+
+/// `pop` must return the slot to the bounded budget, otherwise a `slots = 1`
+/// port can only ever be submitted to once in its lifetime.
+#[test]
+fn pop_returns_slot_to_bounded_budget() {
+    let snap = approved_snapshot();
+    let mut port = BoundedJobPort::from_approved_snapshot(snap.clone(), 1).unwrap();
+
+    port.try_submit(envelope(&snap, "req-1", 1)).unwrap();
+    assert_eq!(port.pop().map(|j| j.payload), Some(1));
+
+    // The slot is free again, so the port must accept another job.
+    port.try_submit(envelope(&snap, "req-2", 2))
+        .expect("drained port must accept a new job");
+    assert_eq!(port.pop().map(|j| j.payload), Some(2));
+}
+
+/// Surplus `pop`s on an empty queue must not underflow the budget into a
+/// negative/wrapped occupancy that would inflate the port past `slots`.
+#[test]
+fn surplus_pops_do_not_inflate_bounded_budget() {
+    let snap = approved_snapshot();
+    let mut port = BoundedJobPort::from_approved_snapshot(snap.clone(), 2).unwrap();
+
+    port.try_submit(envelope(&snap, "req-1", 1)).unwrap();
+    assert!(port.pop().is_some());
+    // Two surplus pops beyond what was ever pushed.
+    assert!(port.pop().is_none());
+    assert!(port.pop().is_none());
+
+    // Capacity must still be exactly 2 — not 4, and not a wrapped huge value.
+    port.try_submit(envelope(&snap, "req-2", 2)).unwrap();
+    port.try_submit(envelope(&snap, "req-3", 3)).unwrap();
+    let err = port.try_submit(envelope(&snap, "req-4", 4)).unwrap_err();
+    assert_eq!(err.error_id(), "QueueFull");
+}
