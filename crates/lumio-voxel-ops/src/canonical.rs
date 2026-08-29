@@ -245,12 +245,21 @@ pub fn decode(bytes: &[u8]) -> Result<CanonicalObject, DecodeError> {
 }
 
 struct Parser<'a> {
-    bytes: &'a [u8],
+    text: &'a str,
     at: usize,
 }
 
 fn parse(bytes: &[u8]) -> Result<CanonicalObject, DecodeError> {
-    let mut parser = Parser { bytes, at: 0 };
+    // UTF-8 is checked once for the whole input rather than once per character.
+    // This rejects exactly what the per-character check rejected: anything `decode`
+    // accepts is compared byte-for-byte against a re-encoded Rust `String`, so
+    // accepted bytes were always valid UTF-8, and both spellings of the refusal are
+    // `Malformed`. What changes is only the cost — validating the *remaining* buffer
+    // at every character made a string quadratic in the bytes that follow it, and a
+    // restore candidate is a file the Host read back, so its length is not ours to
+    // assume small.
+    let text = std::str::from_utf8(bytes).map_err(|_| DecodeError::Malformed)?;
+    let mut parser = Parser { text, at: 0 };
     let object = parser.object()?;
     if parser.at != bytes.len() {
         return Err(DecodeError::Malformed);
@@ -259,8 +268,12 @@ fn parse(bytes: &[u8]) -> Result<CanonicalObject, DecodeError> {
 }
 
 impl Parser<'_> {
+    fn bytes(&self) -> &[u8] {
+        self.text.as_bytes()
+    }
+
     fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.at).copied()
+        self.bytes().get(self.at).copied()
     }
 
     fn eat(&mut self, byte: u8) -> Result<(), DecodeError> {
@@ -330,7 +343,7 @@ impl Parser<'_> {
         while matches!(self.peek(), Some(b'0'..=b'9')) {
             self.at += 1;
         }
-        let digits = &self.bytes[start..self.at];
+        let digits = &self.bytes()[start..self.at];
         if digits.is_empty() || (digits.len() > 1 && digits[0] == b'0') {
             return Err(DecodeError::Malformed);
         }
@@ -357,9 +370,15 @@ impl Parser<'_> {
                 // A raw control byte never appears in encoder output.
                 0x00..=0x1f => return Err(DecodeError::Malformed),
                 _ => {
-                    let rest = std::str::from_utf8(&self.bytes[self.at..])
-                        .map_err(|_| DecodeError::Malformed)?;
-                    let ch = rest.chars().next().ok_or(DecodeError::Malformed)?;
+                    // `text` is already valid UTF-8 and every branch advances by whole
+                    // characters, so slicing here is a boundary check, not a scan.
+                    // `str::get` rather than `[..]` so a boundary that somehow moved
+                    // is a refusal instead of a panic.
+                    let ch = self
+                        .text
+                        .get(self.at..)
+                        .and_then(|rest| rest.chars().next())
+                        .ok_or(DecodeError::Malformed)?;
                     self.at += ch.len_utf8();
                     out.push(ch);
                 }
@@ -380,7 +399,7 @@ impl Parser<'_> {
             b'u' => {
                 self.at += 1;
                 let hex = self
-                    .bytes
+                    .bytes()
                     .get(self.at..self.at + 4)
                     .ok_or(DecodeError::Malformed)?;
                 let hex = std::str::from_utf8(hex).map_err(|_| DecodeError::Malformed)?;

@@ -333,6 +333,25 @@ fn two_encodes_of_same_ref_are_byte_identical_and_decode_back() {
     assert!(expected.contains("\"schemaId\":\"voxel-snapshot-payload\""));
     assert!(expected.contains("\"headerSchemaId\":\"snapshot-header\""));
 
+    // ADR 0011 says a snapshot written before the typed encoding still restores
+    // after it. Everything above this line is self-referential — encode agreeing
+    // with itself, decode inverting encode, two substrings — so all of it stays
+    // green through any change to `ManifestAdapter::object`, and the claim about
+    // yesterday's bytes had nothing holding it. This digest does.
+    //
+    // Expected value from `tools/canonical/canonical_encoding_oracle.py`
+    // (`snapshot_manifest`), which encodes this member set from the written rules
+    // rather than by calling the code under test. Regenerating it from a failure
+    // here is the wrong move: a changed digest means manifests written before the
+    // change no longer round-trip, which is an ADR decision, not a test update.
+    const MANIFEST_SHA256: &str =
+        "b513120c559bd74211a4ed775914f666c2e65a4b21579426c690939be136880f";
+    assert_eq!(
+        hex32(&sha256(expected.as_bytes())),
+        MANIFEST_SHA256,
+        "manifest bytes changed: {expected}"
+    );
+
     // Encoding is only worth anything if it is invertible: decode must hand back
     // exactly the members that were encoded, not a regrouping of them.
     let decoded = decode_canonical_object(a.as_slice()).expect("decode own bytes");
