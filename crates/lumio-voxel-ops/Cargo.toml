@@ -12,3 +12,8 @@ streaming = []
 [dependencies]
 lumio-voxel-contracts = { path = "../lumio-voxel-contracts" }
 lumio-voxel-domain = { path = "../lumio-voxel-domain" }
+
+# test-support is dev-only: it depends back on this crate, so it must never
+# enter the runtime closure. `check-crate-dag` asserts that on the normal graph.
+[dev-dependencies]
+lumio-voxel-test-support = { path = "../lumio-voxel-test-support" }

@@ -25,8 +25,24 @@ pub fn full_load_action() -> &'static str {
 
 pub struct BoundedJobPort<T> {
     snapshot: Arc<VoxelConfigSnapshot>,
+    slots: usize,
     bound: BoundedBuffer,
     queue: VecDeque<OriginEnvelope<T>>,
+}
+
+/// Rebuild the bounded budget for a live occupancy.
+///
+/// The generated `BoundedBuffer` has `push` but no release API, and generated
+/// code must not be hand-edited, so a freed slot is expressed by rebuilding the
+/// budget from the queue's current length. Occupancy is therefore always
+/// re-derived from the queue and can never drift below zero or wrap.
+fn occupancy_bound(slots: usize, occupancy: usize) -> BoundedBuffer {
+    debug_assert!(occupancy <= slots);
+    let mut bound = BoundedBuffer::new(slots);
+    for _ in 0..occupancy {
+        bound.push(1).expect("occupancy never exceeds slots");
+    }
+    bound
 }
 
 impl<T> BoundedJobPort<T> {
@@ -43,7 +59,8 @@ impl<T> BoundedJobPort<T> {
         }
         Ok(Self {
             snapshot,
-            bound: BoundedBuffer::new(slots),
+            slots,
+            bound: occupancy_bound(slots, 0),
             queue: VecDeque::new(),
         })
     }
@@ -69,8 +86,14 @@ impl<T> BoundedJobPort<T> {
         }
     }
 
+    /// Pop a job and return its slot to the bounded budget.
+    ///
+    /// A pop on an empty queue is a no-op: the `?` returns before the budget is
+    /// touched, so surplus pops cannot inflate capacity past `slots`.
     pub fn pop(&mut self) -> Option<OriginEnvelope<T>> {
-        self.queue.pop_front()
+        let job = self.queue.pop_front()?;
+        self.bound = occupancy_bound(self.slots, self.queue.len());
+        Some(job)
     }
 }
 
