@@ -16,6 +16,7 @@ use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
     to_generated_stamp,
 };
+use lumio_voxel_test_support::fault_injection::{FaultInjector, FaultPoint};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -577,4 +578,95 @@ fn concurrent_captures_see_complete_old_or_complete_new() {
         let revisions = handle.join().expect("reader thread");
         assert!(revisions.iter().all(|r| *r == 0 || *r == 1));
     }
+}
+
+/// Drive one prepare → seal → publish cycle with a fault point armed.
+///
+/// `PrePublication` fires while the token is still unsealed, so the visible
+/// write never happens; any later point fires after `publish_once`, so the new
+/// cut is already visible and must survive.
+fn publish_under_fault(
+    auth: &PublicationAuthority,
+    injector: &mut FaultInjector,
+    target: WorldRevision,
+    new_root: PublishedStateRoot,
+    replacement: ChunkReplacement,
+) -> Result<(), &'static str> {
+    let mut prepared = auth
+        .prepare(target, new_root, replacement)
+        .map_err(|e| e.error_id())?;
+    if let Some(point @ FaultPoint::PrePublication) = injector.take() {
+        return Err(FaultInjector::error_id(point));
+    }
+    let token = prepared.seal().map_err(|e| e.error_id())?;
+    auth.publish_once(token).map_err(|e| e.error_id())?;
+    Ok(())
+}
+
+fn next_cut(base: &PublishedReadView) -> (PublishedStateRoot, ChunkReplacement) {
+    (
+        root_at(
+            "world-a",
+            "ctx-1",
+            1,
+            1,
+            ChunkSlot::ready(payload(b"cut-1")),
+            Some("mutation"),
+        ),
+        empty_replacement(base.directory()),
+    )
+}
+
+#[test]
+fn injected_pre_publication_fault_leaves_the_published_cut_untouched() {
+    let initial = root_at("world-a", "ctx-1", 1, 0, ChunkSlot::not_loaded(), None);
+    let auth = authority("r00078-fault-pre", "world-a", "ctx-1", 1, initial);
+    let before = auth.capture();
+    let hash_before = before.root().identity();
+
+    let mut injector = FaultInjector::new();
+    injector.arm(FaultPoint::PrePublication);
+    let (root, replacement) = next_cut(&before);
+    let err = publish_under_fault(&auth, &mut injector, world_rev(1), root, replacement)
+        .expect_err("armed pre-publication fault must abort the cycle");
+    assert_eq!(err, "InvalidHandle");
+    assert_stable_error(err);
+    assert!(FaultInjector::recoverable(FaultPoint::PrePublication));
+
+    // Nothing became visible: the old cut is still whole and still current.
+    let after = auth.capture();
+    assert_consistent_cut(&after);
+    assert_eq!(after.root().identity(), hash_before);
+    assert_eq!(after.stamp().world_revision, 0);
+
+    // Recoverable means the same publication succeeds on a retry.
+    let (root, replacement) = next_cut(&after);
+    publish_under_fault(&auth, &mut injector, world_rev(1), root, replacement)
+        .expect("retry after a recoverable fault");
+    let retried = auth.capture();
+    assert_consistent_cut(&retried);
+    assert_eq!(retried.stamp().world_revision, 1);
+    assert_ne!(retried.root().identity(), hash_before);
+}
+
+#[test]
+fn injected_post_publication_fault_does_not_roll_the_visible_cut_back() {
+    let initial = root_at("world-a", "ctx-1", 1, 0, ChunkSlot::not_loaded(), None);
+    let auth = authority("r00078-fault-post", "world-a", "ctx-1", 1, initial);
+    let before = auth.capture();
+    let hash_before = before.root().identity();
+
+    let mut injector = FaultInjector::new();
+    injector.arm(FaultPoint::PostPublication);
+    let (root, replacement) = next_cut(&before);
+    publish_under_fault(&auth, &mut injector, world_rev(1), root, replacement)
+        .expect("post-publication fault fires after the visible swap");
+    // An already-visible write is never recoverable and must not be undone.
+    assert!(!FaultInjector::recoverable(FaultPoint::PostPublication));
+    assert_stable_error(FaultInjector::error_id(FaultPoint::PostPublication));
+
+    let after = auth.capture();
+    assert_consistent_cut(&after);
+    assert_eq!(after.stamp().world_revision, 1);
+    assert_ne!(after.root().identity(), hash_before);
 }
