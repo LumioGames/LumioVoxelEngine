@@ -8,7 +8,8 @@ use super::plan::MutationPlanner;
 use super::preconditions::MutationError;
 use super::prepared_token::PreparedMutation;
 use super::receipt_ledger::{LookupOutcome, ReceiptLedger};
-use lumio_voxel_contracts::{CHUNK_PRESENCE, SCHEMA_IDS, canonical_object_pairs, sha256};
+use crate::canonical::CanonicalObject;
+use lumio_voxel_contracts::{CHUNK_PRESENCE, SCHEMA_IDS, sha256};
 use lumio_voxel_domain::chunk::{ChunkDirectoryBuilder, ChunkDirectoryRoot, ChunkReplacement};
 use lumio_voxel_domain::publication::{
     PublicationAuthority, PublishedReadView, PublishedStateRoot,
@@ -68,17 +69,20 @@ pub fn commit(
     // `prepare` folds the replacement digest into the cut identity; the value computed
     // before `prepare` is not what `publish_once` will make visible.
     let new_identity = publication.new_root_identity();
-    let token = publication.seal().map_err(MutationError::from_publish)?;
 
-    let request = prepared.request().clone();
     let txn_id = prepared.txn_id().to_string();
     let old_root = prepared.base_identity();
+    // Encode the receipt before sealing. The seal is the point of no return, and an
+    // encoding refusal after it would leave a sealed cut with no receipt.
     let receipt_bytes = receipt_bytes(
         &txn_id,
         old_root,
         new_identity,
         prepared.fingerprint().hash().0,
-    );
+    )?;
+    let token = publication.seal().map_err(MutationError::from_publish)?;
+
+    let request = prepared.request().clone();
     let evidence = CommitEvidence {
         old_root,
         new_root: new_identity,
@@ -255,22 +259,19 @@ fn receipt_bytes(
     old_root: [u8; 32],
     new_root: [u8; 32],
     fingerprint: [u8; 32],
-) -> Vec<u8> {
-    let mut pairs = vec![
-        ("txn_id".to_string(), quote(txn_id)),
-        ("old_root".to_string(), quote(&hex32(&old_root))),
-        ("new_root".to_string(), quote(&hex32(&new_root))),
-        ("fingerprint".to_string(), quote(&hex32(&fingerprint))),
-    ];
-    canonical_object_pairs(&mut pairs).into_bytes()
-}
-
-fn quote(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len() + 2);
-    out.push('"');
-    out.push_str(raw);
-    out.push('"');
-    out
+) -> Result<Vec<u8>, MutationError> {
+    let mut object = CanonicalObject::new();
+    for (key, value) in [
+        ("txn_id", txn_id.to_string()),
+        ("old_root", hex32(&old_root)),
+        ("new_root", hex32(&new_root)),
+        ("fingerprint", hex32(&fingerprint)),
+    ] {
+        object
+            .insert_text(key, value)
+            .map_err(|_| MutationError::invalid_handle())?;
+    }
+    Ok(object.encode_bytes())
 }
 
 fn hex32(bytes: &[u8; 32]) -> String {

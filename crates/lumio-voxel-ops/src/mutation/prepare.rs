@@ -73,9 +73,11 @@ fn seal_private(
         .checked_add(1)
         .ok_or_else(MutationError::invalid_handle)?;
 
+    let fingerprint =
+        canonical_fingerprint(request).map_err(|_| MutationError::invalid_handle())?;
     Ok(PreparedMutation::bind(
         request.clone(),
-        canonical_fingerprint(request),
+        fingerprint,
         base_identity,
         request.generation,
         ledger.config_hash().to_string(),

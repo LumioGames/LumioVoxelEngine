@@ -208,7 +208,7 @@ fn happy_path_prepare_then_commit_is_atomic_cut() {
     let hash_before = before.root().identity();
     let dirty_before = before.dirty_frontier().clone();
     let req = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit")]);
-    let expected_fp = canonical_fingerprint(&req);
+    let expected_fp = canonical_fingerprint(&req).expect("no duplicate member");
 
     let prepared = prepare(&req, &before, &mut ledger).expect("prepare succeeds");
     assert_eq!(prepared.fingerprint(), expected_fp);

@@ -5,7 +5,8 @@
 use super::budget;
 use super::validate::{GeneratedVoxelQueryRequest, canonicalize_chunks, validate_request};
 use super::{QUERY_SCHEMA, QueryError, query_schema};
-use lumio_voxel_contracts::{Hash256, canonical_object_pairs, sha256};
+use crate::canonical::{CanonicalObject, CanonicalValue};
+use lumio_voxel_contracts::{Hash256, sha256};
 use lumio_voxel_domain::config_snapshot::VoxelConfigSnapshot;
 use lumio_voxel_domain::publication::PublishedReadView;
 use lumio_voxel_domain::revision::GeneratedRevisionStamp;
@@ -72,7 +73,7 @@ impl QueryPlanner {
             &canonical_chunks,
             &config_hash,
             self.max_chunks,
-        );
+        )?;
         Ok(QueryPlan {
             canonical_chunks,
             read_stamp,
@@ -116,43 +117,74 @@ fn compute_plan_hash(
     chunks: &[String],
     config_hash: &str,
     budget: usize,
-) -> Hash256 {
-    let mut pairs: Vec<(String, String)> = Vec::new();
-    pairs.push(("schemaId".to_string(), quote(QUERY_SCHEMA)));
-    pairs.push(("queryId".to_string(), quote(&request.query_id)));
-    pairs.push(("worldId".to_string(), quote(&request.world_id)));
-    pairs.push(("context".to_string(), quote(&request.context)));
-    pairs.push((
-        "canonicalChunks".to_string(),
-        format!(
-            "[{}]",
-            chunks
-                .iter()
-                .map(|c| quote(c))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-    ));
-    pairs.push(("stampWorldId".to_string(), quote(&stamp.world_id)));
-    pairs.push(("stampContextId".to_string(), quote(&stamp.context_id)));
-    pairs.push(("generation".to_string(), stamp.generation.to_string()));
-    pairs.push((
-        "worldRevision".to_string(),
-        stamp.world_revision.to_string(),
-    ));
+) -> Result<Hash256, QueryError> {
+    let mut object = CanonicalObject::new();
+    let put = |object: &mut CanonicalObject, key: String, value: CanonicalValue| {
+        object
+            .insert(key, value)
+            .map_err(|_| QueryError::invalid_handle())
+    };
+    put(
+        &mut object,
+        "schemaId".into(),
+        CanonicalValue::text(QUERY_SCHEMA),
+    )?;
+    put(
+        &mut object,
+        "queryId".into(),
+        CanonicalValue::text(&request.query_id),
+    )?;
+    put(
+        &mut object,
+        "worldId".into(),
+        CanonicalValue::text(&request.world_id),
+    )?;
+    put(
+        &mut object,
+        "context".into(),
+        CanonicalValue::text(&request.context),
+    )?;
+    put(
+        &mut object,
+        "canonicalChunks".into(),
+        CanonicalValue::TextArray(chunks.to_vec()),
+    )?;
+    put(
+        &mut object,
+        "stampWorldId".into(),
+        CanonicalValue::text(&stamp.world_id),
+    )?;
+    put(
+        &mut object,
+        "stampContextId".into(),
+        CanonicalValue::text(&stamp.context_id),
+    )?;
+    put(
+        &mut object,
+        "generation".into(),
+        CanonicalValue::Uint(stamp.generation),
+    )?;
+    put(
+        &mut object,
+        "worldRevision".into(),
+        CanonicalValue::Uint(stamp.world_revision),
+    )?;
     for (id, rev) in &stamp.chunk_revision_set {
-        pairs.push((format!("chunkRevision.{id}"), rev.to_string()));
+        put(
+            &mut object,
+            format!("chunkRevision.{id}"),
+            CanonicalValue::Uint(*rev),
+        )?;
     }
-    pairs.push(("configHash".to_string(), quote(config_hash)));
-    pairs.push(("maxChunks".to_string(), budget.to_string()));
-    let canonical = canonical_object_pairs(&mut pairs);
-    Hash256(sha256(canonical.as_bytes()))
-}
-
-fn quote(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len() + 2);
-    out.push('"');
-    out.push_str(raw);
-    out.push('"');
-    out
+    put(
+        &mut object,
+        "configHash".into(),
+        CanonicalValue::text(config_hash),
+    )?;
+    put(
+        &mut object,
+        "maxChunks".into(),
+        CanonicalValue::Uint(budget as u64),
+    )?;
+    Ok(Hash256(sha256(object.encode().as_bytes())))
 }

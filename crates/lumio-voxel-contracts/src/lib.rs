@@ -8,8 +8,16 @@
 #[path = "../generated/rust/lumio-gen-canonical-serializer/src/lib.rs"]
 #[rustfmt::skip]
 mod lumio_gen_canonical_serializer;
+// `canonical_object_pairs` lives in this generated module and is deliberately NOT
+// re-exported: it concatenates unescaped keys and unquoted values and accepts a
+// repeated key, so a caller can forge one member out of another's value. Voxel
+// encodes through `lumio_voxel_ops::canonical` instead. Re-exporting it would keep
+// the defect reachable from every consumer of this crate, which is how it spread in
+// the first place; the generated file itself must not be hand-edited, so the helper
+// is quarantined here and `dead_code` allowed at the seam.
 #[path = "../generated/rust/lumio-gen-contract-runtime/src/lib.rs"]
 #[rustfmt::skip]
+#[allow(dead_code)]
 mod lumio_gen_contract_runtime;
 // The vendored generated tree is published upstream as independent library crates, where
 // every item is crate-public and reachable. Here it is `#[path]`-included into private
@@ -40,8 +48,7 @@ pub use lumio_gen_canonical_serializer::{
     SNAPSHOT_CHECKSUM_OMIT, SNAPSHOT_MAGIC, checksum_domain_doc,
 };
 pub use lumio_gen_contract_runtime::{
-    BoundedBuffer, BufferFull, ChainBreak, Hash256, canonical_object_pairs, hash_chain_append,
-    hash_chain_verify, sha256,
+    BoundedBuffer, BufferFull, ChainBreak, Hash256, hash_chain_append, hash_chain_verify, sha256,
 };
 pub use lumio_gen_contract_types::{
     BASELINE_ID, MACHINE_IDS, STABLE_ERROR_IDS, Transition, VOXEL_WORLD_ROLES, machine_ids,

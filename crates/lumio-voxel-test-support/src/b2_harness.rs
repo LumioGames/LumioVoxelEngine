@@ -434,7 +434,7 @@ fn prepare_does_not_publish() -> Result<String, String> {
     let hash0 = view.root().identity();
     let dirty0 = view.dirty_frontier().clone();
     let req = mutation_request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit")]);
-    let expected_fp = canonical_fingerprint(&req);
+    let expected_fp = canonical_fingerprint(&req).map_err(|err| err.to_string())?;
     let token =
         prepare(&req, &view, &mut ledger).map_err(|err| format!("prepare: {}", err.error_id()))?;
     if token.fingerprint() != expected_fp {

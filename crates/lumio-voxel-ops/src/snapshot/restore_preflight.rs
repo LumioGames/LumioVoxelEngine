@@ -2,9 +2,10 @@
 
 #![forbid(unsafe_code)]
 
-use super::decode::{decode_canonical_pairs, parse_u64, unquote};
+use super::decode::decode_canonical_object;
 use super::manifest_adapter::{SNAPSHOT_HEADER_SCHEMA, SNAPSHOT_PAYLOAD_SCHEMA};
 use super::{is_hash256, stable};
+use crate::canonical::CanonicalObject;
 use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SNAPSHOT_MAGIC};
 use lumio_voxel_domain::config_snapshot::VoxelConfigSnapshot;
 use std::collections::BTreeMap;
@@ -134,13 +135,14 @@ impl RestorePreflight {
             return Err(RestoreError::manifest_unsupported_version());
         }
 
-        let pairs = decode_canonical_pairs(bytes)?;
-        let fields = collect_fields(pairs)?;
+        // Decoded members are already unique: a canonical object is keyed by name and
+        // `decode_canonical_object` rejects a repeat rather than keeping one of them.
+        let fields = decode_canonical_object(bytes)?;
 
-        let schema_id = require_quoted(&fields, "schemaId")?;
-        let header_schema = require_quoted(&fields, "headerSchemaId")?;
-        let magic = require_quoted(&fields, "magic")?;
-        let schema_epoch = require_u64(&fields, "schemaEpoch")?;
+        let schema_id = require_text(&fields, "schemaId")?;
+        let header_schema = require_text(&fields, "headerSchemaId")?;
+        let magic = require_text(&fields, "magic")?;
+        let schema_epoch = require_uint(&fields, "schemaEpoch")?;
         if schema_id != SNAPSHOT_PAYLOAD_SCHEMA
             || header_schema != SNAPSHOT_HEADER_SCHEMA
             || magic != SNAPSHOT_MAGIC
@@ -149,8 +151,8 @@ impl RestorePreflight {
             return Err(RestoreError::manifest_unsupported_version());
         }
 
-        let world_id = require_quoted(&fields, "worldId")?;
-        let context_id = require_quoted(&fields, "contextId")?;
+        let world_id = require_text(&fields, "worldId")?;
+        let context_id = require_text(&fields, "contextId")?;
         if world_id.is_empty() || context_id.is_empty() {
             return Err(RestoreError::invalid_handle());
         }
@@ -158,18 +160,18 @@ impl RestorePreflight {
             return Err(RestoreError::session_mismatch());
         }
 
-        let generation = require_u64(&fields, "generation")?;
+        let generation = require_uint(&fields, "generation")?;
         if generation != expected_generation {
             return Err(RestoreError::stale_epoch());
         }
-        let world_revision = require_u64(&fields, "worldRevision")?;
+        let world_revision = require_uint(&fields, "worldRevision")?;
 
-        let config_hash = require_quoted(&fields, "configHash")?;
+        let config_hash = require_text(&fields, "configHash")?;
         if !is_hash256(&config_hash) || config_hash != snapshot.config_hash() {
             return Err(RestoreError::evidence_digest_mismatch());
         }
 
-        let root_hex = require_quoted(&fields, "rootIdentity")?;
+        let root_hex = require_text(&fields, "rootIdentity")?;
         let root_identity = parse_hex32(&root_hex)?;
 
         let chunk_revision_set = collect_chunk_revisions(&fields)?;
@@ -186,31 +188,28 @@ impl RestorePreflight {
     }
 }
 
-fn collect_fields(pairs: Vec<(String, String)>) -> Result<BTreeMap<String, String>, RestoreError> {
-    let mut fields = BTreeMap::new();
-    for (key, value) in pairs {
-        if fields.insert(key, value).is_some() {
-            return Err(RestoreError::invalid_handle());
-        }
-    }
-    Ok(fields)
+/// A string member. A member of any other type is a rejection, not a coercion.
+fn require_text(fields: &CanonicalObject, key: &str) -> Result<String, RestoreError> {
+    fields
+        .get(key)
+        .and_then(|value| value.as_text())
+        .map(str::to_string)
+        .ok_or_else(RestoreError::invalid_handle)
 }
 
-fn require_quoted(fields: &BTreeMap<String, String>, key: &str) -> Result<String, RestoreError> {
-    let value = fields.get(key).ok_or_else(RestoreError::invalid_handle)?;
-    Ok(unquote(value)?.to_string())
-}
-
-fn require_u64(fields: &BTreeMap<String, String>, key: &str) -> Result<u64, RestoreError> {
-    let value = fields.get(key).ok_or_else(RestoreError::invalid_handle)?;
-    parse_u64(value)
+/// An integer member. A quoted digit string is a different value and stays rejected.
+fn require_uint(fields: &CanonicalObject, key: &str) -> Result<u64, RestoreError> {
+    fields
+        .get(key)
+        .and_then(|value| value.as_uint())
+        .ok_or_else(RestoreError::invalid_handle)
 }
 
 fn collect_chunk_revisions(
-    fields: &BTreeMap<String, String>,
+    fields: &CanonicalObject,
 ) -> Result<BTreeMap<String, u64>, RestoreError> {
     let mut chunks = BTreeMap::new();
-    for (key, value) in fields {
+    for (key, value) in fields.members() {
         if !key.starts_with(CHUNK_REVISION_PREFIX) {
             if !is_known_field(key) {
                 return Err(RestoreError::manifest_unsupported_version());
@@ -221,7 +220,7 @@ fn collect_chunk_revisions(
         if chunk_id.is_empty() {
             return Err(RestoreError::invalid_handle());
         }
-        let revision = parse_u64(value)?;
+        let revision = value.as_uint().ok_or_else(RestoreError::invalid_handle)?;
         if chunks.insert(chunk_id.to_string(), revision).is_some() {
             return Err(RestoreError::invalid_handle());
         }

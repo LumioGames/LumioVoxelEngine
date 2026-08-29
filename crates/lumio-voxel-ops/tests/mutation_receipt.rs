@@ -1,9 +1,6 @@
 //! R-00093: canonical fingerprint and txn receipt ledger.
 
-use lumio_voxel_contracts::{
-    BASELINE_ID, Hash256, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, canonical_object_pairs,
-    sha256,
-};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -76,17 +73,29 @@ fn request(txn_id: &str, fields: BTreeMap<String, String>) -> MutationRequest {
     }
 }
 
-fn expected_fingerprint(req: &MutationRequest) -> Hash256 {
-    let mut pairs: Vec<(String, String)> = req
-        .fields
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    pairs.push(("txn_id".to_string(), format!("\"{}\"", req.txn_id)));
-    pairs.push(("world_id".to_string(), format!("\"{}\"", req.world_id)));
-    pairs.push(("generation".to_string(), req.generation.to_string()));
-    let canonical = canonical_object_pairs(&mut pairs);
-    Hash256(sha256(canonical.as_bytes()))
+// Expected digests come from an independent Python implementation of the encoding,
+// written from its written rules rather than from this crate's source. The previous
+// version of this helper re-implemented the encoder inline, which made the assertion
+// below hold whether or not values were escaped — it could not fail. Generator and
+// canonical bytes: `docs/evidence/canonical-encoding-goldens.md`.
+//
+// `request("txn-1", {k1: "1", k2: "2"})`
+const FINGERPRINT_K1_1_K2_2: &str =
+    "5fb39c21495127d88c5e884668b9e9585a3dca72a7ee2ead9a2df4592333f075";
+// `request("txn-1", {k1: "1", k2: "3"})`
+const FINGERPRINT_K1_1_K2_3: &str =
+    "bb20b986f36de85f4109b7fe854d876da6d113665211beeeba2bdb81bedc5e6b";
+// `request("txn-1", {})`
+const FINGERPRINT_NO_FIELDS: &str =
+    "5698db6879ec4f6c542f6e76ca0e22153903f074f0c33292bc6462175aa74743";
+
+fn digest(req: &MutationRequest) -> String {
+    hex32(
+        &canonical_fingerprint(req)
+            .expect("request has no duplicate member")
+            .hash()
+            .0,
+    )
 }
 
 #[test]
@@ -102,16 +111,19 @@ fn fingerprint_is_order_independent_and_field_sensitive() {
     fields_b.insert("k1".to_string(), "1".to_string());
     let r1 = request("txn-1", fields_a);
     let r2 = request("txn-1", fields_b);
-    let fp1 = canonical_fingerprint(&r1);
-    let fp2 = canonical_fingerprint(&r2);
-    assert_eq!(fp1, fp2);
-    assert_eq!(fp1.hash(), expected_fingerprint(&r1));
+    assert_eq!(digest(&r1), digest(&r2));
+    assert_eq!(digest(&r1), FINGERPRINT_K1_1_K2_2);
+    assert_eq!(
+        digest(&request("txn-1", BTreeMap::new())),
+        FINGERPRINT_NO_FIELDS
+    );
 
     let mut fields_c = BTreeMap::new();
     fields_c.insert("k1".to_string(), "1".to_string());
     fields_c.insert("k2".to_string(), "3".to_string());
     let r3 = request("txn-1", fields_c);
-    assert_ne!(canonical_fingerprint(&r1), canonical_fingerprint(&r3));
+    assert_ne!(digest(&r1), digest(&r3));
+    assert_eq!(digest(&r3), FINGERPRINT_K1_1_K2_3);
 
     let snap = approved_snapshot();
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();

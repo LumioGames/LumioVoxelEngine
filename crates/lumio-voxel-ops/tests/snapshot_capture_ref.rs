@@ -2,9 +2,7 @@
 
 #![cfg(feature = "snapshot")]
 
-use lumio_voxel_contracts::{
-    BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, canonical_object_pairs, sha256,
-};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
 use lumio_voxel_domain::chunk::{
     ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkSlot, DirtyFrontier,
 };
@@ -21,7 +19,7 @@ use lumio_voxel_domain::revision::{
 use lumio_voxel_ops::snapshot::{
     CaptureError, CaptureReadPort, CutEvidence, ManifestAdapter, MemoryCaptureWriter, PinOrLease,
     SNAPSHOT_HEADER_SCHEMA, SNAPSHOT_PAYLOAD_SCHEMA, SnapshotError, VoxelCaptureRef,
-    encode_capture,
+    decode_canonical_object, encode_capture,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -305,7 +303,7 @@ fn drop_capture_does_not_panic_and_second_capture_of_new_view_differs() {
 }
 
 #[test]
-fn two_encodes_of_same_ref_are_byte_identical_via_canonical_object_pairs() {
+fn two_encodes_of_same_ref_are_byte_identical_and_decode_back() {
     let snap = approved_snapshot("r00134-canon", &["Native", "ReferenceVoxel"]);
     let auth = authority(
         "r00134-canon-view",
@@ -328,12 +326,17 @@ fn two_encodes_of_same_ref_are_byte_identical_via_canonical_object_pairs() {
     assert_eq!(meta_a.root_identity(), meta_b.root_identity());
     assert_eq!(meta_a.byte_len(), a.as_slice().len());
 
-    let mut pairs = ManifestAdapter::pairs(&capture);
-    let expected = canonical_object_pairs(&mut pairs);
+    let manifest = ManifestAdapter::object(&capture).expect("manifest object");
+    let expected = manifest.encode();
     assert_eq!(a.as_slice(), expected.as_bytes());
     assert_eq!(meta_a.payload_hash().0, sha256(expected.as_bytes()));
     assert!(expected.contains("\"schemaId\":\"voxel-snapshot-payload\""));
     assert!(expected.contains("\"headerSchemaId\":\"snapshot-header\""));
+
+    // Encoding is only worth anything if it is invertible: decode must hand back
+    // exactly the members that were encoded, not a regrouping of them.
+    let decoded = decode_canonical_object(a.as_slice()).expect("decode own bytes");
+    assert_eq!(decoded, manifest);
 }
 
 #[test]

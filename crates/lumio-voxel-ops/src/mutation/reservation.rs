@@ -1,6 +1,7 @@
 //! GenerationBoundLeaseFamily reservation. Expire by generation, never wall clock.
 
 use super::fingerprint::{MutationRequest, RequestFingerprint, canonical_fingerprint};
+use crate::canonical::DuplicateMember;
 
 /// Adapter-internal lease family selected by VOX-D-004. Not a Schema column.
 pub const LEASE_FAMILY: &str = "GenerationBoundLeaseFamily";
@@ -23,13 +24,13 @@ pub struct MutationReservation {
 }
 
 impl MutationReservation {
-    pub(super) fn from_request(request: &MutationRequest) -> Self {
-        Self {
+    pub(super) fn from_request(request: &MutationRequest) -> Result<Self, DuplicateMember> {
+        Ok(Self {
             txn_id: request.txn_id.clone(),
             world_id: request.world_id.clone(),
             generation: request.generation,
-            fingerprint: canonical_fingerprint(request),
-        }
+            fingerprint: canonical_fingerprint(request)?,
+        })
     }
 
     pub fn txn_id(&self) -> &str {

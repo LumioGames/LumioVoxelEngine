@@ -2,9 +2,10 @@
 
 #![forbid(unsafe_code)]
 
+use super::hex32;
 use super::restore_preflight::{DecodedRestore, RestoreError};
-use super::{hex32, quote};
-use lumio_voxel_contracts::{canonical_object_pairs, sha256};
+use crate::canonical::{CanonicalObject, CanonicalValue};
+use lumio_voxel_contracts::sha256;
 use lumio_voxel_domain::chunk::{
     ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkReplacement, ChunkSlot, DirtyFrontier,
 };
@@ -52,7 +53,8 @@ impl SealedRestoreCandidate {
     }
 
     pub fn hash_matches(&self) -> bool {
-        self.candidate_hash == fingerprint(&self.root, &self.replacement, &self.config_hash)
+        fingerprint(&self.root, &self.replacement, &self.config_hash)
+            .is_ok_and(|hash| hash == self.candidate_hash)
     }
 
     pub fn into_publication(self) -> (PublishedStateRoot, ChunkReplacement, WorldRevision) {
@@ -98,7 +100,7 @@ impl RestoreShadowBuilder {
             .freeze()
             .map_err(|err| RestoreError::mapped(err.error_id()))?;
         let root = PublishedStateRoot::new(stamp, frozen, dirty);
-        let candidate_hash = fingerprint(&root, &replacement, decoded.config_hash());
+        let candidate_hash = fingerprint(&root, &replacement, decoded.config_hash())?;
         Ok(SealedRestoreCandidate {
             root,
             replacement,
@@ -113,24 +115,29 @@ fn fingerprint(
     root: &PublishedStateRoot,
     replacement: &ChunkReplacement,
     config_hash: &str,
-) -> [u8; 32] {
+) -> Result<[u8; 32], RestoreError> {
     let stamp = root.stamp();
-    let mut pairs = vec![
-        ("configHash".to_string(), quote(config_hash)),
-        ("contextId".to_string(), quote(&stamp.context_id)),
-        ("generation".to_string(), stamp.generation.to_string()),
+    let mut object = CanonicalObject::new();
+    for (key, value) in [
+        ("configHash", CanonicalValue::text(config_hash)),
+        ("contextId", CanonicalValue::text(&stamp.context_id)),
+        ("generation", CanonicalValue::Uint(stamp.generation)),
         (
-            "replacement".to_string(),
-            quote(&hex32(&replacement.digest())),
+            "replacement",
+            CanonicalValue::text(hex32(&replacement.digest())),
         ),
-        ("rootIdentity".to_string(), quote(&hex32(&root.identity()))),
-        ("worldId".to_string(), quote(&stamp.world_id)),
         (
-            "worldRevision".to_string(),
-            stamp.world_revision.to_string(),
+            "rootIdentity",
+            CanonicalValue::text(hex32(&root.identity())),
         ),
-    ];
-    sha256(canonical_object_pairs(&mut pairs).as_bytes())
+        ("worldId", CanonicalValue::text(&stamp.world_id)),
+        ("worldRevision", CanonicalValue::Uint(stamp.world_revision)),
+    ] {
+        object
+            .insert(key, value)
+            .map_err(|_| RestoreError::invalid_handle())?;
+    }
+    Ok(sha256(object.encode().as_bytes()))
 }
 
 fn world_revision(n: u64) -> Result<WorldRevision, RestoreError> {
