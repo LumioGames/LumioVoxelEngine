@@ -181,3 +181,74 @@ Stop thresholds (qualitative; unchanged): implicit load; mixed revision in one r
 ## 7. Contract
 
 No Schema / ID / default config was modified. Four-state presence was not changed. Query budget numbers were not frozen.
+
+## 8. 2026-08-29 修复后复测 — retest on the corrected SHA-256
+
+Retested 2026-08-29 on macOS (Darwin 25.5.0, Apple Silicon) at commit `cc868e4`, after `51c2836`
+corrected the generated contract runtime's SHA-256 round constant `K[28] = 0xc6eabbdc → 0xc6e00bf3`
+(forensics: [`VOX-D-006-streaming.md`](VOX-D-006-streaming.md) §8.1, [`../b0-verification.md`](../b0-verification.md) §4).
+This gate is the only one of VOX-D-001..004 whose record contains an executed-style digest — the §4.1
+snapshot `bf6aadfa…150029`, computed at record time with Node `crypto` because the host could not link.
+Question answered: is that value polluted by the defective digest? **No — it reproduces bit-for-bit on
+the fixed runtime.** §1–§7 stay unchanged; `approvalStatus=approved` is untouched.
+
+### 8.1 Every §1 hash reproduces with system `shasum`(not polluted)
+
+Each SHA-256 in §1 was recomputed with `/usr/bin/shasum -a 256` over `git show 54b488f:<path>`
+(`54b488f` carries this document's recorded revision). All match bit-for-bit: the document set, the seam
+`query_budget.rs` (`17a8f6fffc6620ca1d5f494de05e149622091b55c0f48f2b2095245c23b3accf`), the corpus /
+fault-map JSON under `data/vox-d-003/`, and the three harness sources. The three harness sources
+(`deterministic_executor.rs`, `reference_harness.rs`, `fault_injection.rs`) also hash **identically at
+current HEAD** — the executor and the committed-op snapshot encoding never changed; only the `sha256`
+beneath them was fixed.
+
+`query_budget.rs` at current HEAD hashes to
+`b350ff300da79b1e1be24289100dc9089f070da0e161878d26c6b6a0e5e6e824`, ≠ §1 — explained drift:
+`31cb6a2` recorded the D-013 owner freeze (`"blocked"` → `"approved"` plus `approval_reference()` /
+`selected_family()`); seed/corpus/fault logic byte-unchanged.
+
+### 8.2 The recorded snapshot reproduces on the linked, fixed harness
+
+§4.1's digest was a substitute computation (Node `crypto.createHash('sha256')` over the committed-op
+encoding) because `DeterministicExecutor::run` could not be linked. Both gaps are now closed at once:
+the real harness runs as a process, and its `sha256` is the corrected one. Runner:
+`benchmarks/decision_gates/run_seam_replay.sh query_budget_replay`; the committed driver
+`query_budget_replay.rs` (added in `cc868e4`) adds only `--test` entry points via `#[path]`, leaves the
+seam byte-untouched, and **asserts** the recorded value from here on. Two legs (x86_64-apple-darwin
+Rosetta on pinned `1.98.0`; `SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin`), plus a full-runner process
+re-run: all line-identical, 3 passed / 0 failed per leg.
+
+```text
+VOX-D-003 seed 0x0000d003
+VOX-D-003 op_count 7
+VOX-D-003 committed_encoding_bytes 215
+VOX-D-003 run1 snapshot bf6aadfa5375cdaead9ec5dc65a7f2d3ad7b43063775c9b74ab77b38d9150029
+VOX-D-003 run2 snapshot bf6aadfa5375cdaead9ec5dc65a7f2d3ad7b43063775c9b74ab77b38d9150029
+VOX-D-003 run3 snapshot bf6aadfa5375cdaead9ec5dc65a7f2d3ad7b43063775c9b74ab77b38d9150029
+VOX-D-003 recorded-2026-08-28 snapshot bf6aadfa5375cdaead9ec5dc65a7f2d3ad7b43063775c9b74ab77b38d9150029
+VOX-D-003 matches_recorded_value true
+VOX-D-003 fault unbound-continuation error=Some("InvalidHandle") recoverable=true stable=true
+VOX-D-003 fault budget-exceeded error=Some("PartialLoadRolledBack") recoverable=false stable=true
+VOX-D-003 fault stale-revision error=Some("StaleEpoch") recoverable=true stable=true
+```
+
+The committed encoding is 215 bytes, exactly as §4.1 recorded. A third, independent implementation
+agrees: rebuilding the same 215-byte buffer (`seq_le64 ‖ "voxel-query" ‖ payload` over the seven §4.1
+ops) and hashing it with Python `hashlib.sha256` on this host returns the same `bf6aadfa…150029`.
+The executed fault matrix equals §4.2 row-for-row. Throughput / latency / budget-accuracy remain
+not-measured exactly as §4.1 states (no production query planner in this card).
+
+### 8.3 Counterfactual under the defective digest
+
+The same replay rebuilt and run in a temporary worktree at `54b488f` (pre-fix) yields snapshot
+`81ad871a715e686aec7b85071a53c6fa36bf70634f48c7a54f6777b7f9f8ad1a` ≠ the recorded value. Had the
+2026-08-28 session routed its substitute digest through the then-defective contract runtime instead of
+Node `crypto`, the record would contain that wrong value. It does not — the recorder's claimed
+provenance ("FIPS 180-4") is confirmed from both directions.
+
+### 8.4 Verdict
+
+**未被污染,且已由链接执行确认。** The one executed-style number in this record (`bf6aadfa…150029`)
+is now triple-sourced: Node `crypto` (2026-08-28 record), the linked harness on the fixed `sha256`
+(both architectures), and Python `hashlib` — all identical; the defective runtime provably produces a
+different value. `approvalStatus` and §1–§7 unchanged.

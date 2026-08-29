@@ -9,6 +9,28 @@
 
 This report replaces the cf565f6 stub, which predated artifact consume, the R-00047 harness, and VOX-D re-measurement. It is a RETURN of the P2 product, not an APPROVE, and not a conditional pass.
 
+> **当前状态附注(2026-08-29)** — 本报告是对 `1e07b76` 当时状态的审查记录,正文保留原样不改写:
+> RETURN 裁决及其依据必须能按当时的树状态追溯,事后改写会破坏这份裁决记录的证据价值。以下
+> 表述已被后续事实**取代**,读者不应再按字面消费:
+>
+> - 「`cargo test --workspace --all-features` 因无 `link.exe` 无法链接」「不能把本机状态当 CI 绿」——
+>   记录的是 Windows msvc 实现宿主。2026-08-28 起测试矩阵已在 macOS 可链接宿主真实执行
+>   (见 [`../b0-verification.md`](../b0-verification.md)),CI `repository-policy.yml` cargo job 也在
+>   ubuntu 上跑同一命令;PR #4(origin/main `d4ee9fc`)与本次复测均以链接执行交付证据。
+> - 「VOX-D-001..004 seam compiled; traces not executed」——四门 seam 已经
+>   `benchmarks/decision_gates/run_seam_replay.sh` + `*_replay.rs` 驱动(提交 `cc868e4`)在
+>   x86_64 / aarch64 双架构实跑,首个实测数字与取证记录见各证据文档新增的 §8
+>   (`docs/evidence/decision-gates/VOX-D-001..004` §8)。
+> - 「VOX-D-001–008 `approvalStatus=blocked`」——VOX-D-001..004 已由架构所有者批准
+>   (`LGE-V1.4-VOX-D-P0-2026-08-28`,D-013,提交 `31cb6a2` 记录);VOX-D-005..008 仍为 blocked。
+> - 生成物镜像的 SHA-256 `K[28]` 缺陷(见 [`../b0-verification.md`](../b0-verification.md) §4)已在
+>   `51c2836` 修正。VOX-D-005..008 的旧哈希经 `54b488f` 重放证明是真实测量、已被正确摘要取代
+>   ([`VOX-D-006`](../decision-gates/VOX-D-006-streaming.md) §8.1);VOX-D-001..004 的记录数字经
+>   2026-08-29 复测证明**未被缺陷摘要污染**(各文档 §8)。
+>
+> P2 程序缺失、R-00196 / R-00198 / R-00204 前置未满足等 RETURN 主因**不在**上述取代范围内,
+> 重开条件仍以本文末节为准。
+
 ## 执行前置（GET-verified against tree + local card snapshots; no Workflow API）
 
 卡面要求 R-00204 / R-00198 / R-00196 达到可消费 PASS 后才开审。三项均未满足。本审查仍产出 RETURN 报告，不代修、不补造 P2 程序/测试、不替架构所有者批准 VOX-D。
