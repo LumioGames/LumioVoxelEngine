@@ -1,433 +1,1070 @@
 # MvpReviewReport — R-00203
 
-- Reviewer: independent reviewer (Claude Opus 5). Did **not** implement R-00143 / R-00145 / R-00146, did not
-  author any reviewed commit, and did not participate in the previous review round.
+- Reviewer: independent reviewer (Claude Fable 5). Did **not** implement any P0 card, did not author any
+  reviewed commit, and did not participate in either previous review round.
 - Baseline: `LGE-V1.4-2026-08-27`, `schemaEpoch = 1`
 - Repo / branch: `LumioVoxelEngine` @ `main`
-- Reviewed HEAD: **`4ced801`** (`Merge pull request #3 from LumioGames/fix/mirror-sha256-k28`)
-  - `origin/main` = `4ced801` = local HEAD. Working tree clean at review open and at review close; the
-    review target did **not** mutate during this round.
-- Toolchain: `cargo +1.98.0-aarch64-apple-darwin` — `cargo 1.98.0 (797e8a9bc 2026-08-05)`,
-  `rustc 1.98.0 (88d9e12ae 2026-08-18)`, host `aarch64-apple-darwin`. (rustup default on this machine is
-  `x86_64-apple-darwin` under Rosetta and must not be used.)
-- Upstream architecture, as consumed by the mirror: `LumioGameEngineArchitecture` @ **`bcc8eb9`**
-  (`fix(contract-runtime): correct SHA-256 round constant K[28]`).
-- Round: **re-review**. Previous verdict was RETURN (7 × P0/P1, 5 × MEDIUM, 3 × LOW).
+- Reviewed HEAD: **`0466ffd`** (`Merge pull request #7 from LumioGames/fix/r-00264-policy-v14-baseline`),
+  re-verified after merging **`8cec2da`** (PR #8, R-00290) which landed while this report was being written.
+  - Reviewed in an isolated `git worktree`; working tree clean at review open and close.
+  - **Anchor discipline, stated so this report does not need rewriting the next time `main` moves:** every
+    finding below was derived at `0466ffd`. `8cec2da` added `tests/sha256_kat.rs`, ADR 0010 and a comment in
+    `generated_clean.rs`; it closed one finding (F-P1-7, §6.4) and changed no other reviewed path
+    (`git diff 0466ffd..8cec2da -- crates/` touches only `lumio-voxel-test-support`). The full suite was
+    re-run on the merged tree and every figure in §2 is from that re-run. Any later commit that does not touch
+    `crates/` leaves §4 and §5 valid as written.
+- Toolchain: `rustc 1.98.0 (88d9e12ae 2026-08-18)`, `cargo 1.98.0 (797e8a9bc 2026-08-05)`,
+  host `aarch64-apple-darwin`, macOS.
+- Upstream architecture as consumed by the mirror: `LumioGameEngineArchitecture` @ `bcc8eb9`.
+  Upstream `origin/main` has since advanced to `3287bba` (PR #27) — a **reporting item**, not a failure of
+  this delivery (§8).
+- Round: **third review — re-review on the green baseline.** Round 1 RETURN; round 2 RETURN.
 - Verdict: **RETURN**
 
-Nothing below is taken on the implementer's word. Every claim was re-derived from a command this reviewer
-ran, or from an independent reimplementation of the algorithm in question. Two claims that looked like
-findings on first measurement were **withdrawn** after re-verification (see §7); they are recorded there
-rather than silently dropped.
+Nothing below is taken on any implementer's word, and nothing is taken on a helper's word either. Every
+finding in §5 was re-derived by this reviewer from a command run here or from an independent
+reimplementation of the algorithm in question. Three candidate findings were **downgraded or withdrawn**
+after that re-derivation; they are recorded in §6 rather than silently dropped.
 
 ---
 
-## 1. Scope
+## 0. What this round adds, and why
 
-| Card | Deliverable reviewed | Owner files |
-| --- | --- | --- |
-| R-00143 | B0 10-row matrix | `b0_harness.rs`, `tests/b0_contract_domain.rs`, `docs/evidence/b0-verification.md` |
-| R-00145 | B2 12-row matrix | `b2_harness.rs`, `tests/b2_transaction_recovery.rs`, `docs/evidence/b2-verification.md` |
-| R-00146 | MVP 10-step vertical slice | `mvp_harness.rs`, `tests/mvp_vertical_slice.rs`, `docs/evidence/mvp-integration.md` |
+Round 2's report was returned at QA acceptance (SV-α, 2026-08-29) on one criterion only. Criteria 2, 3 and 4
+passed. Criterion 1 — 「审查报告逐张覆盖全部 P0 Requirement、四条验收、完整 diff 与实际证据，无范围遗漏」 —
+did not: §1 Scope enumerated the three delivering cards (R-00143 / R-00145 / R-00146) plus the wave's changed
+surface, and the whole report referenced only five card numbers. A card-by-card pass over the P0 set was
+missing.
 
-Also in scope because this wave changed them: the re-mirrored generated tree
-(`crates/lumio-voxel-contracts/generated/`, 52 → 58 files), `tools/architecture/generated-lock.json`,
-the `#[allow(dead_code)]` vendoring seam in `crates/lumio-voxel-contracts/src/lib.rs`, ADR 0008,
-`.spec/knowledge/lessons.md`, and the artifact-gate record
-`docs/evidence/v1.4-generated-artifact-gate.md` that the re-mirror invalidated.
+This round adds **§4: a pass over all 35 P0 requirements in room RM-00003**, each with a conclusion, its four
+acceptance criteria, and evidence anchors. The coverage list comes from the Workflow API — not from this
+document's previous table of contents.
 
-Checklist dimensions applied: acceptance criteria, correctness, security, guardrails/standards, tests,
-commit hygiene, sedimentation, plus the card's own dimensions (7-crate DAG, ownership, linearization,
-dual-world isolation, error mapping, artifact provenance).
-
----
-
-## 2. Verdict rationale
-
-**RETURN.** The code is in good shape; the *evidence* is not.
-
-Every technical blocker from the previous round is genuinely closed, and I verified each one independently
-rather than accepting it (§3, §5). The workspace is green (158/158, 0 ignored), the mirror is byte-for-byte
-reproducible from its upstream commit, and both Rust SHA-256 tables now match FIPS 180-4 exactly.
-
-RETURN rests on two grounds, either sufficient:
-
-1. **F-P0-1.** The three evidence documents that *are* the R-00143 / R-00145 / R-00146 deliverables are
-   comprehensively false at HEAD. They still record measurement commit `80a80c9`, exit code 101,
-   `153 passed / 5 failed`, a BLOCKED cluster A, a red `origin/main`, and card verdicts of
-   BLOCKED / conditional. On their own face, no card meets its four acceptance criteria. This is the same
-   defect class as last round's F-P1-3, recurring after it was fixed — and it is exactly what the first
-   `lessons.md` entry was opened to prevent.
-2. **F-P1-1.** The generated-artifact set actually consumed at HEAD has **no** Architecture Gate record.
-   `docs/evidence/v1.4-generated-artifact-gate.md` — which declares itself the sole gate owner file — still
-   attests a different artifact generation (`compilerHash 99a786e7…`, 6 of 12 `outputHash` values stale) and
-   still says `ready: true` about it.
-
-**F-P0-3 from the previous round (R-00204 QA not executed) is explicitly NOT carried forward as a RETURN
-ground.** `docs/evidence/qa/mvp-release-gate.md` states R-00204's own precondition: *「先验证 REV-MVP=APPROVE
-且无未关闭 P0/P1 finding；否则不执行放行，直接 BLOCKED」*. Holding R-00203 open because R-00204 has not run,
-when R-00204 cannot run until R-00203 approves, is a deadlock. R-00204 is a separate downstream card; its
-non-execution is not a defect in this delivery. Treated as a scope note (§8), not a finding.
+That pass is what produced this round's findings. Round 2 verified the three test cards and the wave's
+changed files to a high standard; going card-by-card over the 26 implementation cards surfaced a class of
+defect neither previous round had reason to look at, because neither previous round was reading the
+production code of cards outside the wave. **The green suite did not catch them: the workspace is
+165 / 0 / 0, and the defects in §5 sit in paths those tests do not exercise, or that they exercise and assert
+the wrong way round.**
 
 ---
 
-## 3. Status of the previous round's seven P0/P1 findings
+## 1. Scope — the full P0 set
 
-| Prev. finding | Status | How verified |
-| --- | --- | --- |
-| **F-P0-1** generated Rust `sha256` `K[28]` wrong; Rust≠C# | **CLOSED** | Re-derived all 64 FIPS 180-4 constants from cube roots of the first 64 primes and compared both K tables in the repo: generated mirror **0 mismatches**, `generated_clean.rs` **0 mismatches**. Independently recomputed all 12 descriptor `outputHash` values with Python `hashlib`: **12 OK / 0 BAD**. The Rust `artifact_hashes` target passes over the same bytes, so the two independent implementations now agree — which is what proves the hasher, not just the data. |
-| **F-P0-2** three cards, four criteria unmet | **NOT CLOSED** | Technically resolved for the hash blocker, but the criteria as recorded still read FAIL / PARTIAL / FAIL, criterion "replayable on the recorded commit" is now false in a *new* way, and R-00146 criterion 2 is unchanged. See **F-P0-1** and **F-P1-2** below. |
-| **F-P0-3** R-00204 QA not executed | **NOT A FINDING against this card** | Circular precondition — see §2. Reclassified to §8. |
-| **F-P1-1** review target mutated and committed mid-review | **CLOSED for this round** | `git rev-parse HEAD` = `4ced801` and `git status --porcelain` empty at review open and close. No mutation. (A related process note about *who* merged is in §8.) |
-| **F-P1-2** `origin/main` is red | **CLOSED** | `origin/main` = `4ced801` = HEAD, and the full suite at that commit exits 0 with 158/158. |
-| **F-P1-3** evidence documents assert falsifiable facts that are false | **NOT CLOSED — recurred** | `85df75e` corrected the two named statements at 18:03. `51c2836` + `e26d819` then merged at 20:01 without re-validating, and the documents are now false in ~10 places. Full list in **F-P0-1**. |
-| **F-P1-4** two divergent SHA-256 implementations | **CLOSED as to divergence; residual is P2** | Both tables verified 0 mismatches against FIPS 180-4, so they no longer disagree. The duplicate implementation itself survives — `b0-verification.md` §6 committed to deleting it once the generated one was correct; it is now correct and the duplicate is still there (**F-P2-2**). |
+**How the coverage list was derived.** `GET /requirements?roomId=<RM-00003>&limit=25`, cursor-paged to
+`nextCursor == ""` (3 pages, 55 requirements), filtered `priority == "P0"` → **35 cards**. Cross-checked
+against the umbrella card's own statement of blueprint topology: R-00002 says
+「本蓝图创建 53 张 Requirement：P0 35、P2 18」, and `docs/evidence/qa/mvp-release-gate.md` independently says
+「P0 35 张」. Three independent sources, same 35. The remaining 20 room members are 18 P2 cards plus the two
+P1 cards opened later (R-00264, R-00290), outside this card's scope.
 
----
+The 35 fall into four kinds, reviewed on their own terms:
 
-## 4. Findings
+| Kind | Count | How reviewed |
+| --- | ---: | --- |
+| Production / test implementation | 26 | Owner files, production code, tests, four criteria |
+| Research decision gates | 5 (R-00037, R-00057, R-00058, R-00059, R-00060) | Evidence file, seam, approval reference |
+| Umbrella requirement | 1 (R-00002) | Aggregate — satisfied iff its children are |
+| Process | 2 (R-00203 this card, R-00204 downstream QA) | §4, §8 |
 
-### CRITICAL
+**Owner-file presence, machine-checked.** For each of the 34 cards with a declared owner-file set (R-00002 has
+none), every declared path was tested at `0466ffd`: **34 / 34 cards, all declared files present, 0 missing.**
+No P0 card is in the "declared but never created" state the P2 set is in.
 
-#### F-P0-1 — the three delivering cards' evidence documents are false at HEAD, and on their face no card meets its acceptance criteria
+**Commit anchors.** For each card the commit introducing its primary owner file was resolved and checked with
+`git branch -r --contains` — the criterion round 2 adopted after the `d134046` / `5fb78fa` anchor failures.
+**All 34 anchors reachable from `origin/main`; zero unpushed or rewritten anchors.**
 
-`docs/evidence/b0-verification.md`, `docs/evidence/b2-verification.md`, `docs/evidence/mvp-integration.md`.
-Responsible: **R-00143 / R-00145 / R-00146**.
-
-These documents are not commentary — they are the cards' deliverables and the object this review is asked
-to certify. Every row below is a statement in the document that I disproved by running a command at HEAD.
-
-| Location | Document says | Measured at `4ced801` |
-| --- | --- | --- |
-| `b0-verification.md:5`, `b2-verification.md:5`, `mvp-integration.md:5` | measurement HEAD `80a80c90f30dc…` on branch `fix/rust-workspace-checks` | HEAD is `4ced801` on `main`; the mirror at `80a80c9` is a different artifact set |
-| `b0-verification.md:27`, `b2-verification.md:26`, `mvp-integration.md:31` | `cargo test --workspace --all-features --no-fail-fast` → **101**, 153 passed / 5 failed | **exit 0**, **158 passed / 0 failed / 0 ignored** |
-| `b0-verification.md:28` | `b0_contract_domain` → 7 passed / 2 failed | 9 passed / 0 failed |
-| `mvp-integration.md:30` | `mvp_vertical_slice` → **101**, 1 passed / 1 failed | exit 0, 2 passed / 0 failed |
-| `b0-verification.md:21`, `:45`, `:69` | row 1 FAIL; "**This card is BLOCKED**"; cluster A "BLOCKED — not fixable in this repo" | row 1 passes (`artifact_hashes_verify_ok ... ok`); cluster A resolved upstream and mirrored |
-| `b0-verification.md:89` | "all **52** entries of `generated-lock.json`" | **58** entries; I verified all 58 against `hashlib`, 0 mismatches, 0 extra, 0 missing |
-| `b0-verification.md:110-112` | upstream fix "in flight but **not yet committed**"; upstream `HEAD` `7f6c0c6` still carries `0xc6eabbdc` | landed upstream as `bcc8eb9`; `git show bcc8eb9:tools/lumio_generate.py` carries `0xc6e00bf3` |
-| `b0-verification.md:141-142`, `b2-verification.md:119`, `mvp-integration.md:116` | "`origin/main` is currently **RED** … = `8e10823` … **does not contain** `17ef95c`/`34ffdc1`/`dc6926b`" | `origin/main` = `4ced801`, contains all three, and is green |
-| `b0-verification.md:136` | "Verdict for this card: **BLOCKED**" | stale |
-| `b2-verification.md:108` | "delivery **conditional**" | stale |
-| `mvp-integration.md:107` | "delivery **BLOCKED** on cluster A" | stale |
-
-Consequences for the acceptance criteria, which is why this is P0 and not P1:
-
-- **R-00143 criterion 2** (`b0-verification.md:132`) is recorded **FAIL** ("Rust and C# hashers disagree").
-  Substantively now satisfied — but the card face says FAIL.
-- **R-00143 criterion 3** (`:133`, "report independently replayable on the recorded commit") is recorded
-  PARTIAL and is now false in a *new* direction: replaying at the recorded commit `80a80c9` does not
-  reproduce the artifact set at HEAD, and replaying at HEAD contradicts every number in the report. The
-  report is currently replayable **nowhere**.
-- **R-00143 criterion 4** (`:134`) and **R-00145 criterion 4** (`b2-verification.md:106`) are recorded
-  FAIL / PARTIAL on two clauses. The first clause (`cargo test` exits 101) is closed. The second —
-  "production code not modified by this test card" — is **not**: the cluster C/D/F changes remain in the
-  tree, and `.spec/decisions/` records only the const→static half (ADR 0008). No in-repo record annotates
-  the owner cards R-00056 / R-00142 / R-00078 / R-00104.
-- **R-00146 criterion 4** (`mvp-integration.md:105`) is recorded **FAIL (explicit block)**.
-
-The remediation is a re-measurement at `4ced801`, not a patch: rerun the commands, replace the numbers,
-restate the card verdicts, and re-derive the acceptance table. This is the second consecutive round in which
-evidence was validated and then invalidated by commits that landed after validation. `.spec/knowledge/lessons.md`
-entry 1 prescribes 「交付前跑 … 并贴真实退出码」; a re-validation step at merge time is what is missing.
-
-### HIGH
-
-#### F-P1-1 — the generated-artifact set consumed at HEAD has no Architecture Gate record
-
-`docs/evidence/v1.4-generated-artifact-gate.md` §1, §3, §7. Responsible: **R-00037 / R-00045**, triggered by
-`51c2836`.
-
-That file states at line 7: *"Gate owner file: this document only"* — it is the designated record. §7 asserts
-`{"ready": true, "blockingEvidence": []}`. But §3's `ContractArtifactInventoryV1` describes a **different
-artifact generation** from the one on disk:
-
-| Field | Gate doc §3 | On disk at HEAD |
-| --- | --- | --- |
-| `compilerHash` | `99a786e7241d6e86…` | `3a46fc313ecf03ad…` |
-| `inputHash` | `84a2b4c80d3d2bc3…` | `3a0436c9b1e48711…` |
-| `outputHash` × 12 | 6 match, **6 stale** | — |
-
-Stale: `canonical-serializer-csharp`, `language-binding-rust`, `language-binding-csharp`,
-`contract-types-rust`, `contract-types-csharp`, `contract-runtime-rust`.
-
-The consumed set is not a cosmetic bump — it **expands the public contract surface this repo re-exports**:
-`crates/lumio-voxel-contracts/generated/rust/lumio-gen-contract-types/src/lib.rs` gains
-`"root-abi-bundle"` and `"canonical-digest-profile"` in `SCHEMA_IDS` (re-exported as
-`pub static SCHEMA_IDS` at `crates/lumio-voxel-contracts/src/lib.rs:57` and used by `intern_schema`), plus
-`ABI_VERSION` / `ABI_ENTRY_SYMBOL` / `ABI_TYPE_MAPPING` / `AbiTypeMapping`; `lumio-gen-language-binding`
-gains `src/root_abi.rs`. `knowledge/standards/repository-architecture.md`「Architecture Gate」and AGENTS.md
-「收口门槛」put public-contract changes behind a gate; none was recorded.
-
-Beyond the gate file, **there is no record of the ADR-040 / ADR-041 adoption anywhere in this repo**:
-`grep -rn "ADR-040\|ADR-041\|root-abi\|RootAbi\|canonical-digest-profile" .spec/ docs/` (excluding the
-read-only architecture mirror) returns **nothing**. Only the commit message of `51c2836` carries it, and
-commit messages are not the sedimentation target that AGENTS.md「改完沉淀」names.
-
-**The artifacts themselves are sound — I verified provenance rather than assuming it.** Regenerating from
-upstream `bcc8eb9` reproduces the mirror exactly: `compilerHash 3a46fc31…`, `inputHash 3a0436c9…`,
-`rootAbi bundleDigest 25e78226…`, `stable outputHash: yes`, and **58 / 58 files byte-identical** to
-`crates/lumio-voxel-contracts/generated/`. Upstream `lumio_contract.py validate` at that commit →
-`Validated 174 fixture(s), 0 failure(s).` The finding is the **missing gate record**, not bad artifacts.
-
-#### F-P1-2 — R-00146 acceptance criterion 2 remains unproven, and is unaffected by everything this wave fixed
-
-`docs/evidence/mvp-integration.md:103`; `crates/lumio-voxel-test-support/src/reference_harness.rs:23-79`.
-Responsible: **R-00146**.
-
-Criterion 2 requires "Native and Reference byte-identical on the same corpus". It is recorded PARTIAL
-because the Reference harness cannot observe Native world identity. I confirmed this is still structurally
-true at HEAD: `VoxelPortHarness` exposes `new`, `arm`, `execute`, and `snapshot_hash()` — there is no
-accessor for world identity, so the alignment covers op sequence and payload only.
-
-This is an open acceptance-criterion gap independent of the SHA-256 cluster, and it was open in the previous
-round too. It needs either a card that closes it (give the harness an identity view) or an explicit,
-recorded rewrite of the criterion to what the harness can actually prove. Carrying it as a permanently
-PARTIAL row is the option that should not be chosen silently.
-
-### MEDIUM
-
-#### F-P2-1 — the `#[allow(dead_code)]` seam is the right call, but it is module-wide and unsedimented
-
-`crates/lumio-voxel-contracts/src/lib.rs:22,26` (`e26d819`). Responsible: **R-00045 / R-00056**.
-
-**On the question the review was asked: the decision is appropriate and does not mask a real problem.**
-Established by counterfactual, not argument — I copied the tree to a scratch directory, removed both
-attributes, and ran clippy. Every suppressed item is ADR-040 Root ABI surface:
-`ABI_VERSION`, `ABI_ENTRY_SYMBOL`, `ABI_SYMBOL_PREFIX`, `ABI_CALLING_CONVENTION`, `ABI_POINTER_WIDTH`,
-`ABI_ENDIANNESS`, `ABI_TYPE_MAPPING`, `AbiTypeMapping`, `CALLING_CONVENTION`, `CAPABILITY_BITS`,
-`ENTRY_SYMBOL`, `MAX_ALIGNMENT`, `POINTER_BYTES`, `ROOT_HEADER_BYTES`, `SLOT_OFFSETS`, `STRUCT_SIZES`,
-`SYMBOL_PREFIX`, `TABLE_HEADER_BYTES`, `TARGET_PROFILE_ID`. Nothing domain-related is hidden. Voxel
-legitimately does not consume the Root ABI — `repository-architecture.md`「所有权边界」excludes FFI/process
-governance and ADR 0006 forbids an `ffi` crate. The two rejected alternatives are correctly rejected:
-re-exporting would grow the public API to silence a lint, and editing generated files is forbidden by
-`.spec/rules/system.md`「生成物不得手改」. `#[allow(dead_code)]` is also correctly narrower than `allow(unused)`.
-
-Two residual points:
-
-1. The attribute is **module-scoped**, and `lumio_gen_contract_types` also holds `SCHEMA_IDS`,
-   `STABLE_ERROR_IDS`, `MACHINE_IDS`, `CHUNK_PRESENCE`, `Transition`. `dead_code` on that module is exactly
-   how the ADR-040 surface announced its arrival in this wave; after this change, a future regeneration that
-   adds contract-types items this repo *should* wire up will arrive silently. Worth a compensating check
-   (e.g. asserting `SCHEMA_IDS` membership on regeneration) or an explicit note that the signal was traded away.
-2. The decision is **not sedimented**. The structurally identical const→static decision got ADR 0008; this
-   one got a commit message. AGENTS.md「改完沉淀」+ reviewer checklist item 7.
-
-Minor precision note, same commit: the message states "22 个 dead_code error". The counterfactual produces
-**20** errors per compilation unit over **19** unique items.
-
-#### F-P2-2 — the production hasher has no direct known-vector assertion, and the duplicate implementation the docs promised to delete is still present
-
-`crates/lumio-voxel-test-support/tests/generated_clean.rs:4-9` vs
-`crates/lumio-voxel-contracts/generated/rust/lumio-gen-contract-runtime/src/sha256.rs`.
-Responsible: **R-00045 / R-00047**.
-
-`sha256_empty_matches_published_digest` asserts `generated_clean::sha256_hex(b"") == e3b0c442…b855` — on the
-**test-only** copy. The **production** hasher, re-exported at `crates/lumio-voxel-contracts/src/lib.rs:44`
-and used for every identity and receipt in the domain, has no equivalent one-line assertion; the vendored
-`generated/rust/lumio-gen-contract-runtime/tests/chain.rs` is included via `#[path]` for `src/lib.rs` only
-and is never compiled as a test target. Coverage is not absent — `artifact_hashes` did catch the K[28]
-defect, and would catch a recurrence — but the direct guard sits on the copy that was never broken. Adding
-the same assertion against `lumio_voxel_contracts::sha256` is a one-liner and closes the exact defect class,
-in the spirit of `lessons.md` avoidance point 4.
-
-Separately, `b0-verification.md:157-158` states the hand-written duplicate "should be deleted in favour of
-the generated one once the generated one is correct." It is now correct; the duplicate remains.
-
-#### F-P2-3 — cut identity is still derived from Rust `Debug` output
-
-`crates/lumio-voxel-domain/src/publication/root.rs:112-118` — `format!("{directory:?}")`,
-`format!("{frontier:?}")`, `format!("{indexes:?}")` are folded into the identity hash. Responsible: **R-00078**.
-Pre-existing; **unchanged since the previous round**. A comment was added explaining the intent, but `Debug`
-is still not a stable encoding: a derive change, field reorder, or std formatting change silently changes
-every identity, and no C# implementation can reproduce it. Now that F-P0-1's root cause established
-cross-language hash agreement as a live contract requirement, this is the remaining independent barrier to it.
-
-#### F-P2-4 — the Architecture Gate in CI still gates the previous baseline
-
-`.github/workflows/repository-policy.yml:24-33`. **Unchanged since the previous round.** The job still
-asserts `docs/architecture/LumioGameEngine_Architecture_v1.3.md` exists, greps
-`# LumioGameEngine V3 (v1.3)` in it, and greps `LGE-V1.3-2026-08-27` in both that file and `README.md`,
-while the active baseline is v1.4. I replayed the whole job by hand: every assertion passes — but only
-because the v1.3 file was never deleted and `README.md:11` still mentions `LGE-V1.3-2026-08-27` as a
-historical source. Real v1.4 coverage comes solely from `sha256sum -c docs/architecture/.baseline.sha256`,
-which does pin the v1.4 file (verified OK). A green job here is not evidence about v1.4.
-
-#### F-P2-5 — the three `GateSourceHashes` literals are never recomputed, so none can detect drift
-
-`crates/lumio-voxel-world/tests/world_capture.rs:31-39` and 11 sibling test files, plus
-`b0_harness.rs:674`, `b2_harness.rs:861`, `mvp_harness.rs:807`. **Unchanged since the previous round.**
-
-Correcting the previous round's characterisation: `v13_decision_gates_sha256` = `4850057d…ede2` is **not**
-decorative — I scanned every file under `docs/` and it is the exact SHA-256 of
-`docs/LumioVoxelEngine_Framework_Design_LGE-V1.3/DECISION_GATES.md`. The accurate finding is narrower and
-applies to all three literals equally (`architecture_mirror_sha256`, `v13_decision_gates_sha256`,
-`blueprint_sha256`): each is a hard-coded string that is never recomputed from the file it names, so if any
-of those files drifts, no test fails. The neighbouring `voxel_head` literal `b2f0d8a3…` is a real commit
-(`feat(R-00047)`) but is many commits stale.
-
-#### F-P2-6 — the QA gate record contains a stale statement
-
-`docs/evidence/qa/mvp-release-gate.md`. Responsible: **R-00204**. The 執行前置 table lists
-`R-00146 INT-MVP | backlog | 无端到端垂直链`. R-00146 shipped (`07886b9` / `105ef06`); the slice runs
-end-to-end and `mvp_vertical_slice` is green. Listed for accuracy, not as a block — R-00204's own verdict
-correctly stays BLOCKED until this review approves.
-
-### LOW
-
-#### F-P3-1 — unknown generated error ids still collapse to `InvalidHandle`
-
-`crates/lumio-voxel-world/src/port/error_mapping.rs:35-36`. **Unchanged.** An error id added upstream but
-not added to this table degrades silently instead of failing loudly. Pre-existing, R-00142.
-
-### Closed since the previous round
-
-- **`code_only()` char literals** — `crates/lumio-voxel-domain/tests/chunk_delta_dirty.rs:312-316,76-92`.
-  Char and escaped-char literals are now consumed wholesale so a bare `'"'` cannot flip the string state;
-  the doc comment records that raw strings remain unmodelled and instructs adding handling before a scanned
-  file uses one. Adequate for a LOW.
-- **`publish_once`'s `HandleDoubleRelease` branch** —
-  `crates/lumio-voxel-domain/src/publication/authority.rs:117-123`. Annotated as defence-in-depth, with the
-  pre-reorder reachability (and why it only ever fired wrongly) recorded. Adequate.
-- **`const` → `static` has no ADR** — closed by `.spec/decisions/0008-interned-contract-tables-as-static.md`,
-  listed in `.spec/decisions/README.md:38`. The ADR correctly records the breaking-change surface,
-  the `publish = false` blast-radius bound, and the "must supersede, must not revert" rule.
-- **`lessons.md` empty** — closed by its first entry (「没有链接执行过的验证一律记『未执行』」). Well-scoped,
-  with verifiable avoidance steps. Note that F-P0-1 above is a recurrence of the very class it records.
+**Diff scale reviewed.** Empty tree → `0466ffd` over `crates/`: 184 files / 22 625 lines, of which the
+read-only generated mirror is 58 files / 1 281 lines, leaving **126 files / 21 344 lines of first-party code**.
+Per crate (excluding the mirror): contracts 402, domain 4 112, ops 5 829, world 5 955, test-support 4 851,
+project 5, migration 5. The last two are P2 skeletons and correctly carry no P0 obligation.
 
 ---
 
-## 5. Skips, ignores, weakened assertions, flakiness
-
-**None found.**
-
-- `grep -rn "#\[ignore" crates/ tools/` → no matches. No `should_panic`, no `todo!()`, no `unimplemented!()`
-  anywhere under `crates/`.
-- All **46** `test result` lines in the full run report `0 ignored; 0 filtered out`.
-- `--test-threads=1` produces the identical 158 / 0 / 0, so nothing is order- or parallelism-dependent.
-- 60 repeated concurrency runs (30 + 30) produced 0 failures.
-- The only `#[allow]` added this wave is the `dead_code` seam, assessed in F-P2-1; the other `#[allow]`s
-  under `crates/` (`revision/allocator.rs:3`, `mutation/prepared_token.rs`) pre-date this wave.
-
-### Independent replays required by the card
-
-| Replay | Command | Result |
-| --- | --- | --- |
-| Concurrency schedule | `test -p lumio-voxel-domain --test publication_atomicity -- concurrent_captures_see_complete_old_or_complete_new --exact` ×30 | **30/30 pass, 0 failures** |
-| Concurrency (commit serialization) | `test -p lumio-voxel-ops --test mutation_commit -- same_world_mutation_commits_serialize_on_new_identity --exact` ×30 | **30/30 pass, 0 failures** |
-| Prepare fault | `test -p lumio-voxel-ops --test mutation_prepare --all-features` | exit 0, **4/4** — incl. `failed_precondition_wrong_world_leaves_ledger_vacant_and_root_unchanged`, `failed_stage_invalid_chunk_id_aborts_without_publish` |
-| Restore corrupt fixture | `test -p lumio-voxel-world --test world_restore --all-features` | exit 0, **7/7** — incl. `preflight_rejects_truncated_empty_and_wrong_world_without_touching_world`, `preflight_rejects_bad_schema_epoch_and_config_hash` |
-
----
-
-## 6. Evidence — commands this reviewer actually ran
-
-All at HEAD `4ced801` unless noted.
+## 2. Evidence — commands this reviewer actually ran at `0466ffd`
 
 | # | Command | Exit | Key output |
 | --- | --- | ---: | --- |
-| 1 | `cargo +1.98.0-aarch64-apple-darwin test --workspace --all-features --no-fail-fast` | **0** | **158 passed / 0 failed / 0 ignored** across 46 targets |
-| 2 | `cargo +… test --workspace --all-features --no-fail-fast -- --test-threads=1` | **0** | 158 / 0 / 0 — identical |
-| 3 | `cargo +… fmt --all -- --check` | 0 | no output |
-| 4 | `cargo +… clippy --workspace --all-targets --all-features -- -D warnings` | 0 | 0 errors, 0 warnings |
-| 5 | `cargo +… check --workspace --no-default-features` | 0 | clean |
-| 6 | `cargo +… check-crate-dag` | 0 | `check-crate-dag OK: 7 crates` |
-| 7 | `cargo +… check-generated-clean` | 0 | `check-generated-clean OK` |
-| 8 | `node .spec/tools/spec-lint.mjs` | 0 | `spec-lint: OK` |
-| 9 | `node --test .spec/tools/spec-lint.test.mjs` | 0 | `pass 13`, `fail 0` |
-| 10 | `python3 tools/architecture/check_crate_dag.py` | 0 | `OK: 7 crates` |
-| 11 | `python3 tools/architecture/check_generated_clean.py` | 0 | `check-generated-clean OK` |
-| 12 | `python3 tools/architecture/test_guards.py` | 0 | `ALL_PASS`, incl. `cargo metadata seven members` |
+| 1 | `cargo test --workspace --all-features --no-fail-fast` | **0** | **165 passed / 0 failed / 0 ignored** across 47 targets on the merged tree (**158 / 46** at `0466ffd`; the delta is `sha256_kat` 7/7) |
+| 2 | same, `-- --test-threads=1`, at `0466ffd` | **0** | 158 / 0 / 0 — identical; nothing order- or parallelism-dependent |
+| 3 | `cargo fmt --all -- --check` | 0 | clean |
+| 4 | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | 0 | 0 errors, 0 warnings |
+| 5 | `cargo check --workspace --no-default-features` | 0 | clean |
+| 6 | `node .spec/tools/spec-lint.mjs` | 0 | `spec-lint: OK` |
+| 7 | `node --test .spec/tools/spec-lint.test.mjs` | 0 | `pass 13`, `fail 0` |
+| 8 | `python3 tools/architecture/check_crate_dag.py` | 0 | `OK: 7 crates` |
+| 9 | `python3 tools/architecture/check_generated_clean.py` | 0 | `OK` |
+| 10 | `python3 tools/architecture/test_guards.py` | 0 | `ALL_PASS`, incl. `cargo metadata seven members` |
+| 11 | `cargo run -p lumio-voxel-test-support --example check-crate-dag` | 0 | `OK: 7 crates` |
+| 12 | `cargo run -p lumio-voxel-test-support --example check-generated-clean` | 0 | `OK` |
 | 13 | `shasum -a 256 -c docs/architecture/.baseline.sha256` | 0 | v1.4 mirror `OK` |
-| 14 | `repository-policy.yml` readme job, replayed assertion by assertion | 0 | all pass — but see F-P2-4 |
-| 15 | Python: derive all 64 FIPS 180-4 `K` from cube roots; compare both repo tables | — | generated mirror **0 mismatches**; `generated_clean.rs` **0 mismatches** |
-| 16 | Python `hashlib`: recompute all 12 descriptor `outputHash` | — | **12 OK / 0 BAD**; every `baselineId = LGE-V1.4-2026-08-27`, `schemaEpoch = 1` |
-| 17 | Python `hashlib`: verify all `generated-lock.json` entries | — | **58 OK / 0 BAD**; 0 files on disk unlocked, 0 locked files missing |
-| 18 | Byte-compare mirror vs `git archive bcc8eb9 packages` (upstream) | — | **58 identical / 0 differ**; only `.gitignore`, `README.md`, `rust/Cargo.toml`, `rust/Cargo.lock` unmirrored — the four this mirror has always excluded |
-| 19 | `python3.11 tools/lumio_contract.py generate` from a clean `bcc8eb9` archive | 0 | `compilerHash 3a46fc31…`, `inputHash 3a0436c9…`, `rootAbi bundleDigest 25e78226…`, `stable outputHash: yes`; regenerated tree **58/58 byte-identical** to the mirror |
-| 20 | `python3.11 tools/lumio_contract.py validate` on `bcc8eb9` | 0 | `Validated 174 fixture(s), 0 failure(s).` |
-| 21 | Counterfactual: strip both `#[allow(dead_code)]`, rerun clippy in a scratch copy | **101** | 20 errors / unit, 19 unique items, **all** ADR-040 Root ABI (F-P2-1) |
-| 22 | Concurrency replays ×30 + ×30 | 0 | 0 failures |
-| 23 | `test -p lumio-voxel-ops --test mutation_prepare --all-features` | 0 | 4/4 |
-| 24 | `test -p lumio-voxel-world --test world_restore --all-features` | 0 | 7/7 |
-| 25 | Python: compare `v1.4-generated-artifact-gate.md` §3 against live descriptors | — | **6 of 12 `outputHash` stale**, `compilerHash` stale, `inputHash` stale (F-P1-1) |
-| 26 | `grep -rn "#\[ignore" crates/ tools/`; scan all `test result` lines | — | no matches; 46/46 report `0 ignored; 0 filtered out` |
-| 27 | Scan every file under `docs/` for SHA-256 `4850057d…ede2` | — | matches `docs/LumioVoxelEngine_Framework_Design_LGE-V1.3/DECISION_GATES.md` (F-P2-5) |
+| 14 | `repository-policy.yml` readme job, replayed assertion by assertion (17 assertions) | 0 | all pass — now on the **v1.4** baseline (§3, F-P2-4 closed) |
+| 15 | Python `hashlib`: recompute every `generated-lock.json` entry | — | **58 OK / 0 BAD / 0 missing**; 0 files on disk unlocked |
+| 16 | Python: read the artifact five-tuple off the 12 live descriptors | — | `baselineId` `LGE-V1.4-2026-08-27` ×12, `schemaEpoch` 1 ×12, single `compilerHash 3a46fc31…`, single `inputHash 3a0436c9…` |
+| 17 | Python: derive all 64 FIPS 180-4 `K` constants from cube roots of the first 64 primes; compare both repo tables | — | generated mirror **0 mismatches / 64**; `generated_clean.rs` **0 mismatches / 64**; `K[28] = 0xc6e00bf3` in both |
+| 18 | `grep -rn "#\[ignore" crates/ tools/` | — | **0 matches**; all 46 `test result` lines report `0 ignored; 0 filtered out` |
+| 19 | `unsafe` scan over `crates/` excluding the mirror | — | **0** occurrences outside `#![forbid(unsafe_code)]`, present in **70** files — compiler-enforced |
+| 20 | Concurrency replay: `publication_atomicity` concurrent case ×20 | 0 | **20 / 20, 0 failures** |
+| 21 | Concurrency replay: `mutation_commit` ×20 | 0 | **20 / 20, 0 failures** |
+| 22 | Prepare-fault replay: `mutation_prepare --all-features` | 0 | **4 / 4** |
+| 23 | Restore-corruption replay: `world_restore --all-features` | 0 | **7 / 7**, incl. truncated / empty / wrong-world preflight and bad schema epoch |
+| 24 | Python: faithful port of `canonical_object_pairs` + `quote`, collision search | — | **collision found** — see F-P0-1 |
+| 25 | `git branch -r --contains` on all 34 card anchors | — | **34 / 34 reachable from `origin/main`** |
+| 26 | `cargo test -p lumio-voxel-test-support --test sha256_kat` (merged tree) | 0 | **7 / 7** — NIST empty / abc / 448-bit / 896-bit / million-`a` vectors, padding-boundary sweep and a length-sweep differential, each asserted against **both** hashers (F-P1-7 closed) |
 
-### Verification of the delivery's headline claims
-
-| Claim | Verdict |
-| --- | --- |
-| `test --workspace --all-features --no-fail-fast` → exit 0, 158 passed / 0 failed | **CONFIRMED** |
-| `-- --test-threads=1` → same 158 / 0 | **CONFIRMED** |
-| `fmt` 0 / `clippy` 0 / `check --no-default-features` 0 | **CONFIRMED** |
-| `spec-lint` 0; `spec-lint.test` 13 pass | **CONFIRMED** |
-| `check-crate-dag` / `check-generated-clean` OK on both the cargo and python paths | **CONFIRMED** (4 commands) |
-| `test_guards.py` → `ALL_PASS` | **CONFIRMED** |
-| `artifact_hashes` 3 passed / 0 failed; `generated_clean` 4 passed / 0 failed | **CONFIRMED** |
-| upstream fixed `K[28]` and republished; mirror synced 52 → 58 files | **CONFIRMED** — both K tables now 0 mismatches vs FIPS 180-4 |
-| the mirror is byte-identical to upstream, nothing hand-edited | **CONFIRMED** — 58/58 vs `bcc8eb9`, and 58/58 vs an independent regeneration |
-| BaselineId unchanged at `LGE-V1.4-2026-08-27` | **CONFIRMED** — on all 12 descriptors, `schemaEpoch` 1 |
-| the six new files are required for the declared `outputHash` to reproduce | **PARTLY CONFIRMED** — true for the three inside package directories (`RootAbi.cs`, `root_abi.rs`, `CanonicalProfile.cs`); `abi/lumio_core.h`, `abi/root-abi-bundle.json`, `canonical/canonical-digest-profile.json` sit outside every package dir and do not enter any `outputHash`. Mirroring them is still right (full-fidelity mirror, and `generated-lock.json` covers all 58), but the stated reason does not apply to them. |
-| `51c2836`'s stated precondition — land only after the upstream commit reaches architecture `origin/main` | **CONFIRMED SATISFIED** — the fix reached architecture `origin/main` as `bcc8eb9`; the mirror matches it exactly |
-| `#[allow(dead_code)]` is the least-bad option and hides nothing real | **CONFIRMED** by counterfactual — all 19 suppressed items are ADR-040 ABI surface (F-P2-1 records two residuals) |
-| evidence documents are current | **REFUTED** — false in ~10 places (F-P0-1) |
-| the artifact set consumed at HEAD is gated | **REFUTED** — gate record describes a different generation (F-P1-1) |
+Rows 20–23 are the independent replays the card requires (one concurrency schedule, one Prepare fault, one
+Restore-corruption fixture), run here rather than read off a report.
 
 ---
 
-## 7. Withdrawn findings (recorded, not silently dropped)
+## 3. Status of the previous rounds' findings
 
-Two candidate findings were retracted after re-verification. Both are logged because the *reason* they were
-wrong matters for the next round.
+| Round-2 finding | Status at `0466ffd` | How verified |
+| --- | --- | --- |
+| **F-P0-1** three evidence docs false at HEAD | **CLOSED in substance; residual → F-P2-7** | `13d515f` rewrote all three. Every number they now assert reproduces here: 158/0/0, `b0_contract_domain` 9/0, `b2_transaction_recovery` 10/0, `mvp_vertical_slice` 2/0, `artifact_hashes` 3/0, `generated_clean` 4/0. Residual: they pin measurement to `4ced801` and assert 「`origin/main` == `4ced801`」, now false. |
+| **F-P1-1** consumed artifact set has no gate record | **PARTIALLY closed — still open, see F-P1-6** | `13d515f` annotated `v1.4-generated-artifact-gate.md` marking `compilerHash 99a786e7…` / `inputHash 84a2b4c8…` / `"ready": true` historical and citing live `3a46fc31…` / `3a0436c9…`; ADR 0009 records the ADR-040/041 adoption. Not closed: §3's inventory body and §7's `"ready": true` still describe the superseded generation. |
+| **F-P1-2** R-00146 criterion 2 structurally unprovable | **STILL OPEN, unchanged** | `reference_harness.rs` still exposes only `new` (`:35`), `arm` (`:42`), `execute` (`:46`), `snapshot_hash` (`:79`). No world-identity accessor. |
+| **F-P2-1** `allow(dead_code)` module-wide, unsedimented | **sedimentation CLOSED; granularity open** | ADR 0009 exists and is indexed. Attribute still module-scoped. |
+| **F-P2-2** production hasher has no known-vector test; duplicate hasher survives | **CLOSED by `8cec2da` (R-00290), mid-review** | Found open at `0466ffd` and raised as F-P1-7; closed while this report was being written. `tests/sha256_kat.rs` now pins **both** implementations to the FIPS 180-4 published vectors and cross-checks them on a length sweep (7/7, §2 row 26). The duplicate itself is now a recorded decision rather than an oversight — ADR 0010 keeps the guard's own hasher deliberately, because auditing the generated tree with a hasher that is itself a locked entry in that tree is a self-certification loop. See §6.4. |
+| **F-P2-3** cut identity derived from `Debug` output | **STILL OPEN — and broader than recorded, see F-P2-8** | `publication/root.rs:113,115,117` unchanged; `chunk/replacement.rs:66` has the same pattern. |
+| **F-P2-4** CI Architecture Gate gated v1.3 | **CLOSED** | `36850ec` (R-00264) moved every assertion to v1.4 (`repository-policy.yml:28,33,34,35`). All 17 assertions replayed green (§2 row 14). |
+| **F-P2-5** three `GateSourceHashes` literals never recomputed | **STILL OPEN, unchanged** | `world_lifecycle.rs:42-47`, `world_barrier.rs:31-36` and siblings unchanged. |
+| **F-P2-6** QA gate record stale | **STILL OPEN — broader than recorded** | `mvp-release-gate.md:12-13` still lists R-00203 and R-00146 as backlog, and its Traceability section still says only R-00002/34/37/41 have evidence. The whole record predates the wave. Its BLOCKED verdict remains correct. |
+| **F-P3-1** unknown error ids collapse to `InvalidHandle` | **STILL OPEN — re-graded, see F-P2-9** | `port/error_mapping.rs:81` `_ => "InvalidHandle"`, and the test asserts the collapse rather than preventing it. |
 
-1. **"The published upstream artifacts are not reproducible from upstream source."** First measurement
-   showed `abi/root-abi-bundle.json`, `canonical/canonical-digest-profile.json` and
-   `csharp/…/CanonicalProfile.cs` differing on regeneration, with `compilerHash` mismatching. Cause: the
-   `LumioGameEngineArchitecture` working copy **moved during this review** (`origin/main` went
-   `bcc8eb9` → `b8f8c50`, local `HEAD` `6ac5266` → `7bdad78`) and I had regenerated with a newer generator
-   than the one that published the mirror. Re-run from a clean `git archive bcc8eb9`, the mirror reproduces
-   **58/58 byte-identical** with matching `compilerHash` / `inputHash` / `bundleDigest`. **No defect.**
-2. **"`v13_decision_gates_sha256` is a decorative literal matching nothing."** Carried over from the
-   previous round. The value is the real SHA-256 of `DECISION_GATES.md`. The surviving, narrower finding is
-   F-P2-5 (never recomputed, therefore cannot detect drift).
+### Decision gates — settled, not reopened
 
-The first item is also a standing hazard for anyone re-measuring: **pin the upstream commit and regenerate
-from an archive**, never from a live sibling checkout.
+VOX-D-001..004 (P0; R-00057/58/59/60) carry `approvalStatus=approved` citing
+`LGE-V1.4-VOX-D-P0-2026-08-28` (Architecture `5f06822`). VOX-D-005..008 (P2) carry `approvalStatus=approved`
+citing `LGE-V1.4-VOX-D-P2-2026-08-29` (Architecture `origin/main` `997117e`, PR #16), applied here by
+`dba284d`. Per that confirmation: measured invariants are binding, numeric axes stay adapter-internal,
+VOX-D-007 keeps its dependency gap. `numeric_policy_frozen()` correctly stays `false`. **This review does not
+reopen those rulings.** One consequence is recorded as a finding (F-P1-8) — not a challenge to the ruling, but
+to the fact that nothing in the code notices when a gate's status changes.
 
 ---
 
-## 8. Scope concerns for the main loop
+## 4. Card-by-card pass over all 35 P0 requirements
 
-- **R-00204 is deadlocked against this card.** `docs/evidence/qa/mvp-release-gate.md` makes
-  `REV-MVP = APPROVE` its execution precondition, so R-00204 cannot produce evidence while R-00203 returns.
-  Do not carry "QA not executed" as a finding against R-00203 in future rounds; it is a sequencing fact.
-  Once F-P0-1 and F-P1-1 close, R-00203 approves and R-00204 becomes runnable.
-- **Both PRs were merged to `main` before this review returned a verdict.** `eb611b5` (PR #2, 20:01:02) and
-  `4ced801` (PR #3, 20:01:53) landed while the standing verdict was RETURN. I checked authorship before
-  raising this as a guardrail breach and it is **not** one: `gh pr view` reports both were merged by the
-  human account `Go1c` (`is_bot: false`), so this was the user's call, not an agent bypassing
-  `.spec/rules/system.md`「高风险改动在 reviewer 通过前不得提交」. Noted only because it means `main` currently
-  carries changes this review is returning, so the fixes for F-P0-1 / F-P1-1 land on top rather than in a
-  pre-merge branch.
-- **`.spec/tasks/` holds only `README.md`.** The acceptance criteria and the "owner cards need annotating"
-  gap live in an external task system, so I could verify neither in-repo. F-P0-1's criterion-4 clause and
-  the R-00056 / R-00142 / R-00078 / R-00104 annotations need confirming there.
-- **F-P2-3 (identity from `Debug`) and F-P2-4 (CI gating v1.3) are pre-existing design issues** outside this
-  wave, both open across two rounds. They probably want their own cards rather than a patch here — F-P2-3 in
-  particular now bears directly on the cross-language reproducibility that F-P0-1's root cause exposed.
+Legend — **实现到位**: all four criteria met on the evidence available. **部分**: the deliverable exists and
+substantially works, but at least one criterion is unmet, unproven, or proven by a test that does not test it.
+**未动**: not started.
+
+Test counts are from the `0466ffd` run (§2 row 1). "Anchor" is the commit introducing the card's primary owner
+file; all are reachable from `origin/main`.
+
+### 4.1 Foundation and contracts
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00034** 校准仓库规范与蓝图到 LGE-V1.4 | **部分** | `c8a7dc6` | — (docs) |
+
+A1 **unmet**: `docs/architecture/LumioGameEngine_Architecture_v0.3.md:4,6`, `…v1.0.md:4,6`, `…v1.1.md:4,6` are
+compatibility-pointer files that each state *"The normative architecture baseline is
+LumioGameEngine_Architecture_v1.3.md"* and `ArchitectureBaselineId: LGE-V1.3-2026-08-27`. These are precisely
+the entry points an external consumer following a historical filename lands on, and they point at V1.3. The
+primary entries are clean (`README.md:7-11`, `modules/README.md:3-5`, `repository-architecture.md:12`,
+`.spec/decisions/0007`), which is why this was missed: CI greps only the v1.4 file and README, and
+`.baseline.sha256` locks only the v1.4 file. → **F-P2-10**.
+A2, A3 **met**: blueprint carries only the ADR-0006 seven crates (`:13-23`), a linear acyclic graph
+(`:25-76`), ten module landings (`:88-99`), single-owner shared-hotspot table (`:127-137`) consistent with the
+exclusive-file table (`:302-330`); each module section gives stable port names, crate-private surface, failure
+semantics and file set (`:143-301`) without copying schema fields.
+A4 **met**: spec-lint 0 and `node --test` 13 pass, replayed here.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00041** 七 crate 工作区与依赖护栏 | **部分** | `1175b08` | `crate_dag` 6/6 |
+
+A1 **met**: `Cargo.toml:3-11` seven members; `crate_dag.rs:53-82` asserts count == 7 and absence of
+persistence/runtime/ffi/common; `test_guards.py:63-88` independently re-checks. Verified here (§2 rows 8–12).
+A2 **unmet as written**: the criterion says *every* forbidden edge has a failing fixture. The allow-table
+(`test-support/src/crate_dag.rs:21-69`) is a linear layering implying **23 forbidden member-to-member edges**
+plus 5 non-edge rules. `tools/architecture/fixtures/` holds **3** negative fixtures — domain→world,
+domain→test-support, and an extra `persistence` crate. 21 of 23 edges, three of four forbidden crate tokens,
+both CoreEngine rules and the missing-frozen-crate rule have no fixture. It is "one representative per rule
+class", not per edge. → **F-P2-11**.
+A3 **met**: `check_generated_clean.py:32-40` + `generated_clean.rs:36-49` detect unlocked / mismatched /
+missing; negative tests at `tests/generated_clean.rs:25-51,53-69`; `test_guards.py:54-61` writes a rogue file
+and removes it; commands present in `testing.md:39-51` and `repository-policy.yml:47-60`.
+A4 **met**, re-run here.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00045** 接入 V1.4 生成契约与 Fixture | **部分** | `1175b08` | `artifact_hashes` 3/3, `reexport_and_fixtures` 6/6 |
+
+A1 **met**: `contracts/src/lib.rs:8-61` re-exports only through `#[path]` into the generated crates; `verify_one`
+checks baselineId (`:159`), schemaEpoch (`:165`), `implementationDependencies: []` (`:172`) and outputHash vs
+directory bytes (`:175-179`), requiring exactly 12 packages (`:139`). All 12 descriptor `outputHash` values and
+all 58 lock entries independently recomputed here (§2 rows 15–16).
+A2 **partial**: one hand-copied generated value survives — `contracts/src/lib.rs:64`
+`pub const SCHEMA_EPOCH: u64 = 1;`, consumed by `config_snapshot.rs:108`, `restore_preflight.rs` and
+`manifest_adapter.rs`, mitigated only because `verify_one:165` compares it against all 12 descriptors.
+The second-hasher question that round 2 filed under this criterion is **resolved and is not a duplicate
+violation**: ADR 0010 (`8cec2da`) keeps `generated_clean`'s own SHA-256 deliberately, because the generated
+hasher is a locked entry inside the very tree that guard audits (§6.4), and `tests/sha256_kat.rs` now pins both
+copies to the FIPS vectors.
+A3 **met**: positive fixture `reexport_and_fixtures.rs:35-44`, negative `:47-55`; `artifact_hashes.rs:38-63`
+tampers, expects `HashMismatch`, restores.
+A4 **met**.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00047** 确定性 Reference、故障注入与 Harness | **部分** | `b2f0d8a` | `harness` 5/5 |
+
+A1 **formally met, substantively hollow**: `harness.rs:31-40` asserts two runs produce identical trace and
+snapshot bytes — but `deterministic_executor.rs:22-33` never reads `schedule.seed`; it is copied into
+`Trace.seed` and nothing else. The execution body is a sequential fold with no randomness, so "same seed →
+same result" is a tautology. No corpus concept, no differing-seed control. → **F-P2-12**.
+A2 **met, and this one is genuinely good**: `fault_injection.rs:9-15` defines five fault points; `harness.rs:43-64`
+is table-driven over **5/5**, asserting error_id and recoverability; the three unrecoverable points push to
+`committed` before failing (`reference_harness.rs:58-72`), so they cannot masquerade as retryable.
+A3 **partial**: `FixtureResult` (`fixture_runner.rs:8-15`) carries no op sequence, so the "minimal replay
+bundle" cannot replay without re-reading the source file; and the expect-error branch (`fixture_runner.rs:49-55`)
+has **zero coverage** — the only failure fixture (`unknown-schema.json`) is rejected at parse time (`:25-29`)
+and never reaches it.
+A4 **met**: `harness.rs:80-95` asserts no reverse production dependency via `live_graph`.
+
+| Card | Conclusion | Anchor | Evidence |
+| --- | --- | --- | --- |
+| **R-00037** 核验 V1.4 生成契约 Artifact 发布门 | **部分** | `8401f5a` | `v1.4-generated-artifact-gate.md` |
+
+A1, A3 **met** for the generation the document describes: twelve Rust/C# artifacts with the full five-tuple,
+`implementationDependencies: []` verified. A2 **met** upstream (`stable outputHash: yes`).
+A4 **met** for that generation. **But the document does not describe the artifacts on disk**: its inventory
+body still carries `compilerHash 99a786e7…` / `inputHash 84a2b4c8…` while the live set is `3a46fc31…` /
+`3a0436c9…`, and its `"ready": true` refers to the superseded set. An annotation added in `13d515f` marks these
+historical and cites the current values, which is the honest interim step a consumer should not have to make —
+but the gate record itself was never recomputed. → **F-P1-6**.
+
+### 4.2 Decision gates (research)
+
+| Card | Gate | Conclusion | Anchor |
+| --- | --- | --- | --- |
+| **R-00057** | VOX-D-001 Chunk profile | **实现到位** | `40265b1`, re-measured `49e84e6` |
+| **R-00058** | VOX-D-002 Block storage | **实现到位** | `40265b1`, re-measured `49e84e6` |
+| **R-00059** | VOX-D-003 Query budget | **实现到位** | `40265b1`, re-measured `49e84e6` |
+| **R-00060** | VOX-D-004 Reservation/receipt | **实现到位** | `40265b1`, re-measured `49e84e6` |
+
+All four: A1 evidence carries candidates, versions, licences, input hashes, raw measurements, statistical
+method and replayable commands; A2 correctness/determinism/fault matrices carry real results, re-measured on a
+linking host by `4705920` / `49e84e6` and driven by executable seam replays (`cc868e4`); A3 each separates
+frozen contract, internal candidate and value-awaiting-approval, and none mutates schema, ID or default config
+— `approval_status()` is a seam function, and the gates correctly refuse to self-approve; A4 owner approval
+recorded (`LGE-V1.4-VOX-D-P0-2026-08-28`, Architecture `5f06822`).
+
+**One systemic gap spanning all four, which belongs to R-00066 and is recorded there**: nothing connects these
+documents' `approvalStatus` to the code that consumes gate evidence. → **F-P1-8**.
+
+### 4.3 Configuration and concurrency
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00066** 不可变配置快照与 Capability 视图 | **部分** | `7a01dbd` | `config_snapshot` 6/6 |
+
+A1 **partial**: the four P0 gates *are* checked one by one — `config_snapshot.rs:11` names VOX-D-001..004,
+`:135-169` requires each evidence present, baselineId matching, five-tuple consistent across gates and digest
+well-formed; `:166-168` collects non-`approved` gates and `:186-191` returns `TrustPolicyRejected` listing them.
+**Rejecting blocked gates is real.** Two gaps: (a) the provenance five-tuple is used for cross-gate comparison
+and then **discarded** — `Arc::new(Self{…})` (`:193-199`) stores no field carrying it, and `audit_summary()`
+(`:222-224`) does not expose it, so a snapshot cannot be traced back to voxel_head / mirror sha / blueprint sha;
+(b) the approved path has no fixture at all — the only fixture, `tests/fixtures/p0-gates-blocked.json`, is never
+parsed by any code (the tests hand-build `DecisionEvidence` in Rust with hard-coded digests), and it still says
+`blocked` while all four gate documents now say `approved`. → **F-P1-8**.
+A2 **partial**: immutability is structural (`Arc`, no setters, `tests:226-229` greps for `fn set_`), but there
+is **no reload API anywhere in the file**, so "concurrent reload, old and new operations each see one immutable
+snapshot" is untested because the scenario does not exist in code. `tests:284-287` reads `config_hash` from two
+independently-moved Arcs.
+A3 **met**: missing → `EvidenceMissing`, unknown capability → `CapabilityMissing`, unapproved →
+`TrustPolicyRejected`, digest mismatch → `EvidenceDigestMismatch`, all returning `Err` without producing an Arc.
+One narrowing gap: `allow_list` takes the host capability set rather than `start_capabilities` (`:198`), so a
+config declaring fewer capabilities than the host does not actually narrow. → **F-P2-13**.
+A4 **met**.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00068** OriginToken、有界作业与完成信封 | **部分** | `31cb6a2` | `async_support` 4/4 |
+
+A1 **unmet**: `OriginToken::try_new` (`origin.rs:55-64`) validates non-empty fields and the phase whitelist, but
+**`configHash` is not in `OriginToken`** — it lives in `OriginEnvelope` (`origin.rs:101-106`), whose three
+fields are public with no constructor and no validation. The single production gate,
+`world/routing.rs:136-139`, reads:
+
+```rust
+fn check_config_hash(world: &VoxelWorld, hash: &str) -> Result<(), WorldError> {
+    if hash.is_empty() { return Ok(()); }
+    …
+}
+```
+
+An empty `config_hash` **passes**. The criterion says a task missing the field must be unconstructible or fail
+stably; it does the opposite. Verified by reading the only call path. → **F-P1-3**.
+A2 **partial**: bounded submission is real (`bounded_port.rs:61-69` → `QueueFull`), but capacity is a caller
+parameter (`:35-38`), not drawn from the approved snapshot, and `BoundedJobPort` has **no production
+consumer** — `lumio-voxel-world` never constructs one.
+A3 **partial**: `CompletionDisposition::Cancelled` is never produced by `validate_completion`
+(`completion.rs:22-43`); `Late` is structurally unreachable on the production path because the expected phase
+is taken from the envelope itself (`routing.rs:68,99`) and the basis revision is hard-coded 0 (`routing.rs:151`).
+A4 **partial**: four real tests, all construction-level.
+
+### 4.4 Revision
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00070** 单调分配器与 Reservation 生命周期 | **部分** | `31cb6a2` | `revision_allocator` 3/3 |
+
+A1 **partial**: two independent monotone counters with `checked_add` before mutation (`allocator.rs:108-123`),
+`abandon` sets a flag without rewinding (`:83-85`) — non-reuse is real. But "long sequence" is at most three
+reservations per domain, and **concurrent reservation is neither supported nor tested**: `reserve_*` takes
+`&mut self` with no atomics.
+A2 **partial**: three stable error ids, counter unchanged before overflow. `finalize(); abandon(); finalize()`
+and `finalize(); finalize()` report different ids for the same fact, untested.
+A3 **partial**: no wall-clock (verified: zero `SystemTime|Instant|std::time|chrono` under domain/src), newtypes
+not interchangeable. But the abandon-loop is an arbitrary-`WorldRevision` minting backdoor **used in production**
+— `world/durability_ack.rs:153-166` spins a throwaway allocator `n` times to construct `WorldRevision(n)`,
+O(n) and bypassing the allocator's uniqueness semantics. The same shape in the Restore path takes untrusted
+input → **F-P1-2**.
+A4 **unmet**: the criterion names 定向 / property / 并发. Property tests: **zero** (no proptest/quickcheck
+anywhere, no dev-dependencies in the domain crate). Concurrency tests: **zero**, and the API cannot express them.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00071** 不可变 ReadView Pin 与回收边界 | **部分** | `3e57944` | `revision_read_view` 5/5 |
+
+A1 **structurally met, evidence weaker than the wording**: `RevisionPin` holds the stamp by value (`pin.rs:148`)
+and hands out only `&` (`:154`); there is no `&mut` path in the module, so immutability is type-level. But
+"concurrent commit" is simulated on one thread (`:117`) and "config reload" by building a second registry
+(`:120-122`) — `PinRegistry.snapshot` (`pin.rs:75`) is never re-read after construction, so live reload does not
+exist in code.
+A2 **met, and well covered**: `oldest_live` reads only slots (`retention.rs:21-33`), no TTL, no clock;
+out-of-order drop keyed per pin (`pin.rs:175-187`); over-limit returns before writing any state (`:121-123`);
+`destroy()` sets a flag without clearing slots (`:106-108`). Tests `:131-160`, `:196-217`, `:220-243`.
+A3 **partial**: per-registry `Arc<Mutex<RegistryState>>` (`pin.rs:91`) makes cross-world writes impossible, but
+the isolation test hands **the same `Arc<VoxelConfigSnapshot>` to both worlds** (`:165-166`) and makes no
+address-level assertion, while the sibling card does (`publication_atomicity.rs:401,446` uses `!Arc::ptr_eq`).
+Also `try_pin` does not check `world_id` (`pin.rs:115-118`).
+A4 **partial**: five directed tests; no property, no concurrency.
+
+### 4.5 Chunk
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00073** 不可变 Payload、四态 Slot 与 Directory Root | **部分** | `3e57944` | `chunk_state_machine` 5/5 |
+
+A1 **partial**: four states are distinguishable and interned against the generated `CHUNK_PRESENCE`
+(`slot.rs:46-54,101-107`; test `:22-66` asserts `names == CHUNK_PRESENCE`). But "item-by-item identical to the
+generated state machine" cannot hold — there is no generated transition table for presence; the only generated
+machine is `VoxelChunkResidency` (7 states), which the code and tests explicitly call a *different* machine
+(`chunk/mod.rs:3-4`). `slot.rs:85-97` is hand-written. Of 16 from×to combinations, **2 are tested**.
+Worse, `ChunkDirectoryBuilder::insert` (`directory.rs:38-42`) overwrites any slot without going through
+`try_convert`, and the card's own test uses it to perform a transition `try_convert` would reject
+(`chunk_state_machine.rs:124`). The four-state machine is advisory on the public builder API. → **F-P2-14**.
+"Illegal transition has no side effect" **is** met and is structural: `try_convert(&self,…)` returns a new
+value; `convert` computes `next` before `Arc::make_mut` (`directory.rs:52-60`).
+A2 **met**: payload sealed at construction, `bytes: Arc<[u8]>` with no accessor or mutator
+(`payload.rs:42-48,85-100`); COW via `freeze` + `Arc::make_mut`.
+A3 **met on inspection** (no I/O, no world, no revision; only `lumio_voxel_contracts` and std) — but the guard
+test (`chunk_state_machine.rs:241-263`) greps four tokens over **comment-inclusive** source, where the sibling
+card strips comments first (`chunk_delta_dirty.rs:317`).
+A4 **partial**: malformed-input coverage is genuinely thorough (12 malformed chunk ids, digest mismatch); no
+property, no concurrency.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00076** Staged Delta 与 Dirty Frontier 纯计算 | **部分** | `26e3f3f` | `chunk_delta_dirty` 4/4 |
+
+A1 **met structurally**: `ChunkDeltaBuilder::new` clones the root (`delta.rs:57-62`), `stage` touches only
+`self.staged` (`:64-78`), `freeze(self)` only reads the baseline (`:80-91`); no `&mut ChunkDirectoryRoot`
+anywhere in the crate. Frontier operations all take `&self` and return new values.
+A2 **unmet — verified defect**: `covered_by` binds the ack's world-level cut and then never uses it —
+`dirty.rs:233` `let _cut = SchemaRevision(ack.covered_world_revision);`. Coverage is decided purely per chunk on
+`up_to_chunk_revision` (`:248-252`). An ack claiming `coveredWorldRevision = 0` while listing
+`upToChunkRevision = 999` clears everything. **The test fixes this behaviour in place**: `:272-274` builds an ack
+with `covered_world_revision = 4` against a chunk cut of 5 and asserts it covers. → **F-P1-4**.
+A3 **met**: three files free of I/O / world / revision; the private `SchemaRevision(u64)` (`dirty.rs:13-14`) is
+exactly why no revision service is called; `covered_by` yields a `DirtyCoverage` value and clears nothing.
+A4 **partial**: the HashMap-order-independence test (`:164-225`) is real evidence; no property, no concurrency.
+
+### 4.6 Publication
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00078** 单一原子 PublishedState Root | **部分** | `74ca752` | `publication_atomicity` 5/5 |
+
+A1 **met, and this is the strongest concurrency evidence in the repo**: each capture clones one Arc under the
+read lock and releases the guard before inspecting members (`authority.rs:63-69`); members are reachable only
+through the root. `concurrent_captures_see_complete_old_or_complete_new` (`:525-580`) runs 4 readers × 64
+iterations against 1 writer with a barrier, and every capture passes `assert_consistent_cut` (`:185-195`), which
+cross-checks that stamp, directory and frontier are same-origin. Replayed 20× here, 0 failures (§2 row 20).
+A2 **met**: one-shot seal (`prepared.rs:52-55`), non-`Clone` token (`:74-83`), by-value consumption
+(`authority.rs:106`); stale / wrong-world / wrong-generation all rejected before the swap with identity
+asserted unchanged.
+A3 **unmet as written**: `authority.rs:135` comments *"No alloc/I/O/callback after this"*, but `:136-137` then
+drops the previous `Arc<PublishedStateRoot>` — releasing the whole old cut inside the write lock if it was the
+last reference — and drops the previous `RevisionPin`, whose `Drop` **acquires the pin registry mutex**
+(`pin.rs:176-177`). So there is a second lock acquisition and unbounded destruction after the swap, and the
+lock order "publication write lock → pin registry mutex" is nowhere recorded or tested. Visibility to readers is
+still safe (that is A1); the A3 claim is what fails. **No test touches the post-swap path.** → **F-P2-15**.
+A4 **partial**: five directed tests including one real threaded test; A3 has zero evidence; and every test uses
+`empty_replacement()` (`:124-128`), so the digest folded into identity is always `sha256(&[])` and
+`incorporate_replacement`'s discriminating power is never exercised.
+
+**Also verified, on the round-2 carry-over**: `root.rs:113,115,117` still derive identity from `format!("{:?}")`
+of directory, frontier and indexes. Two new observations this round: the `indexes` leg is a unit struct
+(`root.rs:11`) whose `Debug` is a constant string, so that leg carries **zero information** and will silently
+stop covering `AuxiliaryIndexes` if it ever gains fields; and the directory leg formats every payload byte into
+a `String` on every root construction, so this is an O(total payload bytes) allocation on the publish path, not
+only a stability problem. `identity()` is not internal — it is the base token at `publish_once:127` and crosses
+crates into `RestoreReceipt` (`world/restore.rs:60,80`). → **F-P2-8**.
+
+### 4.7 Query
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00080** 确定性计划器与预算校验 | **部分** | `88d527b` | `query_planner` 7/7 |
+
+A1 **partial**: `planHash` covers canonicalized chunks + stamp + configHash + budget (`plan.rs:113-150`),
+permutation-independence proven (`query_planner.rs:170`). Gap: the budget counts the **raw, pre-deduplication**
+`request.chunk_ids.len()` (`plan.rs:63`) while canonicalization dedups afterwards (`:66`), so two requests with
+identical `planHash` can differ on admission.
+A2 **partial**: all validation precedes execution and only `view.stamp()` is read; four negative tests compare
+full `Debug` hashes of root/stamp/directory. But the capability check is `config.capabilities().is_empty()`
+(`plan.rs:61`) — it rejects only a wholly empty allow-list and requires no specific capability.
+A3 **unmet — verified**: the plan does **not** fix one configuration snapshot. `QueryPlanner::plan()` takes a
+`config: &VoxelConfigSnapshot` parameter (`plan.rs:56`) and never compares it against the `self.snapshot` bound
+at construction; `self.snapshot` is used only by the `config_hash()` accessor (`:48-50`). A planner built from
+snapshot A happily plans against snapshot B — and `query_planner.rs:291` does exactly that and asserts success.
+→ **F-P1-5**.
+A4 **met in form**: seven real tests, but the snapshot substitution is blessed rather than rejected.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00081** 单 Cut 只读执行与四态结果映射 | **实现到位（并发为单线程模拟）** | `edf472e` | `query_execution` 4/4, `query_missing_states` 1/1 |
+
+A1 **met structurally**: `bind_cut` (`execute.rs:44-59`) compares world / context / generation / world_revision
+and rejects with `InvalidHandle`; the whole walk reads one `&PublishedReadView` holding a single
+`Arc<PublishedStateRoot>`, so a mixed cut is not constructible. `query_execution.rs:184` shows the old view
+still serving the old cut. Single-threaded, as everywhere outside R-00078.
+A2 **met**: `chunk_access.rs:43-67` interns against the generated `CHUNK_PRESENCE`; a directory miss maps to
+`NotLoaded` without triggering a load; `query_missing_states.rs:147` covers all four states plus an absent id and
+asserts the directory hash is unchanged after execution.
+A3 **partial**: the returned buffer is bounded and leaks no internal reference — `query_execution.rs:325`
+asserts the `Debug` output contains no `ChunkPayload` / `ChunkPage` / payload bytes / `Arc` / `0x`, which is
+solid. But cancellation is caller-simulated: `execute_cancelled` (`execute.rs:35-41`) is a separate function that
+unconditionally returns `LoaderCancelled`; there is no cancellation token observed during the walk.
+A4 **met**.
+
+### 4.8 Mutation
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00093** Canonical 指纹与 Txn Receipt Ledger | **部分** | `74ca752` | `mutation_receipt` 4/4 |
+
+A1 **unmet — verified by independent reimplementation**: the canonical encoding does not escape, so distinct
+requests collide. See **F-P0-1**; this is the round's most serious finding.
+A2 **met**: a finalized entry re-finalized returns `Duplicate` with the original receipt and does not overwrite
+(`receipt_ledger.rs:166-178`); same TxnId with a different fingerprint returns `RevisionConflict` consistently at
+lookup, reserve and finalize (`:231-234`).
+A3 **partial**: leases are generation-bound with no wall-clock (`reservation.rs:12`), correct per ADR. Capacity is
+a caller parameter (`:91-94`), not from the snapshot. **Trimming is not implemented**: completed receipts are
+never evicted, and once `entries.len() >= max_entries` every `reserve` returns `BudgetExceeded` permanently
+(`:140-142`) — a monotone liveness cliff with no eviction path. → **F-P2-16**.
+A4 **partial**: four real tests; no collision test, no reserved-key test, no eviction test (nothing to test).
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00096** 无可见副作用的 Prepare | **部分** | `88d527b` | `mutation_prepare` 4/4 |
+
+A1 **partial**: Root and Dirty genuinely do not move — prepare reads the base and builds privately
+(`prepare.rs:48-69`), `ChunkDeltaBuilder::new` clones, `freeze` does not touch the base; tests assert root
+identity and dirty unchanged, replayed here 4/4 (§2 row 22). But the **Ledger's visible state does change on
+failure**: prepare reserves first (`prepare.rs:28`) and only aborts after a seal failure (`:34`), while `abort`
+removes the entry without decrementing `reserve_count` (`receipt_ledger.rs:152` `saturating_add`, no decrement
+anywhere) — and `reserve_count()` is a public accessor (`:113`) that this repo's own tests use as the ledger's
+observable state (`mutation_receipt.rs:135,143,…`). Severity is bounded: capacity is judged on
+`entries.len()` (`receipt_ledger.rs:140`), which the abort does restore, so this is an accounting leak, not a
+liveness one. → **F-P2-17**. Also `let _ = ledger.abort(request);` swallows abort failure.
+A2 **met**: `PreparedMutation` is not `Clone` (`prepared_token.rs:10`), commit consumes by value
+(`commit.rs:37-41`), wrong-world use rejected (`:109-116`). Weaker than the wording in one respect: commit does
+not simply replay the token — it rebuilds the plan (`:58`), recomputes the overlay and stamp (`:60-62`), and
+re-derives the world revision through an allocator loop (`:64,223-236`), several steps of which can fail.
+A3 **partial**: duplicate chunk/cell keys fail the whole batch (`plan.rs:90-103`). Gap: an unrecognised edit key
+is **silently dropped** rather than rejected — `plan.rs:75` `if !key.starts_with("c:") { continue; }` — so a
+typo'd chunk key yields a batch that commits with one fewer edit, the opposite of all-or-nothing, untested.
+The four-state precondition logic exists (`preconditions.rs:141-158`) but no test drives a mutation at the
+`c:1`/`c:2`/`c:3` fixtures to assert `ChunkUnavailable`.
+A4 **partial**.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00104** Commit 线性化与幂等重放 | **部分** | `9935902` | `mutation_commit` 4/4, `mutation_atomic_batch` 2/2 |
+
+A1 **met structurally**: `publish_once` validates then performs a single prebuilt-Arc move under the write lock;
+readers clone the Arc and release (`authority.rs:63-69`). `mutation_atomic_batch.rs:189` shows both chunks
+flipping together with the old capture unchanged. Replayed 20× here, 0 failures (§2 row 21).
+A2 **partial**: publish-once has three independent guards; Duplicate short-circuits before any prepare or
+publish (`commit.rs:45-51`); conflict and stale fail before the swap with identity, dirty and ledger asserted
+unchanged. But the main replay test is staged rather than observed: `mutation_commit.rs:242-263` uses a second
+authority, a second ledger and a **different** txn id, then hand-calls `ledger2.finalize(…)` to plant the receipt
+so commit takes the Duplicate branch. Genuine same-Txn replay is the last three lines (`:269-274`). "Concurrent
+replay" is untestable as written — `commit` takes `&mut ReceiptLedger`, so the borrow checker already serialises it.
+A3 **unmet as written**: the post-linearization path is `commit_finalize.rs:10-24`, which calls
+`ledger.finalize(…)` **after** the swap and propagates its error (`:20-22`); `finalize`'s failure arms include
+invalid_handle / session_mismatch / conflict. So an ordinary failure path exists after linearization, and if it
+ever fires it leaves "world published, receipt unrecorded". It is unreachable in practice via the preceding
+lookup, but the code does not make it unreachable. There are also allocations after the swap
+(`receipt_ledger.rs:169,172`). I/O and external callbacks are genuinely absent throughout. Separately,
+"invariant faults affect only the target world" has **no implementation** — there is no invariant-fault
+detection or fencing, and both lock accessors recover from poisoning
+(`authority.rs:143-153`, `unwrap_or_else(|p| p.into_inner())`). → **F-P2-18**.
+A4 **partial**: six real tests; zero concurrency; the key replay leg is staged.
+
+### 4.9 World
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00116** 生命周期、实例代与命令准入 | **实现到位（测试为抽样）** | `58fe42c` | `world_lifecycle` 8/8 |
+
+A1 **met**: all three command classes check origin before touching state (`admission.rs:47-100`, `:51/:59/:81`),
+`state.apply` follows (`:55`); legality is table-driven (`state.rs:72-80`). `world_lifecycle.rs:283-317`
+enumerates all nine legal generated edges; `:333-357` asserts `StaleEpoch` with lifecycle unchanged. Illegal
+edges are tested by one representative (`:320`) and read/write admission covers 5 of 8 states — the exhaustive
+guarantee is in the code's explicit whitelist (`state.rs:82-90`), the tests sample it.
+A2 **met, with the repo's cleanest isolation evidence**: `instance.rs:173-190` gives every instance its own
+`PinRegistry` / `PublicationAuthority` / `ReceiptLedger` / `QueryPlanner`; the only `static` across world+ops is
+the generation counter (`instance.rs:26`). `world_lifecycle.rs:416-466` asserts that after Authority publishes,
+Replica's identity is byte-identical to before.
+A3 **met**: `WorldStateView` (`instance.rs:44-51`) carries no host slot / session / thread / I/O type, and
+`:469-484` asserts negatively against `WorldSlotHost` / `VoxelChunkResidency` / any `MACHINE_ID`.
+A4 **met**.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00119** 串行写通道与 Typed Short Barriers | **部分** | `0399db9` | `world_barrier` 4/4, `world_command_order` 3/3 |
+
+A1 **met, by a different mechanism than the wording suggests**: the unique lease is enforced by the borrow
+checker — `write_lane.rs:34` takes `&mut VoxelWorld`, so `instance.write_occupied` is always false at
+`try_acquire` and the `HandleDoubleRelease` arm (`:35-37`) is unreachable and untested. No global lock is real.
+`world_command_order.rs:205-234` shows two worlds progressing independently, sequentially.
+A2 **unmet — the guarantee has no implementation**: the five scopes exist (`barrier.rs:11-17`), but
+`reject_forbidden` (`:29-35`) is a pure enum-to-error lookup that inspects and prevents nothing; no mechanism
+stops `std::fs`, sleeping, an unbounded loop or a callback inside a barrier. The test (`world_barrier.rs:266-311`)
+asserts `reject_forbidden(Io).error_id() == "LoaderTimeout"` — a match arm returning what the match arm says.
+The counter-example is in this same repo: the Restore path contains a real input-driven unbounded loop
+(F-P1-2) and the barrier machinery is oblivious to it. → **F-P1-9**.
+A3 **partial**: ordering is reconstructed from the receipt's `old_root`/`new_root` chain plus capture identity
+(`world_command_order.rs:182-202`); there is no independent Trace structure, and `DiagnosticsView`
+(`diagnostics.rs:10-20`) is an instantaneous snapshot. Async-completion fencing is well covered (`:237-358`).
+A4: A1 and A3 have real evidence; A2's evidence is empty.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00121** 目标实例故障隔离与有序关闭 | **部分** | `cf22b61` | `world_fault_isolation` 1/1, `world_shutdown` 3/3 |
+
+A1 **met, with a real control group**: `fault.rs:32-52` touches only the target world;
+`world_fault_isolation.rs:270-342` shows world B still querying, pausing, resuming and accepting writes after A
+trips, with A's identity frozen and writes refused.
+A2 **partial**: ordering and idempotence are covered (`world_shutdown.rs:166-218`; `shutdown.rs:16/29/44` each
+return early on `sequence_reached`), stale origins refused (`:221-241`). But **no test reads the audit sink** —
+"关闭顺序可审计" is inferred from lifecycle assertions; the audit record itself is never inspected. And the
+generation-invalidation step is `generation + 1` (`shutdown.rs:122-125`), predictable and in the same namespace
+as the allocator, so a forged gen+1 origin passes `check_origin` and is stopped only by the lifecycle table.
+A3 **unmet in two respects**: `schema_id` and `error_id` *are* interned against the generated tables
+(`events.rs:73,140-146`; `fault.rs:55-61`), but `incident_kind` is the hard-coded literal `"Simulation"`
+(`events.rs:10`) validated against nothing; and **bounded redaction has no implementation** — `diagnostic_name`
+is a caller-supplied `&'static str` checked only for non-emptiness (`fault.rs:39`), with no length bound, no
+allow-list, and no test asserting a bundle excludes payload or keys. Sink failure cannot change domain state
+structurally (`emit` returns `()`, `events.rs:115-121`), but `WorldFaultPort::trip` under a full or zero-capacity
+sink is never tested. → **F-P2-19**.
+A4 **partial**: one test for the isolation half is enough for A1 and not for A2/A3.
+
+### 4.10 Snapshot, Restore, Durability
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00134** 不可变 VoxelCaptureRef 与 Canonical Codec Port | **部分** | `400dc47` | `snapshot_capture_ref` 6/6 |
+
+A1 **met, with the repo's second real threaded test**: `snapshot_capture_ref.rs:224-271` spawns a thread with a
+`Barrier`, publishes a new root concurrently, and asserts the capture's `root_identity` / `world_revision` /
+`generation` / `config_hash` all come from the old cut and the encoded text contains `"worldRevision":0` and not
+`:1`.
+A2 **partial**: cross-instance use is rejected (`:361-368`, `capture_ref.rs:199`); drop/clone lifetime covered
+(`:274-305`). But "no leak" is unverifiable — `PinRegistry` exposes no count (`pin.rs:79-144`), so nothing can
+assert a pin returns on drop, and `PIN_CAPACITY = 16` exhaustion is untested. Also the `PinOrLease::Pin` arm is
+dead on this path: capture always takes `Lease` (`capture.rs:37`).
+A3 **unmet**: the repo contains **no generated fixture or reference bytes for a snapshot manifest** —
+`generated/canonical/` holds only `canonical-digest-profile.json` and the descriptors have no
+`snapshot-header` / `voxel-snapshot-payload` entry. The test (`:331-333`) recomputes the canonical string with
+the same production helpers and compares to the production output: the code confirming itself, not a comparison
+against reference bytes. And "no hand-written serializer" is only partly true — `manifest_adapter.rs:38-58`
+hard-codes field names, `mod.rs:34-40` is a hand-written `quote()` **with no escaping** (see F-P0-1), and
+`mod.rs:42-50` re-implements hex encoding that the generated runtime already provides. → **F-P2-20**.
+A4: A1 is real evidence; A3 is not.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00135** Snapshot Cut 校验与 Capture 命令 | **实现到位** | `fc119d2` | `world_capture` 6/6 |
+
+A1 **met**: admission plus a second validation against the same view (`capture_admission.rs:39-62,64-85`)
+comparing world_id / context / generation / world_revision / artifact_hash / lease stamp; `capture.rs:31` takes
+the view once and `:46` builds the ref from it. The cut arrives as `&RuntimeSnapshotCut` (`:27`) — Voxel neither
+owns nor mutates it, so there is no ownership inversion. Weak spot: every positive test's cut is derived from
+the world itself via `from_live` (`capture_admission.rs:24-36`), so the Runtime-supplies-the-cut direction is
+never exercised with an independently constructed cut.
+A2 **met**: inside the barrier only a lease clone and a struct construction (`capture.rs:33-51`), with
+`drop(lease)` at `:51` before returning; `world_capture.rs:190-217` asserts the barrier is released before
+encode, `:220-234` that the lane is re-acquirable, `:270-272` that failures leave no lane held.
+A3 **met**: stale generation, wrong world and stamp mismatch each assert identity, dirty and lifecycle
+unchanged (`:237-273`); a live capture does not block a subsequent prepare+commit (`:276-306`). The "pin
+failure" clause is vacuous on this path (no pin is taken).
+A4 **met**.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00136** Preflight、Shadow Root 与原子恢复 | **部分** | `ffee61c` | `world_restore` 7/7 |
+
+A1 **unmet — verified defect**: structural corruption is well covered (re-canonicalize and compare whole
+(`decode.rs:19-23`); magic / schema / epoch / world / generation / configHash / rootIdentity checks
+(`restore_preflight.rs:130-186`); unknown fields rejected (`:232-246`)), and the 7/7 replay here confirms
+truncated, empty, wrong-world and bad-epoch inputs are refused with the old world untouched (§2 row 23).
+**But `worldRevision` has no upper bound** (`restore_preflight.rs:165` is a bare `require_u64`), and
+`RestoreShadowBuilder::build` feeds it to `world_revision(n)` (`restore_shadow.rs:136-149`), which loops `n`
+times reserving and abandoning. A snapshot with matching world_id / generation / configHash but a large
+`worldRevision` hangs the build instead of failing stably. `chunk_revision(n)` (`:151-164`) is the same shape and
+the number of `chunkRevision.*` entries is likewise unbounded (`restore_preflight.rs:209-230`). → **F-P1-2**.
+A2 **met**: prepare → seal → single `publish_once` with the recheck first (`restore.rs:58-82`); tests assert
+old/new root chaining and, on failure, identity + lifecycle + dirty all unchanged.
+A3 **partial**: mutual exclusion is the borrow checker again. `restore_and_mutation_occupancy_are_serial`
+(`world_restore.rs:415-453`) does not test what it names — `:441` exercises re-entering the *same* lease, and
+`:446`'s `assert_stable_error("HandleDoubleRelease")` only checks the string exists in the generated table. The
+"no Streaming Load" guarantee rests on a string scan over four hard-coded paths (`:488-515`), weaker than the
+directory-walking equivalent in the snapshot card.
+A4: real evidence, but A3's headline test is hollow.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00137** DurabilityAck 唯一 Dirty 清除路径 | **部分** | `6312d2a` | `durability_ack_apply` 7/7 |
+
+A1 **met**: kind / world_id / context_id / generation validated and future cuts refused
+(`durability_ack.rs:128-151`); coverage delegated to the domain. Tests cover covered-only clearing and old acks
+producing empty coverage. (Note the domain-side coverage rule itself is defective — F-P1-4 — which is R-00076's.)
+A2 **met**: duplicate, stale/out-of-order, wrong world, wrong generation, future revision and partial coverage
+all covered, each asserting identity + dirty + lane state.
+A3 **unmet as written**: the machine check is `production_src_has_no_clear_dirty_identifier`
+(`durability_ack_apply.rs:441-486`), a source scan for the literals `fn clear_dirty` and `clear_dirty(`.
+Renaming the function defeats it entirely. The genuinely strong fact is structural — `DirtyFrontier`'s only
+subtractive operation is `except_covered` (`dirty.rs:259`) — but the test treats that as an aside (`:455-458`).
+More importantly the claim itself does not hold: `restore_shadow.rs:95` constructs a fresh empty
+`DirtyFrontier` which `restore.rs:58-82` publishes, so **a successful restore clears the entire dirty frontier**
+via a second path the scan cannot see. → **F-P2-21**.
+A4 **partial**.
+
+### 4.11 Port
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00142** 生成 IVoxelWorldPort 总适配与所有权映射 | **部分** | `c51e5cd` | `generated_port_adapter` 9/9 |
+
+A1 **partial**: error mapping is genuinely exhaustive in one direction — `STABLE_ERROR_IDS` has 43 entries and
+`map_internal_error` has 43 explicit arms (`error_mapping.rs:38-80`), with `:411-417` iterating all 43 and
+asserting identity mapping, so an upstream addition turns the test red. But the fallback `_ => "InvalidHandle"`
+(`:81`) means an unknown id is silently rendered indistinguishable from a real `InvalidHandle`, and the test
+named `unknown_error_id_mapping_cannot_succeed` (`:404-410`) **asserts the collapse** rather than preventing it.
+There is no unknown-error fixture to compare against. → **F-P2-9**.
+Method exhaustiveness cannot be checked against a generated method table (none is published — the generated
+side offers only the schema id and binding name), so the only reference is the blueprint's ten stable names;
+the adapter implements nine operations, and the two lists do not agree (`create_world` / `quiesce` / `destroy`
+are in the blueprint but not the adapter; `admit` / `shutdown` are in the adapter but not the blueprint).
+A2 **partial**: transfer, release, double release, use-after-release and stale generation are covered
+(`:381-400`, `:347-375`); `ownership.rs:9-38` uses no raw pointers and `mod.rs:3` forbids unsafe. **Cancellation
+is not covered at all** — the adapter has no cancel method, and `cancel: true` appears in no test in the repo.
+A3 **met**: all four write paths go through `with_scope` (`routing.rs:36,56,87,111`), which acquires the write
+lane before entering the barrier (`:118-125`); `:437-479` asserts seven members and no `extern "C"` / DllImport /
+PInvoke in the port sources.
+A4 **partial**: nine tests pass, but **`abort` has zero call sites in the entire repo** — `adapter.rs:77-82` →
+`WorldRouter::abort` (`routing.rs:93`) → the barrier lease abort is a whole chain with no caller and no test,
+in a card whose A1 is about exhaustive implementation and whose A4 is about real evidence. Verified by grep
+across `crates/`. → **F-P2-22**.
+
+### 4.12 Test matrices
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00143** B0 契约/Revision/Chunk/Publication 基础矩阵 | **实现到位** | `72564f8` | `b0_contract_domain` 9/9 |
+
+A1–A4 **met at this HEAD**. All ten matrix rows are recorded PASS in `b0-verification.md` and the target runs
+9/0 here. A2's Reference/Native agreement is carried by row 1 over all twelve packages, which I re-derived
+independently (§2 rows 15–17). A3's replayability holds at `4ced801`, and `crates/` is byte-identical between
+`4ced801` and `0466ffd` — see F-P2-7 for the anchor-text residual. A4's "production code not modified by this
+test card" is satisfied for this round.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00145** B2 Query/Mutation/World/恢复故障矩阵 | **实现到位** | `1e07b76` | `b2_transaction_recovery` 10/10 |
+
+A1–A4 **met at this HEAD**; all twelve rows PASS, target 10/0 here, and the Prepare-purity and Commit-atomicity
+rows were replayed independently (§2 rows 20–22). The matrix tests what it says it tests; the criticisms in
+§4.8 are of the *implementation's* uncovered paths, not of B2's own claims.
+
+| Card | Conclusion | Anchor | Tests |
+| --- | --- | --- | --- |
+| **R-00146** MVP 端到端垂直链 | **部分** | `07886b9` | `mvp_vertical_slice` 2/2 |
+
+A1, A3, A4 **met**: the ten-step chain runs through the generated port with auditable revisions, receipts and
+hashes; dual instances are independent; the closing commands succeed.
+A2 **still unmet, unchanged across three rounds**: "Native and Reference byte-identical on the same corpus"
+cannot be asserted because `reference_harness.rs` has no world-identity accessor (§3, F-P1-2). The alignment
+covers op sequence and payload only.
+
+### 4.13 Umbrella and process cards
+
+| Card | Conclusion | Note |
+| --- | --- | --- |
+| **R-00002** 原始需求 V1.4 完整框架落地 | **部分（P0 段）** | Aggregate. Its P0 half is delivered in the sense that all 26 implementation cards have shipped owner files and a green suite; it is **not** met in the sense that §5 records one CRITICAL and seven open HIGH defects across those children. Its P2 half is untouched by design. |
+| **R-00203** 本审查卡 | **本轮交付** | Owner file is this report. Round-2's acceptance gap — no card-by-card P0 pass — is closed by §4. Verdict on the reviewed object is RETURN (§5). |
+| **R-00204** MVP 里程碑发布门 | **未动，正确地未动** | `mvp-release-gate.md` verdict BLOCKED. Its precondition is `REV-MVP = APPROVE`, which this round does not grant. Its record is stale in several places (§3, F-P2-6) but its verdict is right. |
+
+---
+
+## 5. Findings
+
+Ordered by severity. Every one was re-derived by this reviewer; the method is stated with each.
+
+### CRITICAL
+
+#### F-P0-1 — the canonical encoding does not escape, so two different mutation requests can share a fingerprint
+
+`crates/lumio-voxel-ops/src/mutation/fingerprint.rs:31-53`;
+`crates/lumio-voxel-contracts/generated/rust/lumio-gen-contract-runtime/src/lib.rs:40-52`.
+Responsible: **R-00093** (and the generated canonicalizer upstream).
+
+`canonical_object_pairs` sorts by key and concatenates `"key":value` with no escaping and no rejection of
+duplicate keys. `canonical_fingerprint` inserts each caller-supplied field **value verbatim** (`:35`) while
+quoting only `txn_id` and `world_id`. A value containing `,"` therefore forges structure.
+
+I ported both functions to Python faithfully and searched for a collision. Found immediately:
+
+| Request | `fields` | Canonical string |
+| --- | --- | --- |
+| A | `{"a": "1,\"b\":2"}` | `{"a":1,"b":2,"generation":1,"txn_id":"t","world_id":"w"}` |
+| B | `{"a": "1", "b": "2"}` | `{"a":1,"b":2,"generation":1,"txn_id":"t","world_id":"w"}` |
+
+Both hash to `1f782803503fa2868ffa5dbb093d461d17e847d61ff0668fdb1a0c8594985627`.
+
+Why this is CRITICAL rather than a hygiene issue: the fingerprint **is** the idempotency predicate. Same TxnId +
+same fingerprint returns the stored receipt *without executing* (`receipt_ledger.rs:166-178`); a different
+fingerprint is rejected as a conflict (`:231-234`). A collision means a semantically different request can be
+silently accepted as a replay of an earlier one and receive its receipt, having never run. Field values arrive
+from the C# Runtime through the generated port, so this is an untrusted-input surface. Related: a caller field
+literally named `txn_id` produces a duplicate key in the canonical string rather than an error.
+
+**The same unescaped-encoding pattern is copied to three more sites**, so this is one defect surface, not one
+site: `query/plan.rs:152` (plan hash), `mutation/commit.rs:268` (receipt), `snapshot/mod.rs:34-40` (snapshot
+canonical bytes — and its decoder `decode.rs:74-98` splits on bare quotes and commas, so encoder and decoder are
+wrong *consistently* and a round-trip test passes over a corrupted value). No test anywhere uses an id or field
+value containing `"` or `,`.
+
+### HIGH
+
+#### F-P1-2 — a restore candidate's `worldRevision` is unbounded and drives an O(n) loop
+
+`crates/lumio-voxel-ops/src/snapshot/restore_preflight.rs:165`;
+`crates/lumio-voxel-ops/src/snapshot/restore_shadow.rs:136-164`. Responsible: **R-00136**.
+
+Preflight validates magic, schema, epoch, world id, generation, configHash and rootIdentity, but reads
+`worldRevision` with a bare `require_u64` and imposes no bound. `RestoreShadowBuilder::build` then calls
+`world_revision(n)`, which constructs a throwaway `RevisionAllocator` and loops `n` times reserving and
+abandoning to arrive at `WorldRevision(n)`. `chunk_revision(n)` is the same shape, and the number of
+`chunkRevision.*` entries is also unbounded (`restore_preflight.rs:209-230`).
+
+A snapshot whose world_id, generation and configHash match — i.e. one that passes every check — but whose
+`worldRevision` is large makes `build` spin instead of failing. Snapshot bytes come from Host files and are
+untrusted by the card's own framing ("所有损坏/不兼容输入在发布前稳定拒绝"). This is also precisely the
+input-driven unbounded loop that R-00119 A2 forbids inside barrier work, which the barrier machinery cannot
+detect (F-P1-9).
+
+The root cause is shared with R-00070: an O(n) spin is the only way to mint a `WorldRevision(n)`, and the same
+idiom is used with trusted input at `world/durability_ack.rs:153-166`, where it degrades linearly with world age.
+
+#### F-P1-3 — an empty `configHash` passes the only production gate
+
+`crates/lumio-voxel-world/src/world/routing.rs:136-139`. Responsible: **R-00068**.
+
+```rust
+fn check_config_hash(world: &VoxelWorld, hash: &str) -> Result<(), WorldError> {
+    if hash.is_empty() { return Ok(()); }
+    if hash != world.instance.snapshot.config_hash() { return Err(WorldError::session_mismatch()); }
+    Ok(())
+}
+```
+
+R-00068 A1 requires that a task leaving a barrier carry a complete generated Origin **and** configHash, and that
+a missing field make the task unconstructible or fail stably. `configHash` is not part of `OriginToken` (which
+does validate) but of `OriginEnvelope` (`origin.rs:101-106`), a three-field public struct with no constructor
+and no validation — and the one gate that could catch an empty value waves it through. Every test constructs
+`config_hash: String::new()`, so the bypass is the tested path and the mismatch arm has no coverage.
+
+#### F-P1-4 — dirty coverage ignores the ack's world-level cut, and the test fixes that in place
+
+`crates/lumio-voxel-domain/src/chunk/dirty.rs:233,248-252`. Responsible: **R-00076**.
+
+`covered_by` binds the world cut and discards it: `let _cut = SchemaRevision(ack.covered_world_revision);`.
+Coverage is decided purely per chunk on `up_to_chunk_revision`. An ack declaring `coveredWorldRevision = 0`
+while listing `upToChunkRevision = 999` for a chunk clears that chunk.
+
+R-00076 A2 requires that an old or wrong-generation ack cannot override newer dirty state. World id and
+generation *are* checked (`:226-232`); the world revision — the ack's actual durability cut — is not.
+`chunk_delta_dirty.rs:272-274` builds an ack with `covered_world_revision = 4` against a chunk cut of 5 and
+asserts coverage, so the defect is pinned by a passing test. The world layer has an unrelated future-cut check
+(`durability_ack.rs:147`), but the coverage decision does not consult it.
+
+#### F-P1-5 — the query planner never binds the snapshot it was constructed with
+
+`crates/lumio-voxel-ops/src/query/plan.rs:48-72`. Responsible: **R-00080**.
+
+`plan()` takes `config: &VoxelConfigSnapshot` as a parameter and uses it for the capability check and the
+recorded `config_hash`; it never compares it against `self.snapshot`, whose only remaining use is the
+`config_hash()` accessor. A planner built from snapshot A plans against snapshot B without complaint —
+`query_planner.rs:291` does exactly that and asserts success, so the substitution is blessed as expected
+behaviour. R-00080 A3 requires the plan to fix one ReadView **and one configuration snapshot**.
+
+#### F-P1-6 — the artifact set consumed at HEAD still has no recomputed gate record
+
+`docs/evidence/v1.4-generated-artifact-gate.md` §3, §7. Responsible: **R-00037 / R-00045**. Carried from round 2.
+
+`13d515f` added an honest in-place annotation marking `compilerHash 99a786e7…`, `inputHash 84a2b4c8…`, several
+`outputHash` values and `"ready": true` as historical, and citing the live `3a46fc31…` / `3a0436c9…`. That was
+the right interim step, and not recomputing on the consumer's behalf was the right call. But the gate record —
+which declares itself the sole owner file — still attests a generation that is not on disk, and its
+`"ready": true` still refers to that generation. **The artifacts themselves are sound**: I recomputed all 58 lock
+entries and read the five-tuple off all 12 live descriptors (§2 rows 15–16), and both K tables match FIPS 180-4
+exactly (row 17). The finding is the missing gate result, not bad artifacts.
+
+#### ~~F-P1-7~~ — production hasher without a known-answer test — **CLOSED mid-review, see §6.4**
+
+Raised at `0466ffd` and closed by `8cec2da` before this report was filed. Retained as a numbered entry so the
+cross-references in §3 and §9 resolve; the substance is in §6.4.
+
+One residual from the original finding survives and is **not** closed: `contracts/src/lib.rs:64`
+`pub const SCHEMA_EPOCH: u64 = 1;` is a hand-copied generated value (R-00045 A2), mitigated only because
+`verify_one:165` compares it against all 12 descriptors. Carried as part of §4.1's R-00045 entry.
+
+#### F-P1-8 — nothing connects the decision-gate documents to the code that consumes gate evidence
+
+`crates/lumio-voxel-domain/src/config_snapshot.rs:135-199`;
+`crates/lumio-voxel-domain/tests/fixtures/p0-gates-blocked.json`. Responsible: **R-00066**.
+
+`from_generated` correctly refuses to start when a P0 gate is not `approved` — that logic is real and tested.
+But the evidence it consumes is built in Rust inside the tests with hard-coded digests
+(`config_snapshot.rs` tests `:42-61`, `:204`), and the repo's only gate fixture is **never parsed by any code**;
+the tests only `contains`-match its text. Consequences, both live today:
+
+1. All four VOX-D-001..004 documents now read `approvalStatus=approved` (`dba284d` and predecessors), while the
+   fixture still says `blocked` and still records `voxelHead: b2f0d8a`. Nothing noticed.
+2. The provenance five-tuple is validated for cross-gate consistency and then dropped — no field of
+   `VoxelConfigSnapshot` carries it (`:193-199`) and `audit_summary()` does not expose it (`:222-224`), so A1's
+   "来源五元组…可审计" does not hold for any consumer holding a snapshot.
+
+This is the seam where a gate status change becomes invisible to the code that is supposed to gate on it.
+
+#### F-P1-9 — barrier "forbidden work" rejection has no implementation
+
+`crates/lumio-voxel-world/src/world/barrier.rs:29-35`;
+`crates/lumio-voxel-world/tests/world_barrier.rs:266-311`. Responsible: **R-00119**.
+
+R-00119 A2 requires that the five barrier scopes contain only the declared bounded in-memory work and that
+I/O, waiting, callbacks and unbounded loops be rejected. `reject_forbidden` is a lookup mapping a
+`ForbiddenWork` enum to an error id; it observes nothing and prevents nothing. The test asserts that
+`reject_forbidden(Io).error_id() == "LoaderTimeout"` — that a match arm returns the value written in the match
+arm. There is no execution-path evidence for the guarantee at all, and F-P1-2 is a live counter-example inside
+the same repo.
+
+### MEDIUM
+
+- **F-P2-7** — the three evidence documents pin measurement to `4ced801` and assert 「`origin/main` == `4ced801`」
+  (`b0-verification.md:5`, `b2-verification.md:5`, `mvp-integration.md:5`), which is false at `0466ffd`. The
+  numbers themselves are *not* stale: `crates/` is byte-identical between the two commits (the range contains
+  only docs, benchmarks, ADR 0009 and the CI fix), and every figure reproduces here. This is the third
+  consecutive round in which evidence has been overtaken by a later merge; the mechanism, not the diligence, is
+  what keeps failing. A document that recorded "measured at X; `crates/` unchanged between X and HEAD" would be
+  self-maintaining. Responsible: R-00143 / R-00145 / R-00146.
+- **F-P2-8** — cut identity is still derived from `Debug` output (`publication/root.rs:113,115,117`;
+  `chunk/replacement.rs:66`). Two new observations: the `indexes` leg formats a unit struct, so it contributes a
+  constant and covers nothing; and the directory leg formats every payload byte into a `String` on every root
+  construction, making this an O(payload) allocation on the publish path. `identity()` crosses crates into
+  `RestoreReceipt` (`world/restore.rs:60,80`). Responsible: R-00078.
+- **F-P2-9** — unknown generated error ids collapse to `InvalidHandle` (`port/error_mapping.rs:81`) and the test
+  asserts the collapse. The 43/43 identity-mapping test is a genuine guard against upstream additions; the
+  fallback still makes an unknown id indistinguishable from a real one. Responsible: R-00142.
+- **F-P2-10** — three compatibility-pointer files still name V1.3 as normative
+  (`docs/architecture/LumioGameEngine_Architecture_v0.3.md:4,6` and the v1.0 / v1.1 siblings). These are the
+  entry points a consumer following a historical filename hits. No gate can catch them: CI greps only the v1.4
+  file and README, and `.baseline.sha256` locks only the v1.4 file. Responsible: R-00034.
+- **F-P2-11** — the crate-DAG guard has 3 negative fixtures for 23 forbidden edges plus 5 rule classes; two rule
+  classes (CoreEngine dependency, missing frozen crate) have none. Also `check_crate_dag.py` and `crate_dag.rs`
+  are two hand-synchronised implementations of the same rules with no equivalence test. Responsible: R-00041.
+- **F-P2-12** — `DeterministicExecutor` never reads `schedule.seed` (`deterministic_executor.rs:22-33`), so
+  R-00047 A1's determinism assertion is a tautology; and the expect-error branch of the fixture runner has zero
+  coverage because the only failure fixture is rejected at parse time. Responsible: R-00047.
+- **F-P2-13** — `VoxelConfigSnapshot`'s allow-list is built from the host capability set, not
+  `start_capabilities` (`config_snapshot.rs:198`), so a config declaring fewer capabilities than the host does
+  not narrow. Responsible: R-00066.
+- **F-P2-14** — `ChunkDirectoryBuilder::insert` (`directory.rs:38-42`) bypasses `try_convert`, and the card's own
+  test uses it to perform a transition the state machine rejects (`chunk_state_machine.rs:124`). Two of sixteen
+  transition combinations are tested. Responsible: R-00073.
+- **F-P2-15** — `publish_once`'s post-swap comment ("No alloc/I/O/callback after this",
+  `publication/authority.rs:135`) does not hold: `:136-137` drops the old root (potentially freeing the entire
+  old cut under the write lock) and the old `RevisionPin`, whose `Drop` takes the pin registry mutex
+  (`pin.rs:176-177`). Reader visibility is unaffected; the A3 claim is not. Also `used_ids` grows by one u64 per
+  successful publish with no removal path, serving a branch the code documents as unreachable
+  (`authority.rs:19,118-133`). Responsible: R-00078.
+- **F-P2-16** — the receipt ledger has no eviction path: completed receipts are never removed and once
+  `entries.len() >= max_entries` every reserve returns `BudgetExceeded` permanently
+  (`receipt_ledger.rs:140-142`), while R-00093 A3 speaks of trimming. Responsible: R-00093.
+- **F-P2-17** — a failed `prepare` leaves `reserve_count` incremented (`receipt_ledger.rs:152`, no decrement
+  anywhere), which is public observable ledger state, against R-00096 A1's "完全不变". Bounded: capacity is judged
+  on `entries.len()`, which the abort does restore. Responsible: R-00096.
+- **F-P2-18** — `commit_finalize.rs:10-24` calls `ledger.finalize` *after* the swap and propagates its error, so
+  an ordinary failure path exists after linearization (unreachable in practice, not by construction), and there
+  are allocations after the swap. Separately, R-00104 A3's "invariant faults affect only the target world" has no
+  implementation, and both lock accessors recover from poisoning (`authority.rs:143-153`). Responsible: R-00104.
+- **F-P2-19** — R-00121 A3's bounded redaction has no implementation (`diagnostic_name` is an unbounded
+  caller-supplied string checked only for non-emptiness, `fault.rs:39`), `incident_kind` is the literal
+  `"Simulation"` validated against nothing (`events.rs:10`), and `trip` under a full sink is untested.
+  Responsible: R-00121.
+- **F-P2-20** — R-00134 A3 cannot be met as written: there are no generated fixtures or reference bytes for a
+  snapshot manifest, and the test compares production output against a recomputation by the same production
+  helpers. Responsible: R-00134.
+- **F-P2-21** — the "sole dirty-clear entry" guard is a source scan for the identifier `clear_dirty`
+  (`durability_ack_apply.rs:441-486`), defeated by renaming; and the claim is false as stated, because a
+  successful restore publishes a fresh empty `DirtyFrontier` (`restore_shadow.rs:95` → `restore.rs:58-82`).
+  The structural fact (only `except_covered` subtracts) is stronger than the test that is supposed to prove it.
+  Responsible: R-00137.
+- **F-P2-22** — `GeneratedVoxelWorldPortAdapter::abort` → `WorldRouter::abort` → barrier lease abort has **zero
+  call sites** anywhere in `crates/` and zero test coverage, while passing clippy and compiling green.
+  Responsible: R-00142.
+- **F-P2-5, F-P2-6** — unchanged from round 2 (see §3).
+
+### LOW
+
+- Source-scan guards are used as primary acceptance evidence in four places (snapshot-no-fs, restore-no-streaming,
+  durability-no-clear_dirty, adapter-no-pinvoke) with inconsistent strength: two walk a directory, two scan a
+  hard-coded file list, one scans comment-inclusive source. They should be uniformly directory-walking and
+  recorded as weak guards rather than headline evidence.
+- Scaffolding comments leaked into production sources: `world/restore.rs:1-3` and `world/durability_ack.rs:1-3`
+  carry `// ORCHESTRATOR MERGE world/mod.rs:`.
+- `write_occupied` is duplicated in three places (`write_lane.rs:35`, `restore.rs:47`, `durability_ack.rs:64`)
+  and is unreachable in all three; real exclusion comes from `&mut`. If any one later adopts interior
+  mutability, the protection fails silently with all current tests green.
+- Contract-table membership is asserted with discarded results in several places
+  (`let _ = SCHEMA_IDS.contains(…)` at `origin.rs:65`, `completion.rs:23`, `preconditions.rs:150`,
+  `commit.rs:310`) or with `debug_assert!`, which is compiled out in release.
+- Property-based tests are absent repo-wide; the domain crate has no dev-dependencies.
+- Real concurrency evidence exists in exactly two tests (`publication_atomicity.rs:525`,
+  `snapshot_capture_ref.rs:243`). Every other "concurrent" criterion is met by sequential simulation.
+
+---
+
+## 6. Downgraded and withdrawn candidates
+
+Recorded because the reason they were wrong matters for the next round.
+
+1. **"A failed prepare permanently pins the ledger's capacity and world binding."** First reading suggested the
+   un-decremented `reserve_count` consumed capacity. It does not: `reserve` judges capacity on
+   `entries.len() >= max_entries` (`receipt_ledger.rs:140`) and `abort` removes the entry. The world/generation
+   binding likewise survives deliberately, and each world instance owns its own ledger (`instance.rs:173-190`),
+   so binding to that world is the intended semantics, not a leak. **Downgraded to F-P2-17** (accounting only).
+2. **"The three evidence documents are stale again, as in round 2."** The anchor text is stale, the numbers are
+   not. `git diff 4ced801..0466ffd -- crates/` is empty, and every figure reproduces here. Round 2's F-P0-1 was
+   P0 because every number was wrong and every card verdict read BLOCKED; this is one false sentence.
+   **Downgraded to F-P2-7.**
+3. **"`world_fault_isolation` having a single test means R-00121 A1 is unproven."** A1 is in fact well proven —
+   that one test carries a real control group (world B keeps querying, pausing, resuming and writing while A is
+   tripped, with identities asserted both ways). The gaps are in A2 and A3, not A1. **Re-scoped into F-P2-19.**
+
+4. **F-P1-7 "the production hasher has no known-answer test, and the duplicate should be deleted" —
+   first half CLOSED by `8cec2da`, second half WITHDRAWN as wrong.**
+   The first half was true at `0466ffd` and is now fixed: `tests/sha256_kat.rs` asserts the NIST empty / `abc` /
+   448-bit / 896-bit / million-`a` vectors plus a padding-boundary sweep against **both** hashers, and adds a
+   length-sweep differential so the copies cannot drift. Verified here: 7/7 (§2 row 26).
+   The second half — inherited from `b0-verification.md` §6's undertaking to delete the duplicate once the
+   generated hasher was correct, and repeated by round 2 as F-P2-2 — **was wrong, and ADR 0010 is right to
+   refuse it.** The two hashers sit in different trust domains: `lumio-gen-contract-runtime/src/sha256.rs` is
+   itself a locked entry under the tree the `generated_clean` guard audits. Auditing that tree with a hasher
+   drawn from inside it is a self-certification loop — anyone tampering with a generated file could adjust
+   `sha256.rs` to match, and a bug in the generated hasher would make the guard pass everything silently. The
+   ~60 lines of duplication buy the guard its independence, and the drift risk is now carried by tests rather
+   than by trust. I record this against my own finding: the duplication was the correct design and three review
+   rounds, including this one's first draft, called it a defect.
+
+---
+
+## 7. Skips, ignores, weakened assertions, flakiness
+
+**None found**, same as round 2 and re-verified here.
+
+- `grep -rn "#\[ignore" crates/ tools/` → 0 matches. No `should_panic`, `todo!()` or `unimplemented!()` under
+  `crates/`.
+- All 46 `test result` lines report `0 ignored; 0 filtered out`.
+- `--test-threads=1` produces an identical 158 / 0 / 0.
+- 40 repeated concurrency runs (20 + 20) produced 0 failures.
+- `unsafe`: zero occurrences outside `#![forbid(unsafe_code)]`, which appears in 70 files.
+
+The caveat this round adds is that a green suite is not coverage: §5's CRITICAL and seven remaining HIGH
+findings all sit in paths these tests do not exercise, or — in three cases (F-P1-4, F-P1-5, F-P2-9) — that they
+do exercise and assert the defective behaviour as expected.
+
+---
+
+## 8. Scope notes for the main loop
+
+- **Upstream has advanced.** `LumioGameEngineArchitecture` `origin/main` is now `3287bba` (PR #27); the mirror
+  here reproduces `bcc8eb9` exactly. Per the standing ruling this is a **reporting item, not a failure** — the
+  mirror is byte-consistent with the upstream commit it declares, all 58 lock entries verify, and the five-tuple
+  is uniform. Re-mirroring is a separate scheduling decision.
+- **R-00204 remains deadlocked against this card** and correctly stays BLOCKED. Its record additionally needs
+  refreshing (F-P2-6): its precondition table still lists R-00203 and R-00146 as backlog, and its traceability
+  section still says only four P0 cards have evidence.
+- **`.spec/tasks/` holds only `README.md`.** Card acceptance state lives in the Workflow API, which this round
+  read directly for the coverage list (§1). Anyone re-deriving §4 should do the same rather than trusting this
+  document's table of contents — that is precisely how round 2's gap arose.
+- **The findings in §5 belong to implementation cards, not to this one.** Eight of them (F-P0-1 and the seven
+  open HIGH) are in cards currently `in_review`. Whether they are fixed under those cards or split into new ones
+  is the main loop's call; this report does not create cards.
+- **One finding closed itself during the review.** R-00290 landed `8cec2da` while this report was being
+  written, closing F-P1-7 and — via ADR 0010 — refuting half of it on better reasoning than the finding had
+  (§6.4). That is the healthy version of the F-P2-7 mechanism, and the reason this report states its anchor
+  discipline in the header rather than pinning a bare commit and hoping.
+
+---
 
 ## 9. Required before re-review
 
-1. **F-P0-1** — re-measure `b0-verification.md`, `b2-verification.md`, `mvp-integration.md` at `4ced801`:
-   real commands, real exit codes, real counts, restated card verdicts, and a re-derived acceptance table.
-   Add a re-validation step so evidence cannot be invalidated by a later merge without being rerun.
-2. **F-P1-1** — record an Architecture Gate result for the artifact set actually consumed
-   (`compilerHash 3a46fc31…`, `inputHash 3a0436c9…`, the 12 current `outputHash` values), and sediment the
-   ADR-040 / ADR-041 adoption — the contract surface this repo re-exports changed and nothing in `.spec/`
-   or `docs/` says so.
-3. **F-P1-2** — close R-00146 criterion 2 or rewrite it, explicitly, to what the Reference harness can prove.
-4. **F-P2-1 / F-P2-2** — sediment the `allow(dead_code)` decision the way ADR 0008 sediments const→static;
-   add a known-vector assertion against the production `sha256`; delete the duplicate hand-written hasher
-   as `b0-verification.md` §6 undertook to.
-5. **F-P2-3 / F-P2-4 / F-P2-5 / F-P3-1** — open cards; not blocking this delivery.
+1. **F-P0-1** — escape values in the canonical encoding, or reject values containing the delimiter set, at all
+   four sites (`mutation/fingerprint.rs`, `query/plan.rs`, `mutation/commit.rs`, `snapshot/mod.rs` + its decoder).
+   Add a collision test using the pair in §5. The generated canonicalizer's contract is the upstream half of
+   this and needs an architecture-side decision.
+2. **F-P1-2** — bound `worldRevision` and the `chunkRevision.*` entry count in preflight, and replace the O(n)
+   revision-minting loops with direct construction (both here and at `durability_ack.rs:153-166`).
+3. **F-P1-3** — make `configHash` part of the validated `OriginToken`, or make the empty case fail in
+   `check_config_hash`; add the negative test the current tests bypass.
+4. **F-P1-4** — use `ack.covered_world_revision` in the coverage decision, and fix the test that pins the current
+   behaviour.
+5. **F-P1-5** — compare the `config` argument against the planner's bound snapshot, and invert
+   `query_planner.rs:291` from asserting success to asserting rejection.
+6. **F-P1-6** — recompute the Architecture Gate record for the artifact set actually on disk
+   (`compilerHash 3a46fc31…`, `inputHash 3a0436c9…`, the 12 current `outputHash` values).
+7. ~~**F-P1-7**~~ — **done** in `8cec2da` (R-00290): `tests/sha256_kat.rs` pins both hashers to the FIPS 180-4
+   vectors with a length-sweep differential, and ADR 0010 records why the duplicate stays. Nothing further
+   required; the `SCHEMA_EPOCH` residual rides with R-00045.
+8. **F-P1-8** — bind the gate documents to the code: parse the fixture, add an approved-path fixture, carry the
+   provenance five-tuple on the snapshot, and add a drift check so a gate status change cannot pass unnoticed.
+9. **F-P1-9** — either implement a real barrier-work guard or restate R-00119 A2 to what the borrow checker and
+   scope typing actually prove. Carrying an assertion whose test is a tautology is the option that should not be
+   chosen silently.
+10. **F-P1-2 (R-00146 criterion 2)** — unchanged across three rounds: give the Reference harness an identity
+    accessor, or rewrite the criterion, explicitly, to what it can prove.
+11. **MEDIUM / LOW findings** — open cards; not individually blocking, but F-P2-7's mechanism (evidence pinned to
+    an absolute commit that later merges invalidate) has now recurred three times and deserves a fix rather than
+    another manual rewrite.
