@@ -14,9 +14,15 @@ use lumio_voxel_test_support::reference_harness::{
     GeneratedVoxelOperation, GeneratedVoxelOutcome, VoxelPortHarness,
 };
 
-/// Architecture-owner approval status. Stays blocked until the owner decides.
+/// Architecture-owner confirmation applied. Kernel selection stays deferred;
+/// `nativecore-spatial-adapter` stays pending on a published kernel artifact.
 pub fn approval_status() -> &'static str {
-    "blocked"
+    "approved"
+}
+
+/// Architecture-owner confirmation id (`LGE-V1.4-VOX-D-P2-2026-08-29`).
+pub fn approval_reference() -> &'static str {
+    "LGE-V1.4-VOX-D-P2-2026-08-29"
 }
 
 pub fn gate_id() -> &'static str {
@@ -428,8 +434,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gate_remains_blocked() {
-        assert_eq!(approval_status(), "blocked");
+    fn gate_approved_citing_owner_confirmation() {
+        assert_eq!(approval_status(), "approved");
+        assert_eq!(approval_reference(), "LGE-V1.4-VOX-D-P2-2026-08-29");
         assert_eq!(gate_id(), "VOX-D-007");
         assert_eq!(card_id(), "R-00063");
         assert!(harness_requirement_met());

@@ -53,8 +53,15 @@ const FAULT_MAP: &[(&str, FaultPoint)] = &[
     ("diff-no-advance", FaultPoint::PrePublication),
 ];
 
+/// Architecture-owner confirmation applied. Approved means the owner decision
+/// on the open fields is recorded — no number is frozen by it.
 pub fn approval_status() -> &'static str {
-    "blocked"
+    "approved"
+}
+
+/// Architecture-owner confirmation id (`LGE-V1.4-VOX-D-P2-2026-08-29`).
+pub fn approval_reference() -> &'static str {
+    "LGE-V1.4-VOX-D-P2-2026-08-29"
 }
 
 pub fn harness_requirement() -> &'static str {
@@ -328,8 +335,9 @@ mod tests {
     use lumio_voxel_contracts::{MACHINE_IDS, SCHEMA_IDS, STABLE_ERROR_IDS};
 
     #[test]
-    fn gate_remains_blocked() {
-        assert_eq!(approval_status(), "blocked");
+    fn gate_approved_citing_owner_confirmation() {
+        assert_eq!(approval_status(), "approved");
+        assert_eq!(approval_reference(), "LGE-V1.4-VOX-D-P2-2026-08-29");
         assert!(!numeric_policy_frozen());
         assert_eq!(pin_budget(), "pending-architecture-owner");
         assert_eq!(diff_granularity(), "pending-architecture-owner");

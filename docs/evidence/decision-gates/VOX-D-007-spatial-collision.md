@@ -5,8 +5,8 @@
 - Recorded: 2026-08-28; re-measured 2026-08-29 on a linking host (see §4)
 - Architecture baseline: `LGE-V1.4-2026-08-27`
 - Gate owner files: this document; `benchmarks/decision_gates/spatial_collision.rs`; optional corpus `benchmarks/decision_gates/data/vox-d-007/`
-- `approvalStatus`: `blocked`
-- Architecture owner approval: none
+- `approvalStatus`: `approved`
+- Architecture owner approval: **`LGE-V1.4-VOX-D-P2-2026-08-29`** (Architecture `origin/main` `997117e`, PR #16, [VOX-D-P2-OWNER-CONFIRMATION.md](../../../../LumioGameEngineArchitecture/docs/architecture/VOX-D-P2-OWNER-CONFIRMATION.md); D-014 Confirmed) — kernel selection deferred; `nativecore-spatial-adapter` stays `pending` on a published kernel artifact
 
 This is a research gate. It records candidates and a measurement seam over the shipped Reference harness. It does not freeze numeric defaults, pick a default kernel, edit Schema/ID/default config, invent a public spatial Schema, or freeze NativeCore kernel artifact hashes as production defaults.
 
@@ -39,7 +39,7 @@ Seam / corpus SHA-256 (this worktree, after rewrite):
 
 | Path | SHA-256 |
 | --- | --- |
-| `benchmarks/decision_gates/spatial_collision.rs` | `594396f6a747c2812a622cef2f201ae680dd14c603f158ab7d04a1bbfc0b018f` |
+| `benchmarks/decision_gates/spatial_collision.rs` | `40f99aa0ae3950547e7fb78a7d04ee2cb9cc7acfd34e293afcf6e36502b5d9ed` (was `594396f6…fc0b018f`, the §4 run's value; this revision applied owner confirmation `LGE-V1.4-VOX-D-P2-2026-08-29` — approval fields and gate test only, corpus and measurement paths untouched) |
 | `benchmarks/decision_gates/data/vox-d-007/candidate-set.json` | `cec797265640d66a9b33382ee228925a1715d534f316cd6dbc91a8e6a22bbfdd` |
 | `benchmarks/decision_gates/data/vox-d-007/occlusion-miss.json` | `c4cbc47fa24455c4eeacb9a4970e49417372839af1acad046f83a09c2e0aefb3` |
 | `benchmarks/decision_gates/data/vox-d-007/cache-key-with-world-revision.json` | `5357b232fbd33c887444decbb1a55d68b1b0ec95a5e5baeaaf734c45559b95d1` |
@@ -95,7 +95,7 @@ SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin SEAM_OUT_DIR=target/decision-gate-sea
   benchmarks/decision_gates/run_seam_replay.sh spatial_collision
 ```
 
-Fixed: seed `0x00000007`, corpus below, `DeterministicExecutor` schedule order. Three runs per corpus schedule; SHA-256 of `Trace.snapshot`. Statistics at this layer: byte-identity of traces, World/Revision isolation of snapshot hashes, mapped `FaultPoint` error ids. Precision/tolerance, mesh vertex hashes, collision-shape hashes, throughput, and peak memory of a Native kernel remain architecture-owner fields and were **not** invented. Seam source unchanged by this run — `spatial_collision.rs` still hashes to `594396f6a747c2812a622cef2f201ae680dd14c603f158ab7d04a1bbfc0b018f`, as recorded in §1.
+Fixed: seed `0x00000007`, corpus below, `DeterministicExecutor` schedule order. Three runs per corpus schedule; SHA-256 of `Trace.snapshot`. Statistics at this layer: byte-identity of traces, World/Revision isolation of snapshot hashes, mapped `FaultPoint` error ids. Precision/tolerance, mesh vertex hashes, collision-shape hashes, throughput, and peak memory of a Native kernel remain architecture-owner fields and were **not** invented. Seam source was unchanged by this run — `spatial_collision.rs` hashed to `594396f6a747c2812a622cef2f201ae680dd14c603f158ab7d04a1bbfc0b018f` at the time of measurement. A later revision applied the P2 owner confirmation to the seam's approval fields and gate test (new hash in §1); the corpus and the §5 measured values are unaffected.
 
 **Executed corpus** (all ops `schema_id = "voxel-query"`):
 
@@ -122,7 +122,7 @@ Fixed: seed `0x00000007`, corpus below, `DeterministicExecutor` schedule order. 
 
 ## 5. Measurements
 
-`approval_status() = "blocked"`. `measurements_executed() = true` for the harness layer. `nativecore_kernel_artifact_hash() = None`. `public_spatial_schema_id() = None`.
+`approval_status() = "approved"` citing `LGE-V1.4-VOX-D-P2-2026-08-29` (§7). `measurements_executed() = true` for the harness layer. `nativecore_kernel_artifact_hash() = None`. `public_spatial_schema_id() = None`.
 
 Raw traces: seam tests linked and executed by the host's own toolchain (no cross-toolchain, no `link.exe` workaround). 9 tests passed on each leg. Snapshot values below are `Trace.snapshot` hex from `DeterministicExecutor::run` (R-00047 `sha256` of committed seq + schema_id + payload). Three repeats matched, on both legs.
 
@@ -157,7 +157,7 @@ Fault repeats (three runs, byte-identical outcomes):
 
 No kernel is selected. `unaudited-oss-kernel` remains held out on license/process grounds. NativeCore adapter is **not** selected and its artifact hash is **not** recorded as a default.
 
-## 6. Proposal (not approved)
+## 6. Proposal (approved; kernel selection deferred)
 
 ```text
 SpatialKernelProposal {
@@ -166,29 +166,30 @@ SpatialKernelProposal {
   license: pending-architecture-owner,
   cacheKey: pending-architecture-owner,       // identity fields in §2 are frozen; extras are not
   invalidation: pending-architecture-owner,
-  approvalStatus: blocked
+  approvalStatus: approved,
+  approvalReference: LGE-V1.4-VOX-D-P2-2026-08-29
 }
 ```
 
-Approved public configuration / Capability bits must be generated by the architecture repository.
+Public configuration / Capability bits, if ever generated, are produced by the architecture repository.
 
 ## 7. Architecture owner approval
 
-- Record: **none**
-- `approvalStatus`: **blocked** — unchanged by this run. Executing the seam is not self-approval; `selected_default_candidate()` still returns `None`.
-- Blocked reason, restated against current fact: the measurement precondition is now **satisfied** for the harness layer (§4 host legs, §5 numbers). What remains is an architecture-owner decision, plus one gap that measurement on this repository cannot close at all: the Reference-vs-NativeCore differential needs a **published NativeCore kernel artifact**, which does not exist. That is a dependency gap, not an unrun benchmark — running more of this seam will not produce it.
-- Who must decide: architecture owner (kernel vendor/version/license, cache-key extras, invalidation, precision/LOD).
-- NativeCore artifact hash must be verifiable **and** owner-approved before `nativecore-spatial-adapter` can leave pending. This card does not freeze any such hash.
+- Record: **`LGE-V1.4-VOX-D-P2-2026-08-29`** — Architecture repository `origin/main` `997117e` (PR #16), `docs/architecture/VOX-D-P2-OWNER-CONFIRMATION.md`; `DECISIONS_PENDING.md` D-014 marked Confirmed. Issued on delegated authority (delegation recorded in R-00257 and the session ledger, 2026-08-29).
+- `approvalStatus`: **approved** — citing the confirmation id above. Per the confirmation: LGE-V1.4 **does not generate a public Voxel P2 numeric profile, and no strategy candidate is selected**. Approved means the owner decision on the open fields is made as recorded; it does **not** mean any number or kernel is frozen. `selected_default_candidate()` still returns `None`.
+- Confirmed binding invariants (family level): cache keys must be **identity-complete** — World identity and Revision are mandatory key components (coordinate-only keys are rejected; measured stale-hit hazard in §5); cancel/exception paths never populate the cache.
+- Deferred, adapter-internal: kernel selection. `unaudited-oss-kernel` stays held out (license audit precondition). `nativecore-spatial-adapter` stays **`pending`**: it requires a **published NativeCore kernel artifact** plus owner approval of its hash — a dependency gap this approval does not close, and no amount of re-running this seam closes it (tracked in the NativeCore S0 closeout ledger §4). This card does not freeze any such hash.
+- This revision applies the confirmation to this document, the seam's `approval_status()` / `approval_reference()`, and the gate test (now `gate_approved_citing_owner_confirmation`). The §4–§5 measurement content is from the 2026-08-29 run at `13d515f` and is unchanged.
 
-**Blocked downstream (later cards whose live 执行前置 lists this gate):**
+**Formerly blocked downstream (now unblocked by this approval, with kernel selection still deferred):**
 
 - R-00163 `[程序·Spatial] 实现 Revision-scoped Voxel Candidate 与 Occlusion Source`
 - R-00193 `[程序·Mesh] 实现 Revision-scoped Voxel Mesh Source 构建`
 - R-00194 `[程序·Collision] 实现 Revision-scoped Voxel Collision Source 构建`
 
-Transitively: R-00166 (lists R-00163, not this gate).
+Each must keep cache keys identity-complete per the binding invariant and must not select or hash an unapproved kernel. Transitively: R-00166 (lists R-00163, not this gate). The Reference-vs-NativeCore differential remains blocked on the published kernel artifact.
 
-**Continuable without this approval:** this evidence file, the measurement seam, and the optional `data/vox-d-007/` corpus; typed Source ports that refuse to cache and refuse to select an unapproved kernel.
+**Continuable:** typed Source ports that refuse to cache incompletely-keyed results and refuse to select an unapproved kernel.
 
 ## 8. Commands actually run
 

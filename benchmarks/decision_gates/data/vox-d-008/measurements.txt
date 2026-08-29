@@ -39,5 +39,6 @@ payload.tool-n1=cdd4e215291157e9fc89ed7f6073e75ef4bef85d105cbb4b325d64f3317fd386
 payload.cycle=c501935a6b2b247d007e9860becbe4c13d6561af9fc8b73ba24c8b2a7a80cb22
 payload.missing-node-hash=def6f4a7ef5dfa024cf4840c287e523df7340e2f257f5e3568f8ca679863ce42
 payload.missing-tool-version=37806a054969a17586744fc736d8f3c1dd5d0122f5ca439dfcead547b6a3afdb
-approvalStatus=blocked
+approvalStatus=approved
+approvalReference=LGE-V1.4-VOX-D-P2-2026-08-29
 selectedDefault=none
