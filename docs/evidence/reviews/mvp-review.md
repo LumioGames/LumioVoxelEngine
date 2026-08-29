@@ -4,9 +4,15 @@
   reviewed commit, and did not participate in either previous review round.
 - Baseline: `LGE-V1.4-2026-08-27`, `schemaEpoch = 1`
 - Repo / branch: `LumioVoxelEngine` @ `main`
-- Reviewed HEAD: **`0466ffd`** (`Merge pull request #7 from LumioGames/fix/r-00264-policy-v14-baseline`)
-  - `origin/main` == `0466ffd` == the reviewed commit. Reviewed in an isolated `git worktree`; working tree
-    clean at review open and close; the review target did not mutate during this round.
+- Reviewed HEAD: **`0466ffd`** (`Merge pull request #7 from LumioGames/fix/r-00264-policy-v14-baseline`),
+  re-verified after merging **`8cec2da`** (PR #8, R-00290) which landed while this report was being written.
+  - Reviewed in an isolated `git worktree`; working tree clean at review open and close.
+  - **Anchor discipline, stated so this report does not need rewriting the next time `main` moves:** every
+    finding below was derived at `0466ffd`. `8cec2da` added `tests/sha256_kat.rs`, ADR 0010 and a comment in
+    `generated_clean.rs`; it closed one finding (F-P1-7, §6.4) and changed no other reviewed path
+    (`git diff 0466ffd..8cec2da -- crates/` touches only `lumio-voxel-test-support`). The full suite was
+    re-run on the merged tree and every figure in §2 is from that re-run. Any later commit that does not touch
+    `crates/` leaves §4 and §5 valid as written.
 - Toolchain: `rustc 1.98.0 (88d9e12ae 2026-08-18)`, `cargo 1.98.0 (797e8a9bc 2026-08-05)`,
   host `aarch64-apple-darwin`, macOS.
 - Upstream architecture as consumed by the mirror: `LumioGameEngineArchitecture` @ `bcc8eb9`.
@@ -38,8 +44,8 @@ That pass is what produced this round's findings. Round 2 verified the three tes
 changed files to a high standard; going card-by-card over the 26 implementation cards surfaced a class of
 defect neither previous round had reason to look at, because neither previous round was reading the
 production code of cards outside the wave. **The green suite did not catch them: the workspace is
-158 / 0 / 0 at this HEAD, and the defects in §5 sit in paths those 158 tests do not exercise, or that they
-exercise and assert the wrong way round.**
+165 / 0 / 0, and the defects in §5 sit in paths those tests do not exercise, or that they exercise and assert
+the wrong way round.**
 
 ---
 
@@ -80,8 +86,8 @@ project 5, migration 5. The last two are P2 skeletons and correctly carry no P0 
 
 | # | Command | Exit | Key output |
 | --- | --- | ---: | --- |
-| 1 | `cargo test --workspace --all-features --no-fail-fast` | **0** | **158 passed / 0 failed / 0 ignored** across 46 targets |
-| 2 | same, `-- --test-threads=1` | **0** | 158 / 0 / 0 — identical; nothing order- or parallelism-dependent |
+| 1 | `cargo test --workspace --all-features --no-fail-fast` | **0** | **165 passed / 0 failed / 0 ignored** across 47 targets on the merged tree (**158 / 46** at `0466ffd`; the delta is `sha256_kat` 7/7) |
+| 2 | same, `-- --test-threads=1`, at `0466ffd` | **0** | 158 / 0 / 0 — identical; nothing order- or parallelism-dependent |
 | 3 | `cargo fmt --all -- --check` | 0 | clean |
 | 4 | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | 0 | 0 errors, 0 warnings |
 | 5 | `cargo check --workspace --no-default-features` | 0 | clean |
@@ -105,6 +111,7 @@ project 5, migration 5. The last two are P2 skeletons and correctly carry no P0 
 | 23 | Restore-corruption replay: `world_restore --all-features` | 0 | **7 / 7**, incl. truncated / empty / wrong-world preflight and bad schema epoch |
 | 24 | Python: faithful port of `canonical_object_pairs` + `quote`, collision search | — | **collision found** — see F-P0-1 |
 | 25 | `git branch -r --contains` on all 34 card anchors | — | **34 / 34 reachable from `origin/main`** |
+| 26 | `cargo test -p lumio-voxel-test-support --test sha256_kat` (merged tree) | 0 | **7 / 7** — NIST empty / abc / 448-bit / 896-bit / million-`a` vectors, padding-boundary sweep and a length-sweep differential, each asserted against **both** hashers (F-P1-7 closed) |
 
 Rows 20–23 are the independent replays the card requires (one concurrency schedule, one Prepare fault, one
 Restore-corruption fixture), run here rather than read off a report.
@@ -119,7 +126,7 @@ Restore-corruption fixture), run here rather than read off a report.
 | **F-P1-1** consumed artifact set has no gate record | **PARTIALLY closed — still open, see F-P1-6** | `13d515f` annotated `v1.4-generated-artifact-gate.md` marking `compilerHash 99a786e7…` / `inputHash 84a2b4c8…` / `"ready": true` historical and citing live `3a46fc31…` / `3a0436c9…`; ADR 0009 records the ADR-040/041 adoption. Not closed: §3's inventory body and §7's `"ready": true` still describe the superseded generation. |
 | **F-P1-2** R-00146 criterion 2 structurally unprovable | **STILL OPEN, unchanged** | `reference_harness.rs` still exposes only `new` (`:35`), `arm` (`:42`), `execute` (`:46`), `snapshot_hash` (`:79`). No world-identity accessor. |
 | **F-P2-1** `allow(dead_code)` module-wide, unsedimented | **sedimentation CLOSED; granularity open** | ADR 0009 exists and is indexed. Attribute still module-scoped. |
-| **F-P2-2** production hasher has no known-vector test; duplicate hasher survives | **STILL OPEN — and worse than recorded, see F-P1-7** | Both `sha256_hex` remain. The only known-answer assertion is on the test-only copy. Additionally the generated crate's own `tests/chain.rs` is never compiled as a test target — the generated packages are not workspace members. |
+| **F-P2-2** production hasher has no known-vector test; duplicate hasher survives | **CLOSED by `8cec2da` (R-00290), mid-review** | Found open at `0466ffd` and raised as F-P1-7; closed while this report was being written. `tests/sha256_kat.rs` now pins **both** implementations to the FIPS 180-4 published vectors and cross-checks them on a length sweep (7/7, §2 row 26). The duplicate itself is now a recorded decision rather than an oversight — ADR 0010 keeps the guard's own hasher deliberately, because auditing the generated tree with a hasher that is itself a locked entry in that tree is a self-certification loop. See §6.4. |
 | **F-P2-3** cut identity derived from `Debug` output | **STILL OPEN — and broader than recorded, see F-P2-8** | `publication/root.rs:113,115,117` unchanged; `chunk/replacement.rs:66` has the same pattern. |
 | **F-P2-4** CI Architecture Gate gated v1.3 | **CLOSED** | `36850ec` (R-00264) moved every assertion to v1.4 (`repository-policy.yml:28,33,34,35`). All 17 assertions replayed green (§2 row 14). |
 | **F-P2-5** three `GateSourceHashes` literals never recomputed | **STILL OPEN, unchanged** | `world_lifecycle.rs:42-47`, `world_barrier.rs:31-36` and siblings unchanged. |
@@ -191,11 +198,13 @@ A1 **met**: `contracts/src/lib.rs:8-61` re-exports only through `#[path]` into t
 checks baselineId (`:159`), schemaEpoch (`:165`), `implementationDependencies: []` (`:172`) and outputHash vs
 directory bytes (`:175-179`), requiring exactly 12 packages (`:139`). All 12 descriptor `outputHash` values and
 all 58 lock entries independently recomputed here (§2 rows 15–16).
-A2 **unmet**: two hand-written duplicates of generated values survive. (a) `test-support/src/generated_clean.rs:84-152`
-is a complete hand-written FIPS 180-4 SHA-256 while the crate already depends on contracts, where 30+ other
-sites use `lumio_voxel_contracts::sha256`. (b) `contracts/src/lib.rs:64` `pub const SCHEMA_EPOCH: u64 = 1;` is a
-hand-copied generated value consumed by `config_snapshot.rs:108`, `restore_preflight.rs` and
-`manifest_adapter.rs`; mitigated only because `verify_one:165` compares it against 12 descriptors. → **F-P1-7**.
+A2 **partial**: one hand-copied generated value survives — `contracts/src/lib.rs:64`
+`pub const SCHEMA_EPOCH: u64 = 1;`, consumed by `config_snapshot.rs:108`, `restore_preflight.rs` and
+`manifest_adapter.rs`, mitigated only because `verify_one:165` compares it against all 12 descriptors.
+The second-hasher question that round 2 filed under this criterion is **resolved and is not a duplicate
+violation**: ADR 0010 (`8cec2da`) keeps `generated_clean`'s own SHA-256 deliberately, because the generated
+hasher is a locked entry inside the very tree that guard audits (§6.4), and `tests/sha256_kat.rs` now pins both
+copies to the FIPS vectors.
 A3 **met**: positive fixture `reexport_and_fixtures.rs:35-44`, negative `:47-55`; `artifact_hashes.rs:38-63`
 tampers, expects `HashMismatch`, restores.
 A4 **met**.
@@ -712,7 +721,7 @@ covers op sequence and payload only.
 
 | Card | Conclusion | Note |
 | --- | --- | --- |
-| **R-00002** 原始需求 V1.4 完整框架落地 | **部分（P0 段）** | Aggregate. Its P0 half is delivered in the sense that all 26 implementation cards have shipped owner files and a green suite; it is **not** met in the sense that §5 records one CRITICAL and eight HIGH defects across those children. Its P2 half is untouched by design. |
+| **R-00002** 原始需求 V1.4 完整框架落地 | **部分（P0 段）** | Aggregate. Its P0 half is delivered in the sense that all 26 implementation cards have shipped owner files and a green suite; it is **not** met in the sense that §5 records one CRITICAL and seven open HIGH defects across those children. Its P2 half is untouched by design. |
 | **R-00203** 本审查卡 | **本轮交付** | Owner file is this report. Round-2's acceptance gap — no card-by-card P0 pass — is closed by §4. Verdict on the reviewed object is RETURN (§5). |
 | **R-00204** MVP 里程碑发布门 | **未动，正确地未动** | `mvp-release-gate.md` verdict BLOCKED. Its precondition is `REV-MVP = APPROVE`, which this round does not grant. Its record is stale in several places (§3, F-P2-6) but its verdict is right. |
 
@@ -832,21 +841,14 @@ which declares itself the sole owner file — still attests a generation that is
 entries and read the five-tuple off all 12 live descriptors (§2 rows 15–16), and both K tables match FIPS 180-4
 exactly (row 17). The finding is the missing gate result, not bad artifacts.
 
-#### F-P1-7 — the production hasher is the one without a known-answer test, and its own tests never compile
+#### ~~F-P1-7~~ — production hasher without a known-answer test — **CLOSED mid-review, see §6.4**
 
-`crates/lumio-voxel-test-support/src/generated_clean.rs:84-152` vs
-`crates/lumio-voxel-contracts/generated/rust/lumio-gen-contract-runtime/src/sha256.rs`. Responsible:
-**R-00045 / R-00047**. Tracked as **R-00290**; restated because this round found it is worse than recorded.
+Raised at `0466ffd` and closed by `8cec2da` before this report was filed. Retained as a numbered entry so the
+cross-references in §3 and §9 resolve; the substance is in §6.4.
 
-Two SHA-256 implementations remain. The only known-answer assertion (`tests/generated_clean.rs:7`,
-`e3b0c442…`) is on the **test-only** copy. Newly established this round: the generated crate's own
-`tests/chain.rs` contains only a self-consistent round-trip and **is never compiled as a test target**, because
-the generated packages under `crates/lumio-voxel-contracts/generated/rust/` are not workspace members — they are
-pulled in via `#[path]` into a private module. So the hasher underpinning every identity, receipt and artifact
-digest in the repo has no absolute-vector assertion anywhere in the build. This is the exact defect class that
-let `K[28] = 0xc6eabbdc` survive from the project's first commit. Adding one assertion against
-`lumio_voxel_contracts::sha256` closes it. Separately, `contracts/src/lib.rs:64`
-`pub const SCHEMA_EPOCH: u64 = 1;` is a hand-copied generated value.
+One residual from the original finding survives and is **not** closed: `contracts/src/lib.rs:64`
+`pub const SCHEMA_EPOCH: u64 = 1;` is a hand-copied generated value (R-00045 A2), mitigated only because
+`verify_one:165` compares it against all 12 descriptors. Carried as part of §4.1's R-00045 entry.
 
 #### F-P1-8 — nothing connects the decision-gate documents to the code that consumes gate evidence
 
@@ -981,6 +983,21 @@ Recorded because the reason they were wrong matters for the next round.
    that one test carries a real control group (world B keeps querying, pausing, resuming and writing while A is
    tripped, with identities asserted both ways). The gaps are in A2 and A3, not A1. **Re-scoped into F-P2-19.**
 
+4. **F-P1-7 "the production hasher has no known-answer test, and the duplicate should be deleted" —
+   first half CLOSED by `8cec2da`, second half WITHDRAWN as wrong.**
+   The first half was true at `0466ffd` and is now fixed: `tests/sha256_kat.rs` asserts the NIST empty / `abc` /
+   448-bit / 896-bit / million-`a` vectors plus a padding-boundary sweep against **both** hashers, and adds a
+   length-sweep differential so the copies cannot drift. Verified here: 7/7 (§2 row 26).
+   The second half — inherited from `b0-verification.md` §6's undertaking to delete the duplicate once the
+   generated hasher was correct, and repeated by round 2 as F-P2-2 — **was wrong, and ADR 0010 is right to
+   refuse it.** The two hashers sit in different trust domains: `lumio-gen-contract-runtime/src/sha256.rs` is
+   itself a locked entry under the tree the `generated_clean` guard audits. Auditing that tree with a hasher
+   drawn from inside it is a self-certification loop — anyone tampering with a generated file could adjust
+   `sha256.rs` to match, and a bug in the generated hasher would make the guard pass everything silently. The
+   ~60 lines of duplication buy the guard its independence, and the drift risk is now carried by tests rather
+   than by trust. I record this against my own finding: the duplication was the correct design and three review
+   rounds, including this one's first draft, called it a defect.
+
 ---
 
 ## 7. Skips, ignores, weakened assertions, flakiness
@@ -994,9 +1011,9 @@ Recorded because the reason they were wrong matters for the next round.
 - 40 repeated concurrency runs (20 + 20) produced 0 failures.
 - `unsafe`: zero occurrences outside `#![forbid(unsafe_code)]`, which appears in 70 files.
 
-The caveat this round adds is that a green suite is not coverage: §5's CRITICAL and eight HIGH findings all sit
-in paths these 158 tests do not exercise, or — in three cases (F-P1-4, F-P1-5, F-P2-9) — that they do exercise
-and assert the defective behaviour as expected.
+The caveat this round adds is that a green suite is not coverage: §5's CRITICAL and seven remaining HIGH
+findings all sit in paths these tests do not exercise, or — in three cases (F-P1-4, F-P1-5, F-P2-9) — that they
+do exercise and assert the defective behaviour as expected.
 
 ---
 
@@ -1012,9 +1029,13 @@ and assert the defective behaviour as expected.
 - **`.spec/tasks/` holds only `README.md`.** Card acceptance state lives in the Workflow API, which this round
   read directly for the coverage list (§1). Anyone re-deriving §4 should do the same rather than trusting this
   document's table of contents — that is precisely how round 2's gap arose.
-- **The findings in §5 belong to implementation cards, not to this one.** Nine of them (F-P0-1 and the eight
-  HIGH) are in cards currently `in_review`. Whether they are fixed under those cards or split into new ones is
-  the main loop's call; this report does not create cards.
+- **The findings in §5 belong to implementation cards, not to this one.** Eight of them (F-P0-1 and the seven
+  open HIGH) are in cards currently `in_review`. Whether they are fixed under those cards or split into new ones
+  is the main loop's call; this report does not create cards.
+- **One finding closed itself during the review.** R-00290 landed `8cec2da` while this report was being
+  written, closing F-P1-7 and — via ADR 0010 — refuting half of it on better reasoning than the finding had
+  (§6.4). That is the healthy version of the F-P2-7 mechanism, and the reason this report states its anchor
+  discipline in the header rather than pinning a bare commit and hoping.
 
 ---
 
@@ -1034,8 +1055,9 @@ and assert the defective behaviour as expected.
    `query_planner.rs:291` from asserting success to asserting rejection.
 6. **F-P1-6** — recompute the Architecture Gate record for the artifact set actually on disk
    (`compilerHash 3a46fc31…`, `inputHash 3a0436c9…`, the 12 current `outputHash` values).
-7. **F-P1-7** — assert a known vector against the **production** `lumio_voxel_contracts::sha256`, and delete the
-   duplicate hand-written hasher (R-00290 already carries this).
+7. ~~**F-P1-7**~~ — **done** in `8cec2da` (R-00290): `tests/sha256_kat.rs` pins both hashers to the FIPS 180-4
+   vectors with a length-sweep differential, and ADR 0010 records why the duplicate stays. Nothing further
+   required; the `SCHEMA_EPOCH` residual rides with R-00045.
 8. **F-P1-8** — bind the gate documents to the code: parse the fixture, add an approved-path fixture, carry the
    provenance five-tuple on the snapshot, and add a drift check so a gate status change cannot pass unnoticed.
 9. **F-P1-9** — either implement a real barrier-work guard or restate R-00119 A2 to what the borrow checker and
