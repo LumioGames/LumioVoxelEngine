@@ -216,7 +216,7 @@ fn successful_prepare_is_move_only_and_does_not_publish() {
     let view = auth.capture();
     let (hash_before, dirty_before) = visible_cut(&view);
     let req = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit")]);
-    let expected_fp = canonical_fingerprint(&req);
+    let expected_fp = canonical_fingerprint(&req).expect("no duplicate member");
     let config_hash = ledger.config_hash().to_string();
 
     let token = prepare(&req, &view, &mut ledger).expect("prepare succeeds");

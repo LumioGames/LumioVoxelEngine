@@ -140,7 +140,8 @@ impl ReceiptLedger {
         if self.entries.len() >= self.max_entries {
             return Err(LedgerError::budget());
         }
-        let reservation = MutationReservation::from_request(request);
+        let reservation = MutationReservation::from_request(request)
+            .map_err(|_| LedgerError::invalid_handle())?;
         self.bind(request);
         self.entries.insert(
             request.txn_id.clone(),
@@ -228,7 +229,8 @@ impl ReceiptLedger {
         if entry.reservation.is_expired(request.generation) {
             return Err(LedgerError::invalid_handle());
         }
-        let fingerprint = canonical_fingerprint(request);
+        let fingerprint =
+            canonical_fingerprint(request).map_err(|_| LedgerError::invalid_handle())?;
         if fingerprint != entry.reservation.fingerprint() {
             return Err(LedgerError::conflict());
         }

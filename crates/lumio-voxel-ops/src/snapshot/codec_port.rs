@@ -5,7 +5,7 @@
 use super::capture_ref::VoxelCaptureRef;
 use super::manifest_adapter::ManifestAdapter;
 use super::stable;
-use lumio_voxel_contracts::{BoundedBuffer, BufferFull, Hash256, canonical_object_pairs, sha256};
+use lumio_voxel_contracts::{BoundedBuffer, BufferFull, Hash256, sha256};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotError {
@@ -145,12 +145,11 @@ pub fn encode_capture(
     if capture.config_hash().is_empty() || capture.world_id().is_empty() {
         return Err(SnapshotError::invalid_handle());
     }
-    let mut pairs = ManifestAdapter::pairs(capture);
-    if pairs.is_empty() {
+    let object = ManifestAdapter::object(capture).map_err(|_| SnapshotError::invalid_handle())?;
+    if object.is_empty() {
         return Err(SnapshotError::invalid_handle());
     }
-    let canonical = canonical_object_pairs(&mut pairs);
-    let bytes = canonical.into_bytes();
+    let bytes = object.encode_bytes();
     if bytes.is_empty() {
         return Err(SnapshotError::invalid_handle());
     }

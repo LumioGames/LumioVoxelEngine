@@ -16,7 +16,7 @@ pub use capture_ref::{CaptureError, CaptureReadPort, CutEvidence, PinOrLease, Vo
 pub use codec_port::{
     CaptureWriter, GeneratedCaptureMetadata, MemoryCaptureWriter, SnapshotError, encode_capture,
 };
-pub use decode::decode_canonical_pairs;
+pub use decode::decode_canonical_object;
 pub use manifest_adapter::{ManifestAdapter, SNAPSHOT_HEADER_SCHEMA, SNAPSHOT_PAYLOAD_SCHEMA};
 pub use restore_preflight::{DecodedRestore, RestoreError, RestorePreflight};
 pub use restore_shadow::{RestoreShadowBuilder, SealedRestoreCandidate};
@@ -29,14 +29,6 @@ pub(super) fn stable(id: &'static str) -> &'static str {
         .copied()
         .find(|candidate| *candidate == id)
         .expect("mapped error id must exist in generated STABLE_ERROR_IDS")
-}
-
-pub(super) fn quote(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len() + 2);
-    out.push('"');
-    out.push_str(raw);
-    out.push('"');
-    out
 }
 
 pub(super) fn hex32(bytes: &[u8; 32]) -> String {
