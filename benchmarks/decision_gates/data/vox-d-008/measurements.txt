@@ -1,11 +1,13 @@
-# VOX-D-008 seam measurements (R-00064). SHA-256 computed by lumio_voxel_contracts::sha256 via shipped harness.
-# Repeat runs: 3. Host rustc +stable-x86_64-pc-windows-gnu used only to link the seam test binary.
-# rust-toolchain.toml remains 1.98.0 msvc. Node split / toolVersion are not production defaults.
+# VOX-D-008 seam measurements (R-00064). SHA-256 computed by lumio_voxel_contracts::sha256
+# through the shipped R-00047 harness. Repeat runs: 3, byte-identical.
+# Generated file - do not hand-edit. Regenerate with:
+#   SEAM_EMIT_VOX_D_008=1 benchmarks/decision_gates/run_seam_replay.sh migration_nodes
+# Node split / toolVersion here are seam-local, never production defaults.
 
-linear-dag.snapshot_hash=0f0bb0c2444cc735a6404cf610a376d6b3e17cc093b72b9a56aecfe520da3995
-linear-dag.trace_digest=971370a8784d12b1f95ad2b66318b82b72d0dd7b32daba04c150a79372c78f95
-diamond-dag.snapshot_hash=29e014ac1fa725d33124fcc924ffd92a00f18bea7c4a95b7c7c6df56d996dea6
-diamond-dag.trace_digest=f285647ebf2d3e735ba9bc343d527417ee693275a6361cae984ca35556bb1cfc
+linear-dag.snapshot_hash=7fcccbbec8deeaba85b421bbb47eead321457adfa0d392abb6f3e2568cf8ad40
+linear-dag.trace_digest=7f3780cca50cb9156671579ef2779ba43085f73fa9bf32fe28730ec4d4aa4021
+diamond-dag.snapshot_hash=5e62469653c27df96aac61e771a131629ec3b04f57660c2f8b88ed43ed816487
+diamond-dag.trace_digest=b9589c79754928b279f730e183ec690f3e35b0df7b0e17f891f6a5059eaf9da3
 hash-mismatch.reject=ManifestDigestMismatch
 hash-mismatch.executed=false
 tool-version-mismatch.reject=ManifestUnsupportedVersion
@@ -13,15 +15,15 @@ tool-version-mismatch.executed=false
 cycle.fault_point=PostPublication
 cycle.error=PartialLoadRolledBack
 cycle.recoverable=false
-cycle.snapshot_hash=c802aad98127acf2f3405020e30e03e9b5b0d3f980db240452e9ebf6ef9f277c
+cycle.snapshot_hash=2392306ec38c4a49df09cb95f5258bae9fcd643fab0a6d6efcc6449e52d5b0a7
 missing-node-hash.fault_point=LostResult
 missing-node-hash.error=EvidenceMissing
 missing-node-hash.recoverable=false
-missing-node-hash.snapshot_hash=e5eebbbdc76070f03b0cd744a6a6363c7d834b3d71dd99616b4baa7a8828160f
+missing-node-hash.snapshot_hash=77d80121032095900c452dbcb5f2dc0868022481c8cf19245d96a9bcbfb5476f
 missing-tool-version.fault_point=CorruptSnapshot
 missing-tool-version.error=EvidenceDigestMismatch
 missing-tool-version.recoverable=false
-missing-tool-version.snapshot_hash=a84429663e3fd4f968bd27fe8419f2f3b579b3aeaa7722f195ce4339f8ccead0
+missing-tool-version.snapshot_hash=da62d096b269a3ea1319a483ae8a9ae5e23e6ed1b05815fd6dca04d3a87b92b4
 payload.linear-n0=25eac8db494d832f333fd0c052c57afd9b6109a01e18d0f38fb6ee4bbb6af1ff
 payload.linear-n1=445c0954ab8d9d913f733733b66b9b77141eff47dbaf14b0df9d51d657c78a83
 payload.linear-n2=0c589fcb604cf35f100a692400500b2a3056889bf72ae81502d8a1371f775682

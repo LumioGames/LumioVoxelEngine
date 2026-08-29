@@ -2,7 +2,7 @@
 
 - Card: R-00061 / GATE-005
 - Role: Voxel 性能与架构决策工程师
-- Recorded: 2026-08-28
+- Recorded: 2026-08-28; re-measured 2026-08-29 on a linking host (see §4)
 - Architecture baseline: `LGE-V1.4-2026-08-27`
 - Gate owner files: this document; `benchmarks/decision_gates/snapshot_cow.rs`; `benchmarks/decision_gates/data/vox-d-005/`
 - `approvalStatus`: `blocked`
@@ -85,9 +85,28 @@ License for in-tree strategy candidates is this repository (`Apache-2.0` per `LI
 
 No OSS codec/vendor is a candidate here. Canonical encode stays on the generated codec. Adding a compression backend is VOX-D-002, not this gate.
 
-## 4. Measurement plan (harness seam)
+## 4. Measurement seam — executed on a linking host
 
-Fixed: machine, toolchain (`rustc 1.98.0` / workspace `rust-toolchain.toml` msvc), seed `61`, corpus, schedule. Repeat each input three times and compare `Trace` / `snapshot_hash` equality. Statistics for pin/COW memory amplification, encoded bytes, and write tail remain **unfrozen** — the shipped harness does not pin pages or encode production snapshots. No summary-only charts. No invented hashes.
+**Status: executed.** The earlier revision of this section was a plan, because the implementer host was Windows msvc with no `link.exe` and could only compile the seam to an rlib. This gate was re-run on a host that links and executes real test binaries; `cargo check` is not accepted as evidence here.
+
+Run of 2026-08-29, at repository commit `13d515f358ffeb182e9659d5bde4fa119496f711` (`origin/main`):
+
+| leg | host triple | rustc | seam result |
+| --- | --- | --- | --- |
+| primary | `x86_64-apple-darwin` (Rosetta 2 on an Apple Silicon machine; rustup default host) | `1.98.0 (88d9e12ae 2026-08-18)`, pinned by `rust-toolchain.toml` | 5 passed / 0 failed |
+| second | `aarch64-apple-darwin` (native) | `1.98.0 (88d9e12ae 2026-08-18)` | 5 passed / 0 failed; output byte-identical to the primary leg |
+
+Generation commands (the runner resolves the hashed rlib names from cargo's JSON output, replacing the hand-typed `rustc` line the previous revision carried):
+
+```bash
+benchmarks/decision_gates/run_seam_replay.sh snapshot_cow
+SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin SEAM_OUT_DIR=target/decision-gate-seams-aarch64 \
+  benchmarks/decision_gates/run_seam_replay.sh snapshot_cow
+```
+
+Fixed: seed `61`, corpus, schedule. Each input repeated three times in-process and compared for `Trace` / `snapshot_hash` equality; the whole runner was additionally re-executed three times and diffed. Statistics for pin/COW memory amplification, encoded bytes, and write tail remain **unfrozen** — the shipped harness does not pin pages or encode production snapshots. No summary-only charts. No invented hashes.
+
+The seam source is unchanged by this run: `benchmarks/decision_gates/snapshot_cow.rs` still hashes to `11b0fe30361933471700cf49e447ca6762aac15e3ce4128558659002e3dd540d`, the value recorded in §1.
 
 **Harness corpus** (schema_id `voxel-snapshot-payload`):
 
@@ -116,22 +135,32 @@ Fixed: machine, toolchain (`rustc 1.98.0` / workspace `rust-toolchain.toml` msvc
 | dense Diff | encoded Diff size; CPU of encode |
 | multi Capture | peak memory with overlapping `VoxelCaptureRef` |
 
-**Replay commands:**
-
-```text
-cargo test -p lumio-voxel-test-support --all-features
-cargo build -p lumio-voxel-test-support --lib --all-features
-rustc --edition 2024 --crate-type rlib --crate-name vox_d_005_seam -L target/debug/deps --extern lumio_voxel_test_support=<rlib> --extern lumio_voxel_contracts=<rlib> benchmarks/decision_gates/snapshot_cow.rs -o seam-out/vox-d-005.rlib
-# when a host linker exists: rustc --test the same seam and run three-run replay_all()
-```
-
 ## 5. Measurements
 
-R-00047 is met. The seam compiles against shipped `DeterministicExecutor` / `VoxelPortHarness` / `FaultPoint` with schema_id `voxel-snapshot-payload`.
+R-00047 is met. The seam executes against shipped `DeterministicExecutor` / `VoxelPortHarness` / `FaultPoint` with schema_id `voxel-snapshot-payload`. `replay_all()` ran; `measurements_executed()` returned `true`.
 
-**Observed on this host:** compile-only. `cargo test -p lumio-voxel-test-support --all-features` cannot link (`link.exe` missing). `cargo build --lib` and `rustc --crate-type rlib` succeed. An extra `rustc --test` using `lld-link` failed for missing `kernel32.lib`. Therefore **raw three-run `snapshot_hash` values are not recorded** (not invented).
+Corpus, three in-process repeats each, `Trace.snapshot` hex (identical across all three runs and across both host legs):
 
-**Not observed / not frozen:** pin vs COW hold strategy, pin budget, memory amplification, encoded Diff bytes, write tail latency, materialize rule. `approval_status()` remains `"blocked"`. `numeric_policy_frozen()` remains `false`. No candidate is excluded.
+| corpus id | three-run identical | `snapshot_hash` SHA-256 |
+| --- | --- | --- |
+| `full-cut` | yes | `f546668ef35ac88474c07cd2b41a3be0234c297215dcde5a4044490afe89b660` |
+| `partial-aoi` | yes | `8f47cbbd6c5061a950b4534611c07a5f80458d1fb49e5c06ba15fc9365ec0fc5` |
+| `capture-ready-pinned` | yes | `ddd17aa557eacfc027e2da8baf243be2a3c18d98fed760e71c32caa76506aca9` |
+| `pin-expired` | yes | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+
+Fault matrix, three repeats each:
+
+| fault id | error id | recoverable | committed |
+| --- | --- | --- | --- |
+| `pin-expired-ready` | `StaleEpoch` | true | **false** |
+| `payload-bad-hash` | `EvidenceDigestMismatch` | false | true |
+| `diff-no-advance` | `InvalidHandle` | true | **false** |
+
+Read of the `pin-expired` row: its `snapshot_hash` is the canonical SHA-256 of empty input, i.e. the harness committed set is empty. A `Ready` claim behind an expired pin published nothing, which is the behaviour §3 lists as the stop condition for `pin-count-chunk-wire-diff`. That candidate is therefore **not** eliminated by this run; neither are the other two. No candidate is excluded and none is preferred — this layer measures determinism and fault semantics, not pin/COW cost.
+
+That same value is an independent correctness check on the in-tree SHA-256: `printf '' | shasum -a 256` on this host returns the identical digest.
+
+**Not observed / not frozen:** pin vs COW hold strategy, pin budget, memory amplification, encoded Diff bytes, write tail latency, materialize rule. These need a production snapshot encoder, which does not exist in this repository; they were not modelled or estimated. `approval_status()` remains `"blocked"`. `numeric_policy_frozen()` remains `false`.
 
 Generated `VoxelSnapshotCapture` transitions cover the happy path `Requested → … → Released`. Schema capture states also include `Cancelled` and `Failed`. The seam treats the schema enum as the frozen contract and only asserts generated transitions are a subset. That difference is not a new capture state invented here.
 
@@ -153,7 +182,8 @@ Internal candidate ids in §3 remain a list. Public configuration after approval
 ## 7. Architecture owner approval
 
 - Record: **none**
-- `approvalStatus`: **blocked**
+- `approvalStatus`: **blocked** — unchanged by this run. Executing the seam is not self-approval; nothing here selects a default.
+- Blocked reason, restated against current fact: the measurement precondition ("没有测量就没有据") is now **satisfied** for the harness layer — the seam runs on a linking host and §5 carries reproducible numbers. What remains is (a) an architecture-owner decision on the four open fields, and (b) production-cost axes that no repository-side harness can supply without a snapshot encoder. (b) does not block the owner from deciding (a) on the frozen-contract grounds in §2–§3; it does block any numeric cost comparison between the three candidates.
 - Who must decide: architecture owner, confirming D-014 / VOX-D-005 (date, owner, selected value, rejected alternatives, affected ADR/Manifest).
 - What must be decided: pin-vs-COW hold strategy, pin budget field in the generated config snapshot, whether any sub-chunk encoding stays internal, materialize rule.
 
@@ -163,16 +193,18 @@ Internal candidate ids in §3 remain a list. Public configuration after approval
 
 ## 8. Commands actually run
 
-Full transcript: `C:\Users\g923\AppData\Local\Temp\grok-goal-05389858a0e6\implementer\agent-R-00061.log` (implementer scratch; not in this repo).
+Measured 2026-08-29 on macOS (Darwin 25.5.0), Apple Silicon, at commit `13d515f`. The Windows transcript cited by the previous revision (`C:\Users\g923\AppData\Local\Temp\…\agent-R-00061.log`) is not in this repository and is superseded by the reproducible runner below.
 
 | Command | Exit | Result |
 | --- | --- | --- |
-| `rustfmt --edition 2024 --check benchmarks/decision_gates/snapshot_cow.rs` | 0 | clean after one rustfmt apply |
-| `cargo test -p lumio-voxel-test-support --all-features` | 101 | expected: linker `link.exe` not found (msvc); crate compiled then failed to link tests |
-| `cargo build -p lumio-voxel-test-support --lib --all-features` | 0 | `Finished dev` profile |
-| `rustc --edition 2024 --crate-type rlib --crate-name vox_d_005_seam -L target/debug/deps --extern lumio_voxel_test_support=<rlib> --extern lumio_voxel_contracts=<rlib> benchmarks/decision_gates/snapshot_cow.rs -o …/seam-out/vox-d-005.rlib` | 0 | wrote `vox-d-005.rlib` (415434 bytes after rustfmt recompile; no warnings) |
-| extra `rustc --test` + `lld-link` | 1 | missing `kernel32.lib`; no test hashes |
+| `git fetch origin` then `cargo test -p lumio-voxel-domain` | 0 | gatekeeping: a real linked test binary runs on this host (19 tests across 5 binaries). `cargo check` was not accepted as a substitute. |
+| `rustfmt --edition 2024 --check benchmarks/decision_gates/snapshot_cow.rs` | 0 | clean; seam source untouched by this run |
+| `benchmarks/decision_gates/run_seam_replay.sh snapshot_cow` | 0 | compiles the seam with `rustc --test` and **runs** it: `5 passed; 0 failed`; hashes in §5 |
+| same runner, `SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin` | 0 | `5 passed; 0 failed`; output diffs clean against the x86_64 leg |
+| runner re-executed three times, outputs diffed | 0 | identical across separate processes |
 
-Host `rust-toolchain.toml` stays `1.98.0` msvc. Toolchain file was not modified. `Cargo.toml` / crate `lib.rs` were not edited.
+`rust-toolchain.toml` was not modified: the aarch64 leg goes through `rustup run <toolchain>` inside the runner. `Cargo.toml` and crate `lib.rs` were not edited; the seam stays outside the cargo workspace.
+
+**Supersession note.** The previous revision of this gate recorded no raw hashes, so nothing here is contradicted. Sibling gates VOX-D-006/007/008 did record hashes, and those values are superseded — see VOX-D-006 §8, which documents the SHA-256 K[28] defect and the reproduction that confirms the old numbers were genuine rather than invented.
 
 Knowledge index was not edited (shared hotspot). No `knowledge/` document was added; no increment is required for this evidence path.

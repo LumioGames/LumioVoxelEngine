@@ -2,7 +2,7 @@
 
 - Card: R-00062 / GATE-006
 - Role: Voxel 性能与架构决策工程师
-- Recorded: 2026-08-28 (re-measure after R-00047)
+- Recorded: 2026-08-28; re-measured 2026-08-29 on a linking host (see §4)
 - Architecture baseline: `LGE-V1.4-2026-08-27`
 - Gate owner files: this document; `benchmarks/decision_gates/streaming_backpressure.rs`; optional `benchmarks/decision_gates/data/vox-d-006/`
 - `approvalStatus`: `blocked`
@@ -28,7 +28,7 @@ Produces: `DecisionEvidenceVOXD006`; `StreamingProfileProposal{priority,concurre
 | Seam source SHA-256 | `153bb37b2c2c6f024f336cd23eee50ca09481d51946ccb797a9801246fe57ac3` (`benchmarks/decision_gates/streaming_backpressure.rs`) |
 | Corpus JSON SHA-256 | `2c3ce508ee360fd5617f495f2f86112ef73033212dddbe2d0c0d20a4bdf633f8` |
 | Fault-map JSON SHA-256 | `57b4445c8fadd61711d855e6cd4ea4cc55a2d65a11d2ace42208fa7bf41cf15a` |
-| Toolchain (declared) | `rust-toolchain.toml` channel `1.98.0`; host `rustc 1.98.0 (88d9e12ae 2026-08-18)` msvc; `cargo 1.98.0` |
+| Toolchain (declared) | `rust-toolchain.toml` channel `1.98.0`; `rustc 1.98.0 (88d9e12ae 2026-08-18)`; `cargo 1.98.0`. Unmodified by this run; the msvc host of the previous revision is superseded by the linking hosts in §4. |
 | Prerequisite R-00034 | Consumable. Worktree contains `docs(R-00034): adopt LGE-V1.4 implementation baseline` (`8c49fba`). |
 | Prerequisite R-00047 | **Met.** Commit `b2f0d8a3763a02f805e29cbd101560ba7fdca77b`. `crates/lumio-voxel-test-support/src/lib.rs` SHA-256 `7e7bf9b24a8e31e55130bcd5c6336f748b2d456bdd4c8b20b3643082099ed742` exports `deterministic_executor`, `reference_harness`, `fault_injection`, `fixture_runner`. No substitute harness was invented. |
 
@@ -65,9 +65,26 @@ Scoring/hysteresis that stays implementation-level does not change the baseline.
 
 No retry/timeout numeric policy is proposed. Those remain unfrozen and must not be invented in streaming workers.
 
-## 4. Measurement plan
+## 4. Measurement seam — executed on a linking host
 
-Fixed: machine = this worktree host; toolchain = workspace `rust-toolchain.toml` `1.98.0` msvc for rlib compile; GNU `stable-x86_64-pc-windows-gnu` / `rustc 1.98.0` only to link the seam `--test` binary (toolchain file not modified). Seed `0x0000_D006` (53254). Schema id `voxel-durability-ack`. Three runs per input; SHA-256 of raw traces must match.
+**Status: executed.** The previous revision reached its numbers through a Windows GNU cross-toolchain, used only because the msvc host had no `link.exe`. This gate was re-run on a host whose default toolchain links, so no substitute toolchain is involved and `cargo check` is not accepted as evidence.
+
+Run of 2026-08-29, at repository commit `13d515f358ffeb182e9659d5bde4fa119496f711` (`origin/main`):
+
+| leg | host triple | rustc | seam result |
+| --- | --- | --- | --- |
+| primary | `x86_64-apple-darwin` (Rosetta 2 on an Apple Silicon machine; rustup default host) | `1.98.0 (88d9e12ae 2026-08-18)`, pinned by `rust-toolchain.toml` | 4 passed / 0 failed |
+| second | `aarch64-apple-darwin` (native) | `1.98.0 (88d9e12ae 2026-08-18)` | 4 passed / 0 failed; output byte-identical to the primary leg |
+
+Generation commands:
+
+```bash
+benchmarks/decision_gates/run_seam_replay.sh streaming_backpressure
+SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin SEAM_OUT_DIR=target/decision-gate-seams-aarch64 \
+  benchmarks/decision_gates/run_seam_replay.sh streaming_backpressure
+```
+
+Fixed: seed `0x0000_D006` (53254). Schema id `voxel-durability-ack`. Three runs per input; SHA-256 of raw traces must match. Seam source unchanged by this run — `benchmarks/decision_gates/streaming_backpressure.rs` still hashes to `153bb37b2c2c6f024f336cd23eee50ca09481d51946ccb797a9801246fe57ac3`, as recorded in §1.
 
 **Executed corpus** (fixture-id tokens, not schema field copies; architecture names in `fixtures/index.json`):
 
@@ -89,15 +106,7 @@ Fixed: machine = this worktree host; toolchain = workspace `rust-toolchain.toml`
 
 **Not executed** (need production streaming coordinator; not invented here): burst demand, cold/hot Chunk, slow I/O, cancel; queue-full, expired ticket, wrong World, restore mutex. No p50/p95/p99 load/unload latency and no queue-watermark time series.
 
-**Replay commands:**
-
-```text
-cargo test -p lumio-voxel-test-support --all-features
-cargo build --lib
-rustc --edition 2024 --crate-type rlib --crate-name vox_d_006_seam -L target/debug/deps --extern lumio_voxel_test_support=<rlib> --extern lumio_voxel_contracts=<rlib> benchmarks/decision_gates/streaming_backpressure.rs -o <seam-out>/vox-d-006.rlib
-```
-
-Host msvc cannot link test binaries (`link.exe` missing). Three-run execution used GNU rustc `--test` against GNU `cargo build --lib` rlibs; see §8.
+Replay is the runner above; it resolves the hashed rlib filenames from cargo's JSON output instead of requiring a hand-typed `--extern` path.
 
 ## 5. Measurements
 
@@ -108,9 +117,11 @@ Correctness / determinism (seed `0x0000_D006`, five `voxel-durability-ack` ops, 
 | axis | result |
 | --- | --- |
 | run-to-run equality | three traces byte-identical (`Trace` + `snapshot_hash`) |
-| `VoxelPortHarness::snapshot_hash` SHA-256 | `ce0637be74fd3e4d170ee1b307f759336d3f1ee04578d93e277f28790d3426e8` (same on all three runs) |
-| seam `trace_digest` SHA-256 | `3adf3722ee3e8ba816daa0c2e6e5981263c2810078feef036f7bd5191e0d399a` (same on all three runs) |
+| `VoxelPortHarness::snapshot_hash` SHA-256 | `77733bfcace4c511f405d639966a2e834949c140140da80dd286a305776ca1da` (same on all three runs, and on both host legs) |
+| seam `trace_digest` SHA-256 | `9b4da8700be802671497b0aad06baa676b344070db36e375637bcfd6b6bc9277` (same on all three runs, and on both host legs) |
 | corpus outcomes | five ok outcomes; no error on the happy path |
+
+These two values **replace** the `ce0637be…` / `3adf3722…` pair carried by the previous revision. The cause is a corrected SHA-256, not a change in streaming behaviour; §8 records the reproduction that establishes this.
 
 Fault matrix (visible write `seq=0`, then armed mapped `FaultPoint` on `seq=1`):
 
@@ -120,9 +131,9 @@ Fault matrix (visible write `seq=0`, then armed mapped `FaultPoint` on `seq=1`):
 | `uncovered-evict` | error `None` | `EvidenceMissing` | false |
 | `missing-durability-point` | error `None` | `EvidenceDigestMismatch` | false |
 
-GNU `--test` result: `4 passed; 0 failed` (`gate_remains_blocked`, `corpus_uses_generated_durability_ack_schema`, `three_runs_are_byte_identical`, `mapped_faults_are_unrecoverable_after_visible_write`).
+Seam `--test` result on both legs: `4 passed; 0 failed` (`gate_remains_blocked`, `corpus_uses_generated_durability_ack_schema`, `three_runs_are_byte_identical`, `mapped_faults_are_unrecoverable_after_visible_write`).
 
-These hashes are from that run. They are not production streaming throughput numbers.
+These hashes are from that run. They are **not** production streaming throughput numbers: no priority weight, worker count, queue capacity, or backpressure watermark is measured or implied here, and none of the three §3 candidate families is ranked or excluded by this layer. The axes that would rank them (burst demand, cold/hot chunk, slow I/O, cancel, queue-full, p50/p95/p99 latency, watermark time series) need a production streaming coordinator, which does not exist in this repository; they were not modelled or estimated.
 
 ## 6. Proposal (not approved)
 
@@ -141,7 +152,8 @@ Approved public configuration must be generated by the architecture repository.
 ## 7. Architecture owner approval
 
 - Record: **none**
-- `approvalStatus`: **blocked**
+- `approvalStatus`: **blocked** — unchanged by this run. Executing the seam is not self-approval; nothing here selects a default.
+- Blocked reason, restated against current fact: the measurement precondition is now **satisfied** for the harness layer (§4 host legs, §5 numbers, §8 root cause). What remains is an architecture-owner decision on the four open fields, plus scheduling-cost axes that need a production streaming coordinator this repository does not have. The latter blocks any numeric ranking of the §3 candidates; it does not block deciding the fence-shaped questions already settled in §2.
 - Who must decide: architecture owner, confirming D-014 / VOX-D-006 scoring, concurrency, capacity, backpressure.
 - What must be decided: those four public config fields; they must land via generated config snapshot, not handwritten Port constants.
 - What is **not** being decided here: ADR-036 fence/residency shapes (already frozen).
@@ -156,18 +168,38 @@ Transitively (not in this gate's own 执行前置, but blocked until R-00151 can
 
 ## 8. Commands actually run
 
-Full transcript: `C:\Users\g923\AppData\Local\Temp\grok-goal-05389858a0e6\implementer\agent-R-00062.log` (implementer scratch; not in this repo).
+Measured 2026-08-29 on macOS (Darwin 25.5.0), Apple Silicon, at commit `13d515f`. The Windows transcript cited by the previous revision (`C:\Users\g923\AppData\Local\Temp\…\agent-R-00062.log`) is not in this repository and is superseded by the reproducible runner below.
 
 | Command | Exit | Result |
 | --- | --- | --- |
-| `rustfmt --edition 2024 --check benchmarks/decision_gates/streaming_backpressure.rs` | 0 | after one rustfmt apply |
-| `cargo test -p lumio-voxel-test-support --all-features` | 101 | expected: msvc `linker link.exe not found`; lib compiled, tests not linked |
-| `cargo build --lib` | 0 | `Finished dev profile [unoptimized + debuginfo]`; rlibs in `target/debug/deps` (`liblumio_voxel_test_support-6da53ff03bc58986.rlib`, `liblumio_voxel_contracts-a62c2cca441f7fde.rlib`) |
-| `rustc --edition 2024 --crate-type rlib --crate-name vox_d_006_seam -L target/debug/deps --extern lumio_voxel_test_support=<rlib> --extern lumio_voxel_contracts=<rlib> benchmarks/decision_gates/streaming_backpressure.rs -o …/seam-out/vox-d-006.rlib` | 0 | wrote `vox-d-006.rlib` (170060 bytes); SHA-256 `3dd5657e747e3cb98b1b7e11d96bdf724a5b89163723a2e1a40e5f4c5e782b20` |
-| `cargo +stable-x86_64-pc-windows-gnu build --lib --target-dir target-gnu` | 0 | extra; GNU rlibs for `--test` link only; `target-gnu/` removed after the run |
-| `rustc +stable-x86_64-pc-windows-gnu --edition 2024 --test --crate-name vox_d_006_seam … -o …/seam-out/vox-d-006-test.exe` | 0 | extra; GNU used only because host msvc has no `link.exe`; `rust-toolchain.toml` not modified |
-| `vox-d-006-test.exe --nocapture` | 0 | `4 passed; 0 failed`; snapshot/digest hashes in §5 |
+| `cargo test -p lumio-voxel-domain` | 0 | gatekeeping: a real linked test binary runs on this host. `cargo check` was not accepted as a substitute. |
+| `rustfmt --edition 2024 --check benchmarks/decision_gates/streaming_backpressure.rs` | 0 | clean; seam source untouched by this run |
+| `benchmarks/decision_gates/run_seam_replay.sh streaming_backpressure` | 0 | `4 passed; 0 failed`; hashes in §5 |
+| same runner, `SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin` | 0 | `4 passed; 0 failed`; diffs clean against the x86_64 leg |
 
-Host `rust-toolchain.toml` stays `1.98.0` msvc.
+`rust-toolchain.toml` was not modified; the second leg goes through `rustup run <toolchain>` inside the runner.
 
-Knowledge index was not edited (shared hotspot). No `knowledge/` document was added; no increment is required for this evidence path. No commit.
+### 8.1 Why the recorded hashes moved (root cause, verified)
+
+The previous revision recorded `snapshot_hash = ce0637be…3426e8` and `trace_digest = 3adf3722…1e0d399a`. This run produces `77733bfc…776ca1da` and `9b4da870…b6bc9277`. Three candidate explanations were separated rather than assumed:
+
+1. **Seam drift** — ruled out. `streaming_backpressure.rs` still hashes to `153bb37b…46fe57ac3`, byte-identical to the value §1 recorded alongside the old numbers.
+2. **Host-dependent non-determinism** — ruled out. The x86_64 and aarch64 legs produce byte-identical output, and the old Windows-GNU values are reproducible on macOS (below), so the harness is host-independent across three OS/arch combinations.
+3. **A corrected SHA-256** — confirmed. The generated `ContractRuntime` mirrored into `lumio-voxel-contracts` carried a wrong SHA-256 round constant, `K[28] = 0xc6eabbdc` where FIPS 180-4 specifies `0xc6e00bf3`. A single wrong constant pollutes every compression round, so that implementation returned a wrong digest for *every* input. It was corrected in `51c2836` (`fix(contracts): re-mirror generated artifacts with corrected SHA-256 K[28]`), which is an ancestor of the measured commit. `VoxelPortHarness::snapshot_hash` and the seam's `trace_digest` both route through that `sha256`, so both values necessarily moved.
+
+Reproduction that pins it down — a worktree at `54b488f` (the commit that recorded the old numbers, which already carries this exact seam source and predates the fix), built and run on **this** macOS host:
+
+| Command | Result |
+| --- | --- |
+| `git worktree add --detach <scratch> 54b488f` then the same runner | `4 passed; 0 failed` |
+| observed `snapshot_hash` | `ce0637be74fd3e4d170ee1b307f759336d3f1ee04578d93e277f28790d3426e8` — exact match to the old record |
+| observed `trace_digest` | `3adf3722ee3e8ba816daa0c2e6e5981263c2810078feef036f7bd5191e0d399a` — exact match to the old record |
+
+Conclusion: the previously recorded numbers were **genuine measurements, not invented**, and they are now **superseded** because the digest function beneath them was defective. The temporary worktree was removed after the run.
+
+Two independent checks confirm the current implementation is the correct one, using digests the seam does not compute for itself:
+
+- VOX-D-005's `pin-expired` corpus yields `e3b0c442…7852b855`, the canonical SHA-256 of empty input; `printf '' | shasum -a 256` on this host returns the same value.
+- Every `payload.*` line regenerated into `data/vox-d-008/measurements.txt` matches `printf '%s' <literal> | shasum -a 256` on this host.
+
+Knowledge index was not edited (shared hotspot). No `knowledge/` document was added; no increment is required for this evidence path.
