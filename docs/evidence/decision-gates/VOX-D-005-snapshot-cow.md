@@ -5,10 +5,10 @@
 - Recorded: 2026-08-28; re-measured 2026-08-29 on a linking host (see §4)
 - Architecture baseline: `LGE-V1.4-2026-08-27`
 - Gate owner files: this document; `benchmarks/decision_gates/snapshot_cow.rs`; `benchmarks/decision_gates/data/vox-d-005/`
-- `approvalStatus`: `blocked`
-- Architecture owner approval: none
+- `approvalStatus`: `approved`
+- Architecture owner approval: **`LGE-V1.4-VOX-D-P2-2026-08-29`** (Architecture `origin/main` `997117e`, PR #16, [VOX-D-P2-OWNER-CONFIRMATION.md](../../../../LumioGameEngineArchitecture/docs/architecture/VOX-D-P2-OWNER-CONFIRMATION.md); D-014 Confirmed) — no numeric profile generated, no candidate selected
 
-This is a research gate. It records candidates and a measurement seam that now drives the shipped R-00047 harness. It does not freeze numeric defaults, pick a default algorithm, edit Schema/ID/default config, or implement production snapshot code.
+This is a research gate plus owner confirmation. It records candidates and a measurement seam that drives the shipped R-00047 harness. It does not freeze numeric defaults, pick a default algorithm, edit Schema/ID/default config, or implement production snapshot code.
 
 Produces: `DecisionEvidenceVOXD005`; `SnapshotCowProposal{pinBudget,diffGranularity,materializeRule,approvalStatus}`.
 
@@ -32,7 +32,7 @@ Seam SHA-256 (this card, re-measured after rustfmt):
 
 | Path | SHA-256 |
 | --- | --- |
-| `benchmarks/decision_gates/snapshot_cow.rs` | `11b0fe30361933471700cf49e447ca6762aac15e3ce4128558659002e3dd540d` |
+| `benchmarks/decision_gates/snapshot_cow.rs` | `814937fbe57ddfac53811a34e44664550d003e6f4555af25855f92340ec66e53` (was `11b0fe30…e3dd540d`, the §4 run's value; this revision applied owner confirmation `LGE-V1.4-VOX-D-P2-2026-08-29` — approval fields and gate test only, corpus and measurement paths untouched) |
 | `benchmarks/decision_gates/data/vox-d-005/full-cut.json` | `4d41c10ab44d86c995b22ac9b280c1db6e89ff2c8e8935f4568b0d2cca6abc1a` |
 | `benchmarks/decision_gates/data/vox-d-005/partial-aoi.json` | `9e3ae367a5c64565648a8a7cb6cb7f1f789983f5f1392c6b43bd2129d2c40116` |
 | `benchmarks/decision_gates/data/vox-d-005/capture-ready-pinned.json` | `c311279e4a9b6dadce645dc7fd68dbf1fcb6675b938210047a9d41d007ed7367` |
@@ -106,7 +106,7 @@ SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin SEAM_OUT_DIR=target/decision-gate-sea
 
 Fixed: seed `61`, corpus, schedule. Each input repeated three times in-process and compared for `Trace` / `snapshot_hash` equality; the whole runner was additionally re-executed three times and diffed. Statistics for pin/COW memory amplification, encoded bytes, and write tail remain **unfrozen** — the shipped harness does not pin pages or encode production snapshots. No summary-only charts. No invented hashes.
 
-The seam source is unchanged by this run: `benchmarks/decision_gates/snapshot_cow.rs` still hashes to `11b0fe30361933471700cf49e447ca6762aac15e3ce4128558659002e3dd540d`, the value recorded in §1.
+The seam source was unchanged by this run: `benchmarks/decision_gates/snapshot_cow.rs` hashed to `11b0fe30361933471700cf49e447ca6762aac15e3ce4128558659002e3dd540d` at the time of measurement. A later revision applied the P2 owner confirmation to the seam's approval fields and gate test (new hash in §1); the corpus, schedules, and measured values in §5 are unaffected.
 
 **Harness corpus** (schema_id `voxel-snapshot-payload`):
 
@@ -160,36 +160,37 @@ Read of the `pin-expired` row: its `snapshot_hash` is the canonical SHA-256 of e
 
 That same value is an independent correctness check on the in-tree SHA-256: `printf '' | shasum -a 256` on this host returns the identical digest.
 
-**Not observed / not frozen:** pin vs COW hold strategy, pin budget, memory amplification, encoded Diff bytes, write tail latency, materialize rule. These need a production snapshot encoder, which does not exist in this repository; they were not modelled or estimated. `approval_status()` remains `"blocked"`. `numeric_policy_frozen()` remains `false`.
+**Not observed / not frozen:** pin vs COW hold strategy, pin budget, memory amplification, encoded Diff bytes, write tail latency, materialize rule. These need a production snapshot encoder, which does not exist in this repository; they were not modelled or estimated. `approval_status()` is now `"approved"` citing `LGE-V1.4-VOX-D-P2-2026-08-29` (§7). `numeric_policy_frozen()` remains `false`.
 
 Generated `VoxelSnapshotCapture` transitions cover the happy path `Requested → … → Released`. Schema capture states also include `Cancelled` and `Failed`. The seam treats the schema enum as the frozen contract and only asserts generated transitions are a subset. That difference is not a new capture state invented here.
 
 `cargo test -p lumio-voxel-test-support --all-features` is the harness crate test, not a Pin/COW measurement.
 
-## 6. Proposal (not approved)
+## 6. Proposal (approved; nothing numeric frozen)
 
 ```text
 SnapshotCowProposal {
   pinBudget: pending-architecture-owner,   // not a number
   diffGranularity: pending-architecture-owner,
   materializeRule: pending-architecture-owner,
-  approvalStatus: blocked
+  approvalStatus: approved,
+  approvalReference: LGE-V1.4-VOX-D-P2-2026-08-29
 }
 ```
 
-Internal candidate ids in §3 remain a list. Public configuration after approval must be generated by the architecture repository, not handwritten here.
+Internal candidate ids in §3 remain a list. Public configuration, if ever generated, is produced by the architecture repository, not handwritten here.
 
 ## 7. Architecture owner approval
 
-- Record: **none**
-- `approvalStatus`: **blocked** — unchanged by this run. Executing the seam is not self-approval; nothing here selects a default.
-- Blocked reason, restated against current fact: the measurement precondition ("没有测量就没有据") is now **satisfied** for the harness layer — the seam runs on a linking host and §5 carries reproducible numbers. What remains is (a) an architecture-owner decision on the four open fields, and (b) production-cost axes that no repository-side harness can supply without a snapshot encoder. (b) does not block the owner from deciding (a) on the frozen-contract grounds in §2–§3; it does block any numeric cost comparison between the three candidates.
-- Who must decide: architecture owner, confirming D-014 / VOX-D-005 (date, owner, selected value, rejected alternatives, affected ADR/Manifest).
-- What must be decided: pin-vs-COW hold strategy, pin budget field in the generated config snapshot, whether any sub-chunk encoding stays internal, materialize rule.
+- Record: **`LGE-V1.4-VOX-D-P2-2026-08-29`** — Architecture repository `origin/main` `997117e` (PR #16), `docs/architecture/VOX-D-P2-OWNER-CONFIRMATION.md`; `DECISIONS_PENDING.md` D-014 marked Confirmed. Issued on delegated authority (delegation recorded in R-00257 and the session ledger, 2026-08-29).
+- `approvalStatus`: **approved** — citing the confirmation id above. Per the confirmation: LGE-V1.4 **does not generate a public Voxel P2 numeric profile, and no strategy candidate is selected**. Approved means the owner decision on the open fields is made as recorded; it does **not** mean any number is frozen. §3 candidate sets stay open — none excluded, none preferred. `numeric_policy_frozen()` stays `false`; the §6 proposal's numeric fields stay unset.
+- Confirmed binding invariants (family level): any landing capture candidate must satisfy same-cut three-run byte determinism; a `Ready` claim behind an expired pin publishes **nothing** (empty committed set — the measured stop-condition semantics in §5).
+- Deferred, adapter-internal: pin-vs-COW hold strategy, sub-chunk diff granularity, materialize rule, pin budget. Unlock condition: a production snapshot encoder exists and memory-amplification / encoded-bytes / write-tail axes are measured.
+- This revision applies the confirmation to this document, the seam's `approval_status()` / `approval_reference()`, and the gate test (now `gate_approved_citing_owner_confirmation`). The §4–§5 measurement content is from the 2026-08-29 run at `13d515f` and is unchanged.
 
-**Blocked downstream (later cards whose live 执行前置 lists this gate):** none known. Snapshot implementation cards R-00134 / R-00135 / R-00136 / R-00137 do not list R-00061. They may implement CaptureRef/Pin **APIs** but must not freeze VOX-D-005 numerics.
+**Downstream:** none was blocked on this gate. Snapshot implementation cards R-00134 / R-00135 / R-00136 / R-00137 do not list R-00061. They may implement CaptureRef/Pin **APIs** but must not freeze VOX-D-005 numerics — the deferred axes above remain unfrozen after this approval.
 
-**Continuable without this approval:** this evidence file and the measurement seam; any code that consumes only frozen ADR-035 wire types and `voxel-snapshot-payload` capture states.
+**Continuable:** any code that consumes only frozen ADR-035 wire types and `voxel-snapshot-payload` capture states; nothing may hardcode the deferred numeric axes.
 
 ## 8. Commands actually run
 

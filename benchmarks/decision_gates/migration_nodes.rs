@@ -19,8 +19,15 @@ const SEAM_SEED: u64 = 0x0000_0000_0000_D008;
 const SEAM_TOOL_A: &str = "0.0.0";
 const SEAM_TOOL_B: &str = "0.0.1";
 
+/// Architecture-owner confirmation applied. Node split, checkpoint grain,
+/// memory budget, and toolVersion stay unfrozen as production defaults.
 pub fn approval_status() -> &'static str {
-    "blocked"
+    "approved"
+}
+
+/// Architecture-owner confirmation id (`LGE-V1.4-VOX-D-P2-2026-08-29`).
+pub fn approval_reference() -> &'static str {
+    "LGE-V1.4-VOX-D-P2-2026-08-29"
 }
 
 pub fn harness_prerequisite() -> &'static str {
@@ -168,6 +175,7 @@ pub fn measurements_text() -> String {
     }
 
     out.push_str(&format!("approvalStatus={}\n", approval_status()));
+    out.push_str(&format!("approvalReference={}\n", approval_reference()));
     out.push_str(&format!(
         "selectedDefault={}\n",
         selected_default().unwrap_or("none")
@@ -486,8 +494,9 @@ mod tests {
     }
 
     #[test]
-    fn gate_remains_blocked() {
-        assert_eq!(approval_status(), "blocked");
+    fn gate_approved_citing_owner_confirmation() {
+        assert_eq!(approval_status(), "approved");
+        assert_eq!(approval_reference(), "LGE-V1.4-VOX-D-P2-2026-08-29");
         assert_eq!(selected_default(), None);
         assert!(candidate_ids().len() >= 2);
         assert_eq!(candidate_ids()[0], "per-chunk-node");

@@ -70,9 +70,14 @@ pub fn architecture_baseline_id() -> &'static str {
     BASELINE_ID
 }
 
-/// Gate approval. Owner approval is absent; scoring/budgets stay open.
+/// Gate approval. Owner confirmation applied; scoring/budgets stay open.
 pub fn approval_status() -> &'static str {
-    "blocked"
+    "approved"
+}
+
+/// Architecture-owner confirmation id (`LGE-V1.4-VOX-D-P2-2026-08-29`).
+pub fn approval_reference() -> &'static str {
+    "LGE-V1.4-VOX-D-P2-2026-08-29"
 }
 
 /// R-00047 harness is in-tree. This seam consumes it; it does not substitute one.
@@ -201,8 +206,9 @@ mod tests {
     use lumio_voxel_test_support::fault_injection::FaultInjector;
 
     #[test]
-    fn gate_remains_blocked() {
-        assert_eq!(approval_status(), "blocked");
+    fn gate_approved_citing_owner_confirmation() {
+        assert_eq!(approval_status(), "approved");
+        assert_eq!(approval_reference(), "LGE-V1.4-VOX-D-P2-2026-08-29");
         assert!(harness_requirement_met());
         assert_eq!(harness_requirement(), "R-00047");
         assert!(candidate_ids().len() >= 2);

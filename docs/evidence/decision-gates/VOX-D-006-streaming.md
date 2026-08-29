@@ -5,8 +5,8 @@
 - Recorded: 2026-08-28; re-measured 2026-08-29 on a linking host (see §4)
 - Architecture baseline: `LGE-V1.4-2026-08-27`
 - Gate owner files: this document; `benchmarks/decision_gates/streaming_backpressure.rs`; optional `benchmarks/decision_gates/data/vox-d-006/`
-- `approvalStatus`: `blocked`
-- Architecture owner approval: none
+- `approvalStatus`: `approved`
+- Architecture owner approval: **`LGE-V1.4-VOX-D-P2-2026-08-29`** (Architecture `origin/main` `997117e`, PR #16, [VOX-D-P2-OWNER-CONFIRMATION.md](../../../../LumioGameEngineArchitecture/docs/architecture/VOX-D-P2-OWNER-CONFIRMATION.md); D-014 Confirmed) — no numeric profile generated, no candidate selected
 
 This is a research gate. It records candidates and a measurement seam on the shipped R-00047 harness. It does not freeze numeric defaults, pick a default algorithm, edit Schema/ID/default config, or implement production streaming code. Eviction scoring and streaming budgets stay unfrozen. ADR-036 `voxel-durability-ack` fence and residency shapes stay frozen.
 
@@ -25,7 +25,7 @@ Produces: `DecisionEvidenceVOXD006`; `StreamingProfileProposal{priority,concurre
 | Architecture `DECISIONS_PENDING.md` SHA-256 | `8cbcda49fb47b8951eb37f08e41cf4bccf51dff10a423743a04463b60cccbea3` (D-014 scoring still unfrozen; file hash moved vs the earlier `65d839c5…` snapshot because of the 2026-08-28 CanonicalSerializer checksum-domain confirmation, not a VOX-D-006 freeze) |
 | Architecture ADR-036 SHA-256 | `d8dec44c6ccd1e69fc4358a850a229310fc56100589be3559e3e9f62f0358d07` (`.spec/decisions/ADR-036-voxel-streaming-durability-ack.md`) |
 | `schemas/voxel-durability-ack.schema.json` SHA-256 | `518b0ba9dba75157644e0824d023b96e34464720d0663dddf30c106b455da279` (hashed; fields not copied) |
-| Seam source SHA-256 | `153bb37b2c2c6f024f336cd23eee50ca09481d51946ccb797a9801246fe57ac3` (`benchmarks/decision_gates/streaming_backpressure.rs`) |
+| Seam source SHA-256 | `810bad946afab49c8aa8ee5bbd3387ad4cdcde096f7adef63729659adda02e8a` (`benchmarks/decision_gates/streaming_backpressure.rs`; was `153bb37b…46fe57ac3`, the §4 run's value — this revision applied owner confirmation `LGE-V1.4-VOX-D-P2-2026-08-29`: approval fields and gate test only, corpus and measurement paths untouched) |
 | Corpus JSON SHA-256 | `2c3ce508ee360fd5617f495f2f86112ef73033212dddbe2d0c0d20a4bdf633f8` |
 | Fault-map JSON SHA-256 | `57b4445c8fadd61711d855e6cd4ea4cc55a2d65a11d2ace42208fa7bf41cf15a` |
 | Toolchain (declared) | `rust-toolchain.toml` channel `1.98.0`; `rustc 1.98.0 (88d9e12ae 2026-08-18)`; `cargo 1.98.0`. Unmodified by this run; the msvc host of the previous revision is superseded by the linking hosts in §4. |
@@ -84,7 +84,7 @@ SEAM_TOOLCHAIN=1.98.0-aarch64-apple-darwin SEAM_OUT_DIR=target/decision-gate-sea
   benchmarks/decision_gates/run_seam_replay.sh streaming_backpressure
 ```
 
-Fixed: seed `0x0000_D006` (53254). Schema id `voxel-durability-ack`. Three runs per input; SHA-256 of raw traces must match. Seam source unchanged by this run — `benchmarks/decision_gates/streaming_backpressure.rs` still hashes to `153bb37b2c2c6f024f336cd23eee50ca09481d51946ccb797a9801246fe57ac3`, as recorded in §1.
+Fixed: seed `0x0000_D006` (53254). Schema id `voxel-durability-ack`. Three runs per input; SHA-256 of raw traces must match. Seam source was unchanged by this run — `benchmarks/decision_gates/streaming_backpressure.rs` hashed to `153bb37b2c2c6f024f336cd23eee50ca09481d51946ccb797a9801246fe57ac3` at the time of measurement. A later revision applied the P2 owner confirmation to the seam's approval fields and gate test (new hash in §1); the corpus and the §5 measured values are unaffected.
 
 **Executed corpus** (fixture-id tokens, not schema field copies; architecture names in `fixtures/index.json`):
 
@@ -110,7 +110,7 @@ Replay is the runner above; it resolves the hashed rlib filenames from cargo's J
 
 ## 5. Measurements
 
-R-00047 is met. The seam drives `DeterministicExecutor::run`, `VoxelPortHarness::execute` / `arm`, and shipped `FaultPoint` values. `approval_status()` remains `"blocked"`. No scoring candidate is excluded. No numeric priority weight, concurrency, capacity, or backpressure threshold is written into production or this proposal.
+R-00047 is met. The seam drives `DeterministicExecutor::run`, `VoxelPortHarness::execute` / `arm`, and shipped `FaultPoint` values. `approval_status()` is now `"approved"` citing `LGE-V1.4-VOX-D-P2-2026-08-29` (§7). No scoring candidate is excluded. No numeric priority weight, concurrency, capacity, or backpressure threshold is written into production or this proposal.
 
 Correctness / determinism (seed `0x0000_D006`, five `voxel-durability-ack` ops, three independent `DeterministicExecutor::run` calls):
 
@@ -135,7 +135,7 @@ Seam `--test` result on both legs: `4 passed; 0 failed` (`gate_remains_blocked`,
 
 These hashes are from that run. They are **not** production streaming throughput numbers: no priority weight, worker count, queue capacity, or backpressure watermark is measured or implied here, and none of the three §3 candidate families is ranked or excluded by this layer. The axes that would rank them (burst demand, cold/hot chunk, slow I/O, cancel, queue-full, p50/p95/p99 latency, watermark time series) need a production streaming coordinator, which does not exist in this repository; they were not modelled or estimated.
 
-## 6. Proposal (not approved)
+## 6. Proposal (approved; nothing numeric frozen)
 
 ```text
 StreamingProfileProposal {
@@ -143,28 +143,29 @@ StreamingProfileProposal {
   concurrency: pending-architecture-owner,
   capacity: pending-architecture-owner,
   backpressure: pending-architecture-owner,
-  approvalStatus: blocked
+  approvalStatus: approved,
+  approvalReference: LGE-V1.4-VOX-D-P2-2026-08-29
 }
 ```
 
-Approved public configuration must be generated by the architecture repository.
+Public configuration, if ever generated, is produced by the architecture repository.
 
 ## 7. Architecture owner approval
 
-- Record: **none**
-- `approvalStatus`: **blocked** — unchanged by this run. Executing the seam is not self-approval; nothing here selects a default.
-- Blocked reason, restated against current fact: the measurement precondition is now **satisfied** for the harness layer (§4 host legs, §5 numbers, §8 root cause). What remains is an architecture-owner decision on the four open fields, plus scheduling-cost axes that need a production streaming coordinator this repository does not have. The latter blocks any numeric ranking of the §3 candidates; it does not block deciding the fence-shaped questions already settled in §2.
-- Who must decide: architecture owner, confirming D-014 / VOX-D-006 scoring, concurrency, capacity, backpressure.
-- What must be decided: those four public config fields; they must land via generated config snapshot, not handwritten Port constants.
-- What is **not** being decided here: ADR-036 fence/residency shapes (already frozen).
+- Record: **`LGE-V1.4-VOX-D-P2-2026-08-29`** — Architecture repository `origin/main` `997117e` (PR #16), `docs/architecture/VOX-D-P2-OWNER-CONFIRMATION.md`; `DECISIONS_PENDING.md` D-014 marked Confirmed. Issued on delegated authority (delegation recorded in R-00257 and the session ledger, 2026-08-29).
+- `approvalStatus`: **approved** — citing the confirmation id above. Per the confirmation: LGE-V1.4 **does not generate a public Voxel P2 numeric profile, and no strategy candidate is selected**. Approved means the owner decision on the open fields is made as recorded; it does **not** mean any number is frozen. §3 candidate sets stay open — none excluded, none preferred. The four public config fields (scoring, concurrency, capacity, backpressure) remain ungenerated; nothing lands as handwritten Port constants.
+- Confirmed binding invariants (family level): ADR-036 durability-ack fence and residency shapes reaffirmed; mapped faults are **unrecoverable after a visible write**; fence replay must be byte-deterministic.
+- Deferred, adapter-internal: priority scoring, concurrency, queue capacity, backpressure thresholds, eviction scoring/hysteresis. Unlock condition: a production streaming coordinator exists and burst/latency/watermark axes are measured.
+- What was **not** decided here (already frozen before this gate): ADR-036 fence/residency shapes.
+- This revision applies the confirmation to this document, the seam's `approval_status()` / `approval_reference()`, and the gate test (now `gate_approved_citing_owner_confirmation`). The §4–§5 measurement content is from the 2026-08-29 run at `13d515f` and is unchanged; §8's forensic record is untouched.
 
-**Blocked downstream (later cards whose live 执行前置 lists this gate):**
+**Formerly blocked downstream (now unblocked by this approval, with the deferred axes still unfrozen):**
 
-- R-00151 `[程序·Streaming] 实现显式 Demand、Ticket Coordinator 与 Source Port`
+- R-00151 `[程序·Streaming] 实现显式 Demand、Ticket Coordinator 与 Source Port` — may proceed against the approved profile shape; must not hardcode the unfrozen numbers (fail closed / upgrade rather than invent defaults).
 
-Transitively (not in this gate's own 执行前置, but blocked until R-00151 can consume an approved profile): R-00153, R-00155.
+Transitively: R-00153, R-00155 (were blocked until R-00151 could consume an approved profile).
 
-**Continuable without this approval:** this evidence file and the measurement seam; protocol work that keeps queues bounded *without* hard-coding the unfrozen numbers (must fail closed / upgrade rather than invent defaults); any code that consumes only frozen ADR-036 ack/fence/residency shapes.
+**Continuable:** protocol work that keeps queues bounded *without* hard-coding the unfrozen numbers; any code that consumes only frozen ADR-036 ack/fence/residency shapes.
 
 ## 8. Commands actually run
 
@@ -183,7 +184,7 @@ Measured 2026-08-29 on macOS (Darwin 25.5.0), Apple Silicon, at commit `13d515f`
 
 The previous revision recorded `snapshot_hash = ce0637be…3426e8` and `trace_digest = 3adf3722…1e0d399a`. This run produces `77733bfc…776ca1da` and `9b4da870…b6bc9277`. Three candidate explanations were separated rather than assumed:
 
-1. **Seam drift** — ruled out. `streaming_backpressure.rs` still hashes to `153bb37b…46fe57ac3`, byte-identical to the value §1 recorded alongside the old numbers.
+1. **Seam drift** — ruled out. At the time of that reproduction `streaming_backpressure.rs` still hashed to `153bb37b…46fe57ac3`, byte-identical to the value §1 recorded alongside the old numbers (the hash later changed only by the P2 approval revision — see §1).
 2. **Host-dependent non-determinism** — ruled out. The x86_64 and aarch64 legs produce byte-identical output, and the old Windows-GNU values are reproducible on macOS (below), so the harness is host-independent across three OS/arch combinations.
 3. **A corrected SHA-256** — confirmed. The generated `ContractRuntime` mirrored into `lumio-voxel-contracts` carried a wrong SHA-256 round constant, `K[28] = 0xc6eabbdc` where FIPS 180-4 specifies `0xc6e00bf3`. A single wrong constant pollutes every compression round, so that implementation returned a wrong digest for *every* input. It was corrected in `51c2836` (`fix(contracts): re-mirror generated artifacts with corrected SHA-256 K[28]`), which is an ancestor of the measured commit. `VoxelPortHarness::snapshot_hash` and the seam's `trace_digest` both route through that `sha256`, so both values necessarily moved.
 
