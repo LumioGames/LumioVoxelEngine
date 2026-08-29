@@ -73,6 +73,108 @@ pub fn measurements_executed() -> bool {
     true
 }
 
+/// Checked-in raw values referenced by VOX-D-008 §5. `measurements_text` is the
+/// generator; `checked_in_measurements_match_seam` fails if the two ever drift,
+/// so the file cannot be hand-edited away from what the seam actually produces.
+pub const CHECKED_IN_MEASUREMENTS: &str = include_str!("data/vox-d-008/measurements.txt");
+
+/// Payload literals whose SHA-256 the measurements file records, in file order.
+const PAYLOAD_SAMPLES: &[(&str, &[u8])] = &[
+    ("linear-n0", b"linear-n0"),
+    ("linear-n1", b"linear-n1"),
+    ("linear-n2", b"linear-n2"),
+    ("diamond-n0", b"diamond-n0"),
+    ("diamond-n1", b"diamond-n1"),
+    ("diamond-n2", b"diamond-n2"),
+    ("diamond-n3", b"diamond-n3"),
+    ("hash-mismatch-input", b"hash-mismatch-input"),
+    ("declared-other-input", b"declared-other-input"),
+    ("declared-other-output", b"declared-other-output"),
+    ("tool-n0", b"tool-n0"),
+    ("tool-n1", b"tool-n1"),
+    ("cycle", b"cycle"),
+    ("missing-node-hash", b"missing-node-hash"),
+    ("missing-tool-version", b"missing-tool-version"),
+];
+
+/// Renders `data/vox-d-008/measurements.txt` from a live seam run.
+///
+/// Deliberately free of host, path and timestamp text: both host legs must
+/// produce byte-identical output, which is what makes the file a measurement
+/// rather than a transcript.
+pub fn measurements_text() -> String {
+    let mut out = String::new();
+    out.push_str(
+        "# VOX-D-008 seam measurements (R-00064). SHA-256 computed by lumio_voxel_contracts::sha256\n\
+         # through the shipped R-00047 harness. Repeat runs: 3, byte-identical.\n\
+         # Generated file - do not hand-edit. Regenerate with:\n\
+         #   SEAM_EMIT_VOX_D_008=1 benchmarks/decision_gates/run_seam_replay.sh migration_nodes\n\
+         # Node split / toolVersion here are seam-local, never production defaults.\n\n",
+    );
+
+    for (label, case) in [
+        ("linear-dag", CorpusCase::LinearDag),
+        ("diamond-dag", CorpusCase::DiamondDag),
+    ] {
+        match run_corpus(case) {
+            CorpusOutcome::Accepted { traces } => {
+                assert!(traces_byte_identical(&traces), "{label} must be stable");
+                out.push_str(&format!(
+                    "{label}.snapshot_hash={}\n{label}.trace_digest={}\n",
+                    hex32(&traces[0].snapshot),
+                    hex32(&trace_digest(&traces[0])),
+                ));
+            }
+            CorpusOutcome::Rejected { .. } => panic!("{label} must be accepted"),
+        }
+    }
+
+    for (label, case) in [
+        ("hash-mismatch", CorpusCase::HashMismatch),
+        ("tool-version-mismatch", CorpusCase::ToolVersionMismatch),
+    ] {
+        match run_corpus(case) {
+            CorpusOutcome::Rejected {
+                error_id, executed, ..
+            } => out.push_str(&format!(
+                "{label}.reject={error_id}\n{label}.executed={executed}\n"
+            )),
+            CorpusOutcome::Accepted { .. } => panic!("{label} must be rejected"),
+        }
+    }
+
+    for (label, case) in [
+        ("cycle", FaultCase::Cycle),
+        ("missing-node-hash", FaultCase::MissingNodeHash),
+        ("missing-tool-version", FaultCase::MissingToolVersion),
+    ] {
+        let repeats = repeat_fault(case);
+        assert!(
+            repeats.windows(2).all(|pair| pair[0] == pair[1]),
+            "{label} must be stable"
+        );
+        let obs = &repeats[0];
+        out.push_str(&format!(
+            "{label}.fault_point={:?}\n{label}.error={}\n{label}.recoverable={}\n{label}.snapshot_hash={}\n",
+            obs.point,
+            obs.error,
+            obs.recoverable,
+            hex32(&obs.snapshot),
+        ));
+    }
+
+    for (label, bytes) in PAYLOAD_SAMPLES {
+        out.push_str(&format!("payload.{label}={}\n", hex32(&sha256(bytes))));
+    }
+
+    out.push_str(&format!("approvalStatus={}\n", approval_status()));
+    out.push_str(&format!(
+        "selectedDefault={}\n",
+        selected_default().unwrap_or("none")
+    ));
+    out
+}
+
 pub fn unmeasured_production_axes() -> &'static [&'static str] {
     &[
         "large-world-peak-memory",
@@ -359,6 +461,29 @@ fn fault_op(case: FaultCase) -> GeneratedVoxelOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The checked-in raw values must be what a live seam run produces. This is
+    /// what caught the pre-K[28]-fix numbers still sitting in the data file.
+    #[test]
+    fn checked_in_measurements_match_seam() {
+        assert_eq!(
+            CHECKED_IN_MEASUREMENTS,
+            measurements_text(),
+            "data/vox-d-008/measurements.txt is stale; regenerate it \
+             (SEAM_EMIT_VOX_D_008=1 benchmarks/decision_gates/run_seam_replay.sh migration_nodes)"
+        );
+    }
+
+    /// Emission point for the generated data file; the runner scrapes the markers.
+    #[test]
+    fn print_measurements_text() {
+        // Leading newline: libtest writes "test <name> ... " with no newline,
+        // which would otherwise share a line with the marker and defeat the
+        // runner's line-anchored scrape.
+        println!("\n---BEGIN vox-d-008 measurements.txt---");
+        print!("{}", measurements_text());
+        println!("---END vox-d-008 measurements.txt---");
+    }
 
     #[test]
     fn gate_remains_blocked() {
