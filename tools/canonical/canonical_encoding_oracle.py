@@ -215,6 +215,34 @@ SURFACE_VECTORS = [
 ]
 
 
+# The manifest that `two_encodes_of_same_ref_are_byte_identical_and_decode_back`
+# captures, member for member. ADR 0011 says a snapshot written before the typed
+# encoding still restores after it, and nothing in the repository held that claim to
+# anything — the Rust test asserted only that encoding twice agrees and that decode
+# inverts it, both of which stay true through any change to `ManifestAdapter::object`.
+# Pinning the digest here is what turns the claim into a judgment.
+#
+# `configHash` and `rootIdentity` are fixture inputs, not results: they are sha256
+# over domain structures that this oracle deliberately does not reimplement, so they
+# are transcribed from the fixture the same way "world-a" is. What the oracle derives
+# independently is the part under test — how that member set becomes bytes, and the
+# digest of those bytes.
+SNAPSHOT_MANIFEST_FIXTURE = [
+    ("schemaId", text("voxel-snapshot-payload")),
+    ("headerSchemaId", text("snapshot-header")),
+    ("magic", text("LUMIOSNP1")),
+    ("schemaEpoch", uint(1)),
+    ("worldId", text("world-a")),
+    ("contextId", text("ctx-1")),
+    ("generation", uint(1)),
+    ("worldRevision", uint(0)),
+    ("configHash",
+     text("aac0591628275ee9f9df6cadb2b9e21ec3b97021f6e0592b1f3883107e546cde")),
+    ("rootIdentity",
+     text("efd3b6f99cd27fdfe35404e4c9b8b8d5fd60eb44d1d7c44bbf84c8bc20658ba1")),
+]
+
+
 def print_goldens():
     print("# fingerprint goldens (current encoding)\n")
     for name, txn, world, gen, fields in FINGERPRINT_VECTORS:
@@ -222,6 +250,12 @@ def print_goldens():
         print("%s" % name)
         print("  bytes  %s" % canonical)
         print("  sha256 %s\n" % sha256_hex(canonical))
+
+    print("# snapshot manifest golden (r00134-canon capture)\n")
+    canonical = new_encode(SNAPSHOT_MANIFEST_FIXTURE)
+    print("snapshot_manifest")
+    print("  bytes  %s" % canonical)
+    print("  sha256 %s\n" % sha256_hex(canonical))
 
 
 def print_comparison():

@@ -2,12 +2,14 @@
 
 Evidence for the `canonical_object_pairs` fix adjudicated 2026-08-29
 (`LumioGameEngineArchitecture/docs/plans/2026-08-29-canonical-object-pairs-adjudication.md`,
-§3.4 and §5). Regenerate everything below with:
+§3.4 and §5). Regenerate the digests below with:
 
 ```
 python3 tools/canonical/canonical_encoding_oracle.py            # goldens
 python3 tools/canonical/canonical_encoding_oracle.py --compare  # old vs new
 ```
+
+The decode-cost table has its own command, given in that section.
 
 ## Why the goldens live outside the crate
 
@@ -138,6 +140,76 @@ one_chunk_edit
   bytes  {"c:0:0:0":"payload","canonicalForm":"VoxelCanonicalObjectV1","generation":1,"txn_id":"txn-2","world_id":"world-a","world_revision":"3"}
   sha256 e372e9671f7d3e3c9540f8a2dc56987122df9a3afea7d9343e5110bbb69d7087
 ```
+
+## Snapshot manifest golden
+
+The consequence stated above — a snapshot written before the change still restores
+after it — had nothing holding it. `two_encodes_of_same_ref_are_byte_identical_and_decode_back`
+asserted that encoding twice agrees, that decode inverts encode, and two `contains`
+substrings; all four are self-referential and stay green through any change to
+`ManifestAdapter::object`. The digest below is now asserted there, so a change to
+the manifest member set fails the build instead of silently re-dating every archive.
+
+`configHash` and `rootIdentity` are fixture inputs transcribed from the capture, not
+values this oracle derives: they are sha256 over domain structures the oracle
+deliberately does not reimplement. What the oracle derives independently is the part
+under test — how that member set becomes bytes, and the digest of those bytes.
+
+```
+snapshot_manifest
+  bytes  {"configHash":"aac0591628275ee9f9df6cadb2b9e21ec3b97021f6e0592b1f3883107e546cde","contextId":"ctx-1","generation":1,"headerSchemaId":"snapshot-header","magic":"LUMIOSNP1","rootIdentity":"efd3b6f99cd27fdfe35404e4c9b8b8d5fd60eb44d1d7c44bbf84c8bc20658ba1","schemaEpoch":1,"schemaId":"voxel-snapshot-payload","worldId":"world-a","worldRevision":0}
+  sha256 b513120c559bd74211a4ed775914f666c2e65a4b21579426c690939be136880f
+```
+
+## Decode cost against manifest size
+
+`RestorePreflight::validate` takes bytes the Host read back off the filesystem
+(VOX-D-008 puts DAG orchestration, fsync and the Active-pointer swap on the Host), so
+the length is chosen by whatever wrote the file. The first typed decoder validated the
+*remaining* buffer once per character, making a string quadratic in the bytes after
+it. Reproduce with:
+
+```
+cargo run --release -p lumio-voxel-test-support --example bench-canonical-decode
+```
+
+Manifest shape, N members of `chunkRevision.c:<i>:0:0`, release build, best of three,
+same machine and same command for all three columns. The baseline column is the
+pre-ADR-0011 `decode_canonical_pairs`, measured from a standalone port of the code at
+`0a62388^` — it is the linear reference, not a target: the typed decoder is legitimately
+~2.5× dearer because it builds typed values, unescapes, and re-encodes to check
+canonicity.
+
+```
+chunks    bytes    baseline (0a62388^)   quadratic (6f93701)   linear (this change)
+  1,000   28,233               185 µs              6,057 µs                 360 µs
+  4,000  115,233               687 µs             89,991 µs               1,617 µs
+ 16,000  469,233             2,941 µs          1,563,167 µs               7,394 µs
+
+µs per KB   (flat = linear, rising = quadratic)
+  1,000                          6.7                 219.7                  13.1
+  4,000                          6.1                 799.7                  14.4
+ 16,000                          6.4               3,411.3                  16.1
+```
+
+A 16k-chunk manifest went from 1.56 s to 7.4 ms. No byte-length ceiling was added to
+`validate`; the reasoning is in
+[ADR 0012](../../.spec/decisions/0012-canonical-decode-cost-and-refusal-naming.md).
+
+## Residual gap: the form member covers one surface, not five
+
+`canonicalForm = VoxelCanonicalObjectV1` is present only in the fingerprint. The
+snapshot manifest, receipt, restore shadow and query plan carry no form member, so
+those four surfaces' bytes do not identify their own encoding — a future format
+change would show up there as digests that quietly stopped matching rather than as a
+different form id.
+
+This is the price of the row above: those four surfaces are byte-identical across the
+cut *because* nothing was added to them. Naming it here rather than leaving it inside
+the trade-off, because a reader checking "is the encoding self-identifying?" gets
+different answers depending on which surface they look at, and should not have to
+infer that from a table. Adjudicated and held; closing it means accepting a digest
+break on all four.
 
 ## What is not established here
 

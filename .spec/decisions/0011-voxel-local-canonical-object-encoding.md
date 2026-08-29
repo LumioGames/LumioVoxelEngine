@@ -17,7 +17,7 @@
 - 字符串恒加引号并转义 `"`、`\` 与 C0 控制字符;整数裸出且无分隔符;成员按名的码点序排列。故 `" , : { } [ ]` 只出现在结构位。
 - **重复成员名一律拒绝**,不作最后写入生效。`MutationRequest.fields` 中与契约成员同名的键因此被拒,`canonical_fingerprint` 随之返回 `Result`。
 - `fields` 的值按其声明类型编码为字符串,**不按名特判成整数**——「这个名字其实是整数」正是要拆掉的那类「靠调用方传对」的锚。
-- 解码是真正的逆:解析后重新编码并要求字节相同。解析器**故意比编码器宽**(接受任意成员顺序与任意 `\uXXXX`),让这道守卫承重,而不是按构造恒真。孤代理转义按具名错误拒绝,与 C# UTF-16 侧对称。
+- 解码是真正的逆:解析后重新编码并要求字节相同。解析器**故意比编码器宽**(接受任意成员顺序与任意 `\uXXXX`),让这道守卫承重,而不是按构造恒真。孤代理转义拒绝,与 C# UTF-16 侧对称——拒绝用的是通用 `Malformed`,不是具名变体(原文称「具名错误」是对实现的误述,理由见 [0012](0012-canonical-decode-cost-and-refusal-naming.md))。
 - 指纹输入含形态成员 `canonicalForm = VoxelCanonicalObjectV1`,让格式**自我识别**。该 id **不是**上游的 `CanonicalJsonV1`,也不是其未来的 `CanonicalObjectV1`。
 - `lumio-voxel-contracts` **不再再导出** `canonical_object_pairs`。生成物不得手改,故在 `#[path]` 接缝处隔离并 `allow(dead_code)`。
 - 期望摘要由 `tools/canonical/canonical_encoding_oracle.py`(按书面规则独立实现)产出,测试不得自产期望值。该脚本同时保留旧编码,仅供历史 receipt 回溯,不得被生产代码引用。
@@ -27,4 +27,4 @@
 - **指纹语义断代**:`fields` 非空的 mutation 指纹全部改变,`fields` 为空的也因形态成员改变。本仓无任何持久化(全 workspace 的 `fs::write` / `File::create` / `write_all` 只在两个测试文件),重放判定是「现算 vs 内存」,故幂等重放窗口等于进程生命周期,无需数据迁移。
 - **snapshot / receipt / restore / query 四个面的字节不变**,因为这四处本来就把值分好了类型。改动前写出的 snapshot 改动后仍可 restore。逐面对拍表见 [`docs/evidence/canonical-encoding-goldens.md`](../../docs/evidence/canonical-encoding-goldens.md)。
 - Host 侧若存过 receipt,其中的 fingerprint hex 不能再由当前代码复算;本仓查不到是否存在这类数据,未核实。
-- 单射性仍是结构性论证而非机器证明——本仓无 fuzz 基建。这一条与裁决 §5 gap 1 同源,本条不消灭它。
+- 单射性起初只是结构性论证加 17 个手挑用例,本条未消灭裁决 §5 gap 1。**该 gap 已由 [0012](0012-canonical-decode-cost-and-refusal-naming.md) 关闭**:左逆属性扫描(`decode(encode(x)) == x`,约 29,400 例)即是机器证明,不需要 fuzz 基建。
