@@ -51,8 +51,12 @@ pub fn violations(generated_root: &Path, locked: &[LockedFile]) -> Vec<String> {
     out
 }
 
+/// Deliberately not `lumio_voxel_contracts::sha256`: that hasher is itself a locked entry
+/// under `GENERATED_DIR`, so auditing the tree with it would let a tampered generated file
+/// certify its own lock hash. See ADR 0010; `tests/sha256_kat.rs` keeps both copies pinned
+/// to the FIPS 180-4 answers and proves they still agree.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    sha256_hex_owned(bytes)
+    sha256(bytes)
 }
 
 fn walk(root: &Path, dir: &Path, found: &mut BTreeMap<String, String>) {
@@ -81,11 +85,7 @@ fn walk(root: &Path, dir: &Path, found: &mut BTreeMap<String, String>) {
     }
 }
 
-fn sha256_hex_owned(bytes: &[u8]) -> String {
-    // SHA-256 without extra crates (FIPS 180-4, one-block + multi-block).
-    sha256(bytes)
-}
-
+/// SHA-256 without extra crates (FIPS 180-4, one-block + multi-block).
 fn sha256(data: &[u8]) -> String {
     let mut h: [u32; 8] = [
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
