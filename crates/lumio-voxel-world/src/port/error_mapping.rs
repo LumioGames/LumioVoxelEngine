@@ -78,6 +78,16 @@ pub fn map_internal_error(error_id: &str) -> PortError {
         "RoleMismatch" => "RoleMismatch",
         "ClaimNotGranted" => "ClaimNotGranted",
         "SessionAntiReplay" => "SessionAntiReplay",
+        "InvalidArgument" => "InvalidArgument",
+        "WrongContext" => "WrongContext",
+        "BufferTooSmall" => "BufferTooSmall",
+        "CapacityExceeded" => "CapacityExceeded",
+        "Cancelled" => "Cancelled",
+        "TimedOut" => "TimedOut",
+        "ContextClosing" => "ContextClosing",
+        "ContextDestroyed" => "ContextDestroyed",
+        "PanicBoundary" => "PanicBoundary",
+        "InternalInvariant" => "InternalInvariant",
         _ => "InvalidHandle",
     };
     PortError {

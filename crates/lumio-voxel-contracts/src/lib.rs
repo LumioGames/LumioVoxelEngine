@@ -7,6 +7,7 @@
 
 #[path = "../generated/rust/lumio-gen-canonical-serializer/src/lib.rs"]
 #[rustfmt::skip]
+#[allow(dead_code)]
 mod lumio_gen_canonical_serializer;
 // `canonical_object_pairs` lives in this generated module and is deliberately NOT
 // re-exported: it concatenates unescaped keys and unquoted values and accepts a
@@ -27,7 +28,7 @@ mod lumio_gen_contract_runtime;
 // the public API to silence a lint) or patching the generated files (forbidden).
 #[path = "../generated/rust/lumio-gen-contract-types/src/lib.rs"]
 #[rustfmt::skip]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::upper_case_acronyms)]
 mod lumio_gen_contract_types;
 #[path = "../generated/rust/lumio-gen-language-binding/src/lib.rs"]
 #[rustfmt::skip]
@@ -35,9 +36,11 @@ mod lumio_gen_contract_types;
 mod lumio_gen_language_binding;
 #[path = "../generated/rust/lumio-gen-mapping-table/src/lib.rs"]
 #[rustfmt::skip]
+#[allow(dead_code)]
 mod lumio_gen_mapping_table;
 #[path = "../generated/rust/lumio-gen-protocol-permission-validator/src/lib.rs"]
 #[rustfmt::skip]
+#[allow(dead_code)]
 mod lumio_gen_protocol_permission_validator;
 
 use lumio_gen_contract_runtime::sha256_hex;

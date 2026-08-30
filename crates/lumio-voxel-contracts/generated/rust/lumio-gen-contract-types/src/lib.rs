@@ -3,6 +3,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod bodies;
+
 pub const BASELINE_ID: &str = "LGE-V1.4-2026-08-27";
 pub const SCHEMA_IDS: &[&str] = &[
     "session-revision-vector",
@@ -15,6 +17,10 @@ pub const SCHEMA_IDS: &[&str] = &[
     "native-managed-abi",
     "root-abi-bundle",
     "canonical-digest-profile",
+    "lumio-bin-profile",
+    "trust-profile",
+    "loader-profile",
+    "evidence-profile",
     "release-manifest",
     "maintenance-command",
     "snapshot-header",
@@ -94,6 +100,16 @@ pub const STABLE_ERROR_IDS: &[&str] = &[
     "RoleMismatch",
     "ClaimNotGranted",
     "SessionAntiReplay",
+    "InvalidArgument",
+    "WrongContext",
+    "BufferTooSmall",
+    "CapacityExceeded",
+    "Cancelled",
+    "TimedOut",
+    "ContextClosing",
+    "ContextDestroyed",
+    "PanicBoundary",
+    "InternalInvariant",
 ];
 
 pub const VOXEL_WORLD_ROLES: &[&str] = &["Authority", "Replica"];
