@@ -15,7 +15,7 @@ use lumio_voxel_ops::snapshot::{
     MemoryCaptureWriter, RestorePreflight, RestoreShadowBuilder, encode_capture,
 };
 use lumio_voxel_world::port::{
-    GeneratedVoxelWorldPortAdapter, GENERATED_PORT_METHODS, MutationStatus, OwnedResultBuffer,
+    GENERATED_PORT_METHODS, GeneratedVoxelWorldPortAdapter, MutationStatus, OwnedResultBuffer,
     map_internal_error,
 };
 use lumio_voxel_world::world::{

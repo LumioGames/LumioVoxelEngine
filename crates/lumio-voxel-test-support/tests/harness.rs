@@ -1,8 +1,8 @@
 use lumio_voxel_test_support::deterministic_executor::{DeterministicExecutor, Schedule};
 use lumio_voxel_test_support::fault_injection::FaultPoint;
 use lumio_voxel_test_support::fixture_runner::run_fixture;
-use lumio_voxel_test_support::reference_harness::{GeneratedVoxelOperation, VoxelPortHarness};
 use lumio_voxel_test_support::reference_harness::run_reference_rust_differential;
+use lumio_voxel_test_support::reference_harness::{GeneratedVoxelOperation, VoxelPortHarness};
 use std::path::PathBuf;
 
 fn op(seq: u64, payload: &[u8]) -> GeneratedVoxelOperation {
@@ -98,7 +98,10 @@ fn production_crates_do_not_depend_on_test_support() {
 #[test]
 fn reference_and_rust_run_the_same_real_mutation_revision_snapshot_sequence() {
     let report = run_reference_rust_differential().expect("reference/Rust differential");
-    assert!(!report.steps.is_empty(), "differential must execute real steps");
+    assert!(
+        !report.steps.is_empty(),
+        "differential must execute real steps"
+    );
     assert_eq!(
         report.rust_trace_hash, report.reference_trace_hash,
         "Rust and Reference trace hashes diverged: {report:?}"
