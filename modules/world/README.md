@@ -24,7 +24,7 @@
 - 不直接操作 C# ECS/Session/Connection，不调用 Hot Gameplay；跨边界只使用版本化 Port/Generated Contract。
 - 不执行文件 fsync、WAL、Release 路由或进程级恢复；只向 Host/Runtime 提供 Capture/恢复接口。
 - 不把 `migration` 的业务 DAG 当作 Tick 内部状态机；迁移由维护/工具编排驱动。
-- 不编译依赖 `LumioCoreEngine`。
+- 不编译依赖 `LumioGameEngine` 的 Host 或 Game 模块。
 
 ## 拥有的状态与资源
 
@@ -41,7 +41,7 @@
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
-- **编译依赖**：已启用的领域模块；`LumioNativeCore` 已发布 Handle/Buffer API；架构源生成契约。不编译依赖 `LumioCoreEngine`、Runtime、Server、Client 或 Game 源码。CoreEngine 只出现在运行时加载与发布组合中。
+- **编译依赖**：已启用的领域模块；`LumioNativeCore` 提供 Handle/Buffer API；SDK 生成契约。不编译依赖 Runtime、Server、Client 或 Game 源码。SDK 只在运行时加载与发布组合中出现。
 - **被谁调用**：Host/Runtime 发起创建、Barrier、Capture、DurabilityAck、Quiesce、Destroy。
 - **发布/消费**：向 Host 交出 `VoxelCaptureRef`/Canonical bytes 元数据；消费 Runtime 固定的 `SnapshotCut` 与 Host 耐久回执。不缓存子模块领域状态。
 

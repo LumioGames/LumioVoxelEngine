@@ -36,9 +36,9 @@ LumioVoxelEngine 是七仓库体系中的 VoxelWorld 领域实现（架构源 §
 - **本仓拥有**：VoxelWorld、Chunk、Block、坐标、World/Chunk Revision、Query、Mutation、Voxel Snapshot/Diff payload、Streaming、Voxel Migration 节点，以及 Voxel Spatial/Collision Source。
 - **Host 拥有**：进程、连接、Wall Clock、WorldSlot 和实例创建/销毁编排；本仓只提供实例内部状态转换和稳定 Port。
 - **Runtime 拥有**：Logical Tick、Phase Graph、Coordinator、GameWorld、Replication 语义、跨域 `SnapshotCut` 和跨 World 决策；本仓不创建或直接修改 ECS，也不拥有 Session Cut。
-- **CoreEngine/NativeCore 拥有**：Native 聚合加载、Root ABI 和领域无关的 Handle、Buffer、Job、空间、碰撞、压缩 Kernel；本仓消费 NativeCore 已发布 API 与架构源生成契约。
-- **编译依赖**：`LumioVoxelEngine -> LumioNativeCore`；`LumioCoreEngine` 只消费本仓发布的 Schema/Artifact，不依赖本仓内部实现。Voxel 模块源码不得依赖 CoreEngine。
-- **运行时关系**：`LumioCoreEngine package -> Host Loader -> VoxelWorld instance -> Runtime IVoxelWorldPort / generated Voxel Contract`。
+- **SDK/NativeCore 拥有**：Native 聚合加载、Root ABI 和领域无关的 Handle、Buffer、Job、空间、碰撞、压缩 Kernel；本仓消费 NativeCore API 与 SDK 生成契约。
+- **编译依赖**：`LumioVoxelEngine -> LumioNativeCore`；SDK 聚合层消费本仓 API，不依赖本仓的 Host 实现。Voxel 模块源码不得依赖 Host 或 Game。
+- **运行时关系**：`LumioEngineSDK Native -> Host Loader -> VoxelWorld instance -> Runtime IVoxelWorldPort / SDK API`。
 
 所有模块都必须遵守以下约束：
 

@@ -93,7 +93,7 @@ NativeCore 提供通用空间 Kernel；本仓库根据 Chunk/Block/遮挡/可用
 
 ## Generated Contract Dependencies
 
-实现阶段由本仓库负责提出和维护 Voxel 领域源 Schema、ABI 元数据、Revision/Error/Capability 定义及行为 Fixture；跨仓公共版本化契约以 `LumioGameEngineArchitecture` 发布物为准。`LGE-V1.4-2026-08-27` 已发布完整 Voxel 契约族：P0（World/Port、Chunk/Page、Revision Stamp、Query、Mutation receipt）与 Snapshot payload、Streaming DurabilityAck（ADR-024/025/035/036 随该基线正式落定），并新增 `VoxelSnapshotCapture`/`VoxelChunkResidency` 状态机描述符（ADR-038）。`LumioCoreEngine` 负责聚合 Header、统一版本前缀和最终托管绑定；不得同时维护第二套 P/Invoke 签名。Runtime 只消费 `IVoxelWorldPort`/生成物。
+实现阶段由本仓库负责 Voxel 领域源 API、Revision/Error/Capability 定义及行为测试；跨仓开发期接口以 `LumioGameEngine` SDK 为准。SDK 聚合层负责统一 Native Header、ABI Binding 和最终托管入口；不得同时维护第二套 P/Invoke 签名。Runtime 只消费 `IVoxelWorldPort`/SDK API。
 
 ## Runtime Loading Relationships
 
