@@ -15,7 +15,8 @@ use lumio_voxel_ops::snapshot::{
     MemoryCaptureWriter, RestorePreflight, RestoreShadowBuilder, encode_capture,
 };
 use lumio_voxel_world::port::{
-    GeneratedVoxelWorldPortAdapter, OwnedResultBuffer, map_internal_error,
+    GeneratedVoxelWorldPortAdapter, GENERATED_PORT_METHODS, MutationStatus, OwnedResultBuffer,
+    map_internal_error,
 };
 use lumio_voxel_world::world::{
     AckEvidence, AdmittedCommand, RuntimeSnapshotCut, VoxelWorld, WorldCommand, WorldConfigAdapter,
@@ -405,9 +406,8 @@ fn unknown_error_id_mapping_cannot_succeed() {
     let unknown = "TotallyUnknownError";
     assert!(!STABLE_ERROR_IDS.contains(&unknown));
     let mapped = map_internal_error(unknown);
-    assert_ne!(mapped.error_id(), unknown);
-    assert_eq!(mapped.error_id(), "InvalidHandle");
-    assert_stable_error(mapped.error_id());
+    assert_eq!(mapped.error_id(), unknown);
+    assert!(!STABLE_ERROR_IDS.contains(&mapped.error_id()));
     for id in STABLE_ERROR_IDS {
         assert_eq!(
             map_internal_error(id).error_id(),
@@ -430,6 +430,75 @@ fn unknown_error_id_mapping_cannot_succeed() {
     assert_eq!(
         map_internal_error(world_err.error_id()).error_id(),
         world_err.error_id()
+    );
+}
+
+#[test]
+fn generated_port_exposes_all_frozen_methods() {
+    assert_eq!(
+        GENERATED_PORT_METHODS,
+        &[
+            "createWorld",
+            "query",
+            "prepareMutation",
+            "commit",
+            "abort",
+            "status",
+            "capture",
+            "applyDurabilityAck",
+            "restore",
+            "quiesce",
+            "destroy",
+        ]
+    );
+
+    let snapshot = approved_snapshot("r00142-surface");
+    let mut world = GeneratedVoxelWorldPortAdapter::create_world(
+        descriptor("Authority", "ctx-port-surface", "world-port-surface"),
+        snapshot,
+    )
+    .expect("createWorld");
+    drive_to_running(&mut world);
+
+    {
+        let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut world);
+        assert_eq!(
+            adapter.status("missing-txn").expect("status"),
+            MutationStatus::Unknown
+        );
+        adapter.quiesce("maintenance").expect("quiesce");
+    }
+    assert_eq!(world.state_view().lifecycle(), "Paused");
+    GeneratedVoxelWorldPortAdapter::new(&mut world)
+        .destroy()
+        .expect("destroy");
+    assert_eq!(world.state_view().lifecycle(), "Disposed");
+}
+
+#[test]
+fn status_tracks_prepared_and_applied_mutations() {
+    let mut world = create_named(
+        "Authority",
+        "ctx-port-status",
+        "world-port-status",
+        "r00142-status",
+    );
+    drive_to_running(&mut world);
+    let request = mutation_envelope(&world, "txn-status");
+    let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut world);
+    assert_eq!(
+        adapter.status("txn-status").expect("unknown"),
+        MutationStatus::Unknown
+    );
+    let prepared = adapter.prepare_mutation(request).expect("prepare");
+    assert_eq!(
+        adapter.status("txn-status").expect("prepared"),
+        MutationStatus::Prepared
+    );
+    adapter.commit(prepared).expect("commit");
+    assert_eq!(
+        adapter.status("txn-status").expect("applied"),
+        MutationStatus::Applied
     );
 }
 

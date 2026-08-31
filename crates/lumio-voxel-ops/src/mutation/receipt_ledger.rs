@@ -21,6 +21,15 @@ pub enum LookupOutcome {
     Duplicate { receipt: Vec<u8> },
 }
 
+/// Public status projection used by the generated world Port. An absent entry
+/// is `Unknown`; in-flight and finalized entries retain their protocol state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReceiptStatus {
+    Unknown,
+    Prepared,
+    Applied,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FinalizeOutcome {
     pub disposition: ReplayDisposition,
@@ -125,6 +134,20 @@ impl ReceiptLedger {
                 receipt: receipt.clone(),
             }),
             None => Ok(LookupOutcome::InFlight),
+        }
+    }
+
+    /// Look up a transaction without reconstructing its request fingerprint.
+    /// The Port's `status(txnId)` method intentionally carries only the generated
+    /// transaction identity; request validation remains on prepare/commit paths.
+    pub fn status(&self, txn_id: &str) -> ReceiptStatus {
+        let Some(entry) = self.entries.get(txn_id) else {
+            return ReceiptStatus::Unknown;
+        };
+        if entry.receipt.is_some() {
+            ReceiptStatus::Applied
+        } else {
+            ReceiptStatus::Prepared
         }
     }
 

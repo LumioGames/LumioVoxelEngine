@@ -3,18 +3,26 @@
 #![forbid(unsafe_code)]
 
 use crate::world::{WorldError, intern_stable};
+use lumio_voxel_contracts::STABLE_ERROR_IDS;
 use lumio_voxel_ops::mutation::MutationError;
 use lumio_voxel_ops::query::QueryError;
+use std::borrow::Cow;
 
-/// Port-facing stable error. `error_id` is always interned from generated `STABLE_ERROR_IDS`.
+/// Port-facing error. Known ids borrow the generated table; an id introduced by
+/// an upstream producer is retained as an owned value instead of being disguised
+/// as an unrelated known error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortError {
-    error_id: &'static str,
+    error_id: Cow<'static, str>,
 }
 
 impl PortError {
-    pub fn error_id(&self) -> &'static str {
-        self.error_id
+    pub fn error_id(&self) -> &str {
+        self.error_id.as_ref()
+    }
+
+    pub fn is_registered(&self) -> bool {
+        STABLE_ERROR_IDS.contains(&self.error_id())
     }
 }
 
@@ -32,7 +40,9 @@ impl From<WorldError> for PortError {
     }
 }
 
-/// Exhaustive mapping of known generated ids. Unknown ids become `InvalidHandle`.
+/// Exhaustive mapping of known generated ids. Unknown ids remain observable at
+/// the Port boundary so callers cannot confuse a new producer error with
+/// `InvalidHandle`.
 pub fn map_internal_error(error_id: &str) -> PortError {
     let mapped = match error_id {
         "RevisionConflict" => "RevisionConflict",
@@ -88,10 +98,14 @@ pub fn map_internal_error(error_id: &str) -> PortError {
         "ContextDestroyed" => "ContextDestroyed",
         "PanicBoundary" => "PanicBoundary",
         "InternalInvariant" => "InternalInvariant",
-        _ => "InvalidHandle",
+        _ => {
+            return PortError {
+                error_id: Cow::Owned(error_id.to_owned()),
+            };
+        }
     };
     PortError {
-        error_id: intern_stable(mapped),
+        error_id: Cow::Borrowed(intern_stable(mapped)),
     }
 }
 

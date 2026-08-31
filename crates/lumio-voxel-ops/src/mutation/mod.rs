@@ -24,6 +24,6 @@ pub use preconditions::{MutationError, MutationPreconditions};
 pub use prepare::prepare;
 pub use prepared_token::PreparedMutation;
 pub use receipt_ledger::{
-    FinalizeOutcome, LedgerError, LookupOutcome, ReceiptLedger, ReplayDisposition,
+    FinalizeOutcome, LedgerError, LookupOutcome, ReceiptLedger, ReceiptStatus, ReplayDisposition,
 };
 pub use reservation::{GenerationBoundLeaseFamily, LEASE_FAMILY, MutationReservation};
