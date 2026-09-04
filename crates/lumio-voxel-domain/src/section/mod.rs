@@ -36,7 +36,7 @@ pub enum SectionError {
     /// 键语法 / 定义域。错误码由 [`KeyError`] 按契约规则给出。
     Key(KeyError),
     /// 页载荷摘要在解释之前就对不上(契约 `page.digest-before-interpretation`)。
-    PageDigestMismatch { error_id: &'static str },
+    SectionDigestMismatch { error_id: &'static str },
     /// 引擎通用的句柄 / 状态非法。活契约没有对应错误码,沿用废弃镜像的稳定 id。
     InvalidHandle { error_id: &'static str },
     /// Section 当前不可提供。缺块永不等于空气。
@@ -47,15 +47,15 @@ impl SectionError {
     pub fn error_id(&self) -> &'static str {
         match self {
             Self::Key(err) => err.error_id(),
-            Self::PageDigestMismatch { error_id }
+            Self::SectionDigestMismatch { error_id }
             | Self::InvalidHandle { error_id }
             | Self::SectionUnavailable { error_id } => error_id,
         }
     }
 
-    fn page_digest_mismatch() -> Self {
-        Self::PageDigestMismatch {
-            error_id: contract_error(vw::PAGE_DIGEST_MISMATCH),
+    fn section_digest_mismatch() -> Self {
+        Self::SectionDigestMismatch {
+            error_id: contract_error(vw::SECTION_DIGEST_MISMATCH),
         }
     }
 

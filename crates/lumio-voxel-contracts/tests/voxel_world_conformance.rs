@@ -349,6 +349,32 @@ fn contract_limits_match() {
         ("blockStateMax", i64::from(vw::BLOCK_STATE_MAX)),
         ("lightBitsPerCell", i64::from(vw::LIGHT_BITS_PER_CELL)),
         ("lightMaxPropagation", i64::from(vw::LIGHT_MAX_PROPAGATION)),
+        ("blockTypeScopeBit", i64::from(vw::BLOCK_TYPE_SCOPE_BIT)),
+        ("blockTypeScopeMask", i64::from(vw::BLOCK_TYPE_SCOPE_MASK)),
+        (
+            "systemReservedTypeMax",
+            i64::from(vw::SYSTEM_RESERVED_TYPE_MAX),
+        ),
+        (
+            "firstOfficialBlockType",
+            i64::from(vw::FIRST_OFFICIAL_BLOCK_TYPE),
+        ),
+        ("globalSegmentMax", i64::from(vw::GLOBAL_SEGMENT_MAX)),
+        ("roomLocalSegmentMin", i64::from(vw::ROOM_LOCAL_SEGMENT_MIN)),
+        ("worldYMin", i64::from(vw::WORLD_Y_MIN)),
+        ("worldYMax", i64::from(vw::WORLD_Y_MAX)),
+        (
+            "maxCellsPerReadRequest",
+            i64::from(vw::MAX_CELLS_PER_READ_REQUEST),
+        ),
+        (
+            "maxEntriesPerWriteBatch",
+            i64::from(vw::MAX_ENTRIES_PER_WRITE_BATCH),
+        ),
+        (
+            "firstCatalogBlockType",
+            i64::from(vw::FIRST_CATALOG_BLOCK_TYPE),
+        ),
     ]);
     for (key, value) in &expected {
         assert_eq!(limits.get(key).as_int(), *value, "limits.{key} 漂移");
@@ -397,15 +423,15 @@ fn contract_presence_and_encodings_match() {
         i64::from(vw::SHORT_TICKET_PAYLOAD_LENGTH)
     );
     assert_eq!(
-        c.get("sectionPage").get("encodings").keys(),
-        vw::SECTION_PAGE_ENCODINGS.to_vec()
+        c.get("sectionPayload").get("encodings").keys(),
+        vw::SECTION_PAYLOAD_ENCODINGS.to_vec()
     );
     assert_eq!(
-        c.get("sectionPage")
+        c.get("sectionPayload")
             .get("envelope")
             .get("required")
             .str_list(),
-        vw::SECTION_PAGE_ENVELOPE_FIELDS.to_vec()
+        vw::SECTION_PAYLOAD_ENVELOPE_FIELDS.to_vec()
     );
     assert_eq!(
         c.get("materialClasses").get("classes").keys(),
@@ -434,13 +460,23 @@ fn contract_error_codes_match() {
         assert!(vw::is_error_code(id), "{id} 必须出现在契约 errorCodes 里");
     }
     for extra in [
-        vw::PAGE_ENCODING_MISMATCH,
-        vw::PAGE_DIGEST_MISMATCH,
+        vw::SECTION_ENCODING_MISMATCH,
+        vw::SECTION_DIGEST_MISMATCH,
         vw::PALETTE_OVERFLOW,
         vw::CHUNK_CARRIES_DATA_ERROR,
         vw::LIGHTING_IN_PAYLOAD,
+        vw::BLOCK_TYPE_SCOPE_VIOLATION,
+        vw::ROOM_LOCAL_TYPE_WITHOUT_MAPPING,
+        vw::WORLD_Y_OUT_OF_RANGE,
     ] {
         assert!(vw::is_error_code(extra));
+    }
+    // 上一版契约的页命名已被 sectionPayload 取代,旧 id 不得再被当作契约错误码。
+    for retired in ["page_encoding_mismatch", "page_digest_mismatch"] {
+        assert!(
+            !vw::is_error_code(retired),
+            "{retired} 已被 section_* 取代,不应还在契约表里"
+        );
     }
     assert!(
         !vw::is_error_code("ChunkUnavailable"),
@@ -477,6 +513,47 @@ fn contract_rules_that_this_repo_enforces_are_present() {
     assert_eq!(
         rules["presence.missing-is-not-air"],
         vw::SECTION_UNAVAILABLE
+    );
+    // 页语义改名 payload 后,本仓消费的两条规则改从新 id 取。
+    assert_eq!(
+        rules["payload.digest-before-interpretation"],
+        vw::SECTION_DIGEST_MISMATCH
+    );
+    assert_eq!(
+        rules["payload.encoding-matches-content"],
+        vw::SECTION_ENCODING_MISMATCH
+    );
+    assert_eq!(rules["payload.palette-cap"], vw::PALETTE_OVERFLOW);
+}
+
+/// `blockId.scope`:作用域位是段归属的唯一权威,本仓的判定函数必须与之一致。
+#[test]
+fn contract_block_type_scope_matches() {
+    let c = contract();
+    let scope = c.get("blockId").get("scope");
+    assert_eq!(
+        scope.get("bit").as_int(),
+        i64::from(vw::BLOCK_TYPE_SCOPE_BIT)
+    );
+    assert_eq!(
+        scope.get("mask").as_int(),
+        i64::from(vw::BLOCK_TYPE_SCOPE_MASK)
+    );
+    assert_eq!(
+        scope.get("global").get("firstOfficialBlock").as_int(),
+        i64::from(vw::FIRST_OFFICIAL_BLOCK_TYPE)
+    );
+    const { assert!(vw::BLOCK_TYPE_SCOPE_MASK == 1 << vw::BLOCK_TYPE_SCOPE_BIT) };
+
+    // 段边界两侧各取一点,证明判定函数落在契约声明的区间里。
+    assert!(vw::is_global_segment(vw::GLOBAL_SEGMENT_MAX));
+    assert!(!vw::is_room_local_segment(vw::GLOBAL_SEGMENT_MAX));
+    assert!(vw::is_room_local_segment(vw::ROOM_LOCAL_SEGMENT_MIN));
+    assert!(!vw::is_global_segment(vw::ROOM_LOCAL_SEGMENT_MIN));
+    assert_eq!(vw::room_local_index(vw::ROOM_LOCAL_SEGMENT_MIN), 0);
+    assert_eq!(
+        vw::room_local_index(vw::BLOCK_TYPE_MAX),
+        vw::GLOBAL_SEGMENT_MAX
     );
 }
 

@@ -15,7 +15,7 @@ pub const CONTRACT_ID: &str = "lumio.voxel-world.v1";
 pub const CONTRACT_VERSION: u32 = 1;
 /// `wire/voxel-world-v1.json` 的 SHA-256。副本被改动即在一致性测试里失败。
 pub const CONTRACT_SHA256: &str =
-    "4fd903f424702f8ddab6a9781492ac0b25a8c61ff585749ceb39369d3afb5d43";
+    "000e820632b1165713f7f822234c0f2f6b6ce6a94b932de4213fed2e98fd3b5f";
 
 // ------------------------------------------------------------------ identity
 
@@ -76,6 +76,28 @@ pub const BLOCK_STATE_MAX: u32 = 255;
 pub const LIGHT_BITS_PER_CELL: u32 = 16;
 /// `limits.lightMaxPropagation`。
 pub const LIGHT_MAX_PROPAGATION: u32 = 15;
+/// `limits.blockTypeScopeBit`——BlockType 最高位是作用域位。
+pub const BLOCK_TYPE_SCOPE_BIT: u32 = 23;
+/// `limits.blockTypeScopeMask`。
+pub const BLOCK_TYPE_SCOPE_MASK: u32 = 8388608;
+/// `limits.systemReservedTypeMax`——0~255 由 `blockId.typeSegments` 固定,不进方块目录。
+pub const SYSTEM_RESERVED_TYPE_MAX: u32 = 255;
+/// `limits.firstOfficialBlockType`。
+pub const FIRST_OFFICIAL_BLOCK_TYPE: u32 = 256;
+/// `limits.globalSegmentMax`——全局官方段上界(作用域位 = 0)。
+pub const GLOBAL_SEGMENT_MAX: u32 = 8388607;
+/// `limits.roomLocalSegmentMin`——房间局部段下界(作用域位 = 1)。
+pub const ROOM_LOCAL_SEGMENT_MIN: u32 = 8388608;
+/// `limits.worldYMin`——世界 Y 是无符号的,底为 0。
+pub const WORLD_Y_MIN: u32 = 0;
+/// `limits.worldYMax`。
+pub const WORLD_Y_MAX: u32 = 255;
+/// `limits.maxCellsPerReadRequest`。
+pub const MAX_CELLS_PER_READ_REQUEST: u32 = 262144;
+/// `limits.maxEntriesPerWriteBatch`。
+pub const MAX_ENTRIES_PER_WRITE_BATCH: u32 = 65536;
+/// `limits.firstCatalogBlockType`——方块目录的首个可分配编号。
+pub const FIRST_CATALOG_BLOCK_TYPE: u32 = 256;
 
 // --------------------------------------------------------------------- blockId
 
@@ -98,11 +120,15 @@ pub static SECTION_PRESENCE: &[&str] = &["Ready", "Unchanged", "Pending", "Unava
 /// `diffDispatch.shortTicket.payloadLength`——Unchanged 必须是零字节短票。
 pub const SHORT_TICKET_PAYLOAD_LENGTH: u32 = 0;
 
-/// `sectionPage.encodings` 的三种编码,文档顺序。
-pub static SECTION_PAGE_ENCODINGS: &[&str] = &["Uniform", "Palette", "Raw"];
+/// `sectionPayload.encodings` 的四种编码,文档顺序。
+///
+/// `Delta` 是本次契约扩张新增的一档:它相对一个基线 revision 表达,因此只能用于
+/// **非首次**送达(`payload.delta-not-for-first-delivery`),且基线必须对得上
+/// (`payload.delta-needs-matching-base`)。本仓尚未实现该档,常量先与契约对齐。
+pub static SECTION_PAYLOAD_ENCODINGS: &[&str] = &["Uniform", "Palette", "Raw", "Delta"];
 
-/// `sectionPage.envelope.required`。
-pub static SECTION_PAGE_ENVELOPE_FIELDS: &[&str] = &[
+/// `sectionPayload.envelope.required`。
+pub static SECTION_PAYLOAD_ENVELOPE_FIELDS: &[&str] = &[
     "sectionKey",
     "sectionRevision",
     "encoding",
@@ -124,8 +150,8 @@ pub static VOXEL_WORLD_ERROR_CODES: &[&str] = &[
     "section_unavailable",
     "stale_section_revision",
     "palette_overflow",
-    "page_encoding_mismatch",
-    "page_digest_mismatch",
+    "section_encoding_mismatch",
+    "section_digest_mismatch",
     "dirty_section_not_durable",
     "lighting_in_payload",
     "chunk_carries_data",
@@ -141,6 +167,36 @@ pub static VOXEL_WORLD_ERROR_CODES: &[&str] = &[
     "entity_binding_not_sparse",
     "business_data_in_payload",
     "binding_commit_split",
+    // 以下各面由本次契约扩张引入,本仓均**尚未实现**;错误码先按契约登记,使表与契约
+    // 逐条对齐(`contract_error_codes_match` 断言全表同名同序),实现落在后续任务卡。
+    //
+    // BlockType 作用域分段(契约 `blockId.scope` / `blockCatalog` / `assetLibraries`)。
+    "block_type_scope_violation",
+    "system_reserved_type_misuse",
+    "room_local_type_without_mapping",
+    "player_type_declares_behavior",
+    // 调色板槽位回收与 Delta 载荷(契约 `sectionPayload`)。
+    "palette_reclaim_before_escalation",
+    "dead_palette_entry_in_payload",
+    "delta_base_revision_mismatch",
+    "delta_used_for_first_delivery",
+    // 物理查询(契约 `physicsQuery`)。
+    "unresolved_hit_treated_as_air",
+    "unresolved_hit_treated_as_solid",
+    "query_buffer_overflow",
+    "query_result_divergence",
+    "collision_behavior_not_from_material_table",
+    "query_mutates_world",
+    "world_y_out_of_range",
+    // 官方方块目录(契约 `blockCatalog`)。
+    "block_catalog_not_dense",
+    "block_catalog_name_reused",
+    "block_catalog_row_incomplete",
+    // 方块读写 API(契约 `blockRead` / `blockWrite`)。
+    "read_budget_exceeded",
+    "read_result_missing_revision",
+    "write_batch_too_large",
+    "unstructured_mutation_entry",
 ];
 
 /// 键不是合法 Section 键(前缀 / 元数 / 规范写法任一不合)。
@@ -157,16 +213,39 @@ pub const SECTION_UNAVAILABLE: &str = "section_unavailable";
 pub const STALE_SECTION_REVISION: &str = "stale_section_revision";
 /// 调色板项数超过 256。
 pub const PALETTE_OVERFLOW: &str = "palette_overflow";
-/// 页编码与实际内容不一致。
-pub const PAGE_ENCODING_MISMATCH: &str = "page_encoding_mismatch";
-/// 页载荷摘要校验失败(必须先于任何解释)。
-pub const PAGE_DIGEST_MISMATCH: &str = "page_digest_mismatch";
+/// Section 载荷编码与实际内容不一致。
+pub const SECTION_ENCODING_MISMATCH: &str = "section_encoding_mismatch";
+/// Section 载荷摘要校验失败(必须先于任何解释)。
+pub const SECTION_DIGEST_MISMATCH: &str = "section_digest_mismatch";
 /// 未被回执覆盖的脏 Section 被要求卸载。
 pub const DIRTY_SECTION_NOT_DURABLE: &str = "dirty_section_not_durable";
 /// 载荷或回执里出现光照。
 pub const LIGHTING_IN_PAYLOAD: &str = "lighting_in_payload";
 /// Chunk 记录携带了数据字节或自己的 revision。
 pub const CHUNK_CARRIES_DATA_ERROR: &str = "chunk_carries_data";
+/// BlockType 越过了作用域位划定的段边界。
+pub const BLOCK_TYPE_SCOPE_VIOLATION: &str = "block_type_scope_violation";
+/// 房间局部 BlockType 缺少随存档保存的映射表。
+pub const ROOM_LOCAL_TYPE_WITHOUT_MAPPING: &str = "room_local_type_without_mapping";
+/// 世界 Y 越出 0~255。
+pub const WORLD_Y_OUT_OF_RANGE: &str = "world_y_out_of_range";
+
+// ------------------------------------------------------------------- blockId 段
+
+/// `blockId.scope` 判定:作用域位为 0 即全局官方段。
+pub fn is_global_segment(block_type: u32) -> bool {
+    block_type & BLOCK_TYPE_SCOPE_MASK == 0
+}
+
+/// `blockId.scope` 判定:作用域位为 1 即房间局部段。
+pub fn is_room_local_segment(block_type: u32) -> bool {
+    block_type & BLOCK_TYPE_SCOPE_MASK != 0
+}
+
+/// `blockId.scope.roomLocal.localIndex`——局部号 = `BlockType & 0x7FFFFF`。
+pub fn room_local_index(block_type: u32) -> u32 {
+    block_type & !BLOCK_TYPE_SCOPE_MASK
+}
 
 /// 是否是契约声明的错误码。
 pub fn is_error_code(id: &str) -> bool {

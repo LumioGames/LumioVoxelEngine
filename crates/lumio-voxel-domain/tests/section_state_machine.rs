@@ -262,8 +262,8 @@ fn bad_section_id_or_payload_hash_mismatch_fails_with_generated_error() {
     bad_digest[0] ^= 0xff;
     let err = SectionPayload::from_pages([SectionPage::new("Dense", "None", bytes, bad_digest)])
         .unwrap_err();
-    // 契约 page.digest-before-interpretation:摘要必须先于任何解释校验。
-    assert_eq!(err.error_id(), vw::PAGE_DIGEST_MISMATCH);
+    // 契约 payload.digest-before-interpretation:摘要必须先于任何解释校验。
+    assert_eq!(err.error_id(), vw::SECTION_DIGEST_MISMATCH);
     assert_stable_error(err.error_id());
 }
 

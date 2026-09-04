@@ -62,7 +62,7 @@ impl DenseUncompressedAdapter {
         }
         let digest = sha256(&page.bytes);
         if digest != page.declared_digest {
-            return Err(SectionError::page_digest_mismatch());
+            return Err(SectionError::section_digest_mismatch());
         }
         Ok(SealedPage {
             encoding,
