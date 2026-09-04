@@ -47,7 +47,7 @@ Section 的层号取值 0~15 恰好 4 bit。
 
 体素公共语义报活契约 `errorCodes` 里的 snake_case 码:`unknown_section_key` / `unknown_chunk_key` /
 `section_y_out_of_range` / `coordinate_out_of_bounds` / `section_unavailable` / `stale_section_revision` /
-`dirty_section_not_durable` / `page_digest_mismatch` 等。契约不定义的引擎通用失败(`InvalidHandle`、
+`dirty_section_not_durable` / `section_digest_mismatch` 等。契约不定义的引擎通用失败(`InvalidHandle`、
 `SessionMismatch`、`StaleEpoch`、`BudgetExceeded`……)仍报废弃镜像的 `STABLE_ERROR_IDS`。
 两个命名空间由 `lumio_voxel_contracts::is_stable_error_id` 一个谓词收口,调用方不必知道来自哪边。
 
@@ -65,8 +65,13 @@ Section 的层号取值 0~15 恰好 4 bit。
 ## 待解决
 
 - 契约 `blockEntityBinding`(方块↔实体的 Section 级稀疏引用表)只登记了错误码,未实现。
-- 契约 `sectionPage` 的三态编码(Uniform / Palette / Raw)只登记了枚举与上限;当前载荷仍是死基线的
-  `Dense` / `None` 适配器。
+- 契约 `sectionPayload` 的四档编码(Uniform / Palette / Raw / Delta)只登记了枚举与上限;当前载荷仍是
+  死基线的 `Dense` / `None` 适配器。`Delta` 相对基线 revision 表达,只能用于非首次送达。
+- 契约扩张引入、本仓只登记了错误码与常量而**未实现**的面:`blockCatalog`(官方方块目录与铸号规程)、
+  `assetLibraries`(官方 / 玩家素材库)、`blockId.scope`(BlockType 第 23 位划分全局段与房间局部段)、
+  `blockRead` / `blockWrite`(读写预算与批量语义)、`physicsQuery`(未决命中既不算空气也不算实心)。
+  段判定已有 `voxel_world::{is_global_segment, is_room_local_segment, room_local_index}` 三个纯函数
+  并受一致性测试覆盖,其余只是常量。
 - 材质类、光照、网格生成、物理 DDA、流式加载都还没落地。
 
 ## 相关

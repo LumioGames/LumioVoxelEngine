@@ -38,7 +38,7 @@
 
 - **输入**：Section 创建/销毁、Load 完成页、查询坐标范围、Mutation WriteSet、Pin 视图请求、Host DurabilityAck 转发、restore 页。
 - **输出**：Block/页只读视图、变更范围、压缩页、Section 可用性、Dirty 状态和稳定数据错误。
-- **本仓 Port 表面**（页信封字段见契约 `sectionPage.envelope`；页 schema id 仍是死基线的 `voxel-chunk-page`，见 `lumio_voxel_contracts::legacy_baseline`）：`create(id) -> SectionRef | StableError`；`read(view, coord) -> BlockValue | Missing`；`borrow_read(ref, scope) -> ReadView`；`borrow_write(ref, reservation) -> WriteView`；`publish(write_set)`；`clear_dirty(ack)`；`materialize_pages(decoded)`；`seal_page(ref) -> CompressedPage`；`validate(ref) -> SectionHealth`；`unload(ref) -> Unloaded`。
+- **本仓 Port 表面**（载荷信封字段见契约 `sectionPayload.envelope`；页 schema id 仍是死基线的 `voxel-chunk-page`，见 `lumio_voxel_contracts::legacy_baseline`）：`create(id) -> SectionRef | StableError`；`read(view, coord) -> BlockValue | Missing`；`borrow_read(ref, scope) -> ReadView`；`borrow_write(ref, reservation) -> WriteView`；`publish(write_set)`；`clear_dirty(ack)`；`materialize_pages(decoded)`；`seal_page(ref) -> CompressedPage`；`validate(ref) -> SectionHealth`；`unload(ref) -> Unloaded`。
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
@@ -75,7 +75,7 @@ Loading/Ready/Dirty/Evicting -> Failed
 - **写入**：`mutation.prepare` 锁定可写范围 → CommitBatch 在 infallible publish 中同时发布 WriteView 页、Dirty 摘要和 Revision → 之后不再做可失败校验。
 - **清除 Dirty**：Host DurabilityAck → `world` Barrier → `clear_dirty`。
 - **恢复物化**：`world.restore` → `materialize_pages`；不走 Streaming Load。
-- **失败路径**：越界、页摘要校验失败、解压预算超限、Generation 失效、驱逐期间迟到写入均返回稳定错误，不静默填零或复活旧 Section。页载荷摘要必须在任何解释之前校验（契约 `page.digest-before-interpretation`）。publish 中途失败则 World `Faulted`。
+- **失败路径**：越界、页摘要校验失败、解压预算超限、Generation 失效、驱逐期间迟到写入均返回稳定错误，不静默填零或复活旧 Section。页载荷摘要必须在任何解释之前校验（契约 `payload.digest-before-interpretation`）。publish 中途失败则 World `Faulted`。
 
 ## 错误分类、恢复与降级
 
@@ -107,7 +107,7 @@ Loading/Ready/Dirty/Evicting -> Failed
 ## 对应 ADR、Schema 与 Fixture
 
 - 本仓 [0002](../../.spec/decisions/0002-barrier-commit-batch.md)、[0004](../../.spec/decisions/0004-snapshot-short-barrier-vs-quiesce.md)、[0006](../../.spec/decisions/0006-crate-map.md)、[0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)、[0013](../../.spec/decisions/0013-voxel-world-contract-and-section-rename.md)。
-- 活契约 `lumio.voxel-world.v1`（本仓副本 `crates/lumio-voxel-contracts/wire/voxel-world-v1.json`）：分层与尺寸、`identity` 键语法、`sectionPage` 三态编码与页信封、`diffDispatch` 四态 presence、`residency` 脏页与回执覆盖。一致性由 `cargo test -p lumio-voxel-contracts --test voxel_world_conformance` 逐条断言。
+- 活契约 `lumio.voxel-world.v1`（本仓副本 `crates/lumio-voxel-contracts/wire/voxel-world-v1.json`）：分层与尺寸、`identity` 键语法、`sectionPayload` 四档编码与载荷信封、`diffDispatch` 四态 presence、`residency` 脏页与回执覆盖。一致性由 `cargo test -p lumio-voxel-contracts --test voxel_world_conformance` 逐条断言。
 - 死基线 `LGE-V1.4-2026-08-27` 的只读镜像仅余产物 id 在消费：页 schema id `voxel-chunk-page`、驻留状态机 id `VoxelChunkResidency`，收在 `lumio_voxel_contracts::legacy_baseline`；契约不定义的引擎通用失败仍报其 `STABLE_ERROR_IDS`。
 
 ## 尚未批准的决策门
