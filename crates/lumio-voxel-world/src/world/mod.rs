@@ -36,6 +36,7 @@ pub use shutdown::WorldShutdown;
 pub use write_lane::{WorldWriteLane, WriteLease};
 
 use lumio_voxel_contracts::STABLE_ERROR_IDS;
+use lumio_voxel_contracts::voxel_world as vw;
 
 /// Stable world error. `error_id` is always interned from generated `STABLE_ERROR_IDS`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,10 +84,13 @@ impl std::fmt::Display for WorldError {
 
 impl std::error::Error for WorldError {}
 
+/// 收敛到单一 `'static` 实例。两个命名空间都认:体素公共语义走活契约的错误码,
+/// 契约不定义的引擎通用失败仍走废弃镜像的 `STABLE_ERROR_IDS`。
 pub(crate) fn intern_stable(id: &'static str) -> &'static str {
     STABLE_ERROR_IDS
         .iter()
         .copied()
         .find(|candidate| *candidate == id)
-        .expect("mapped error id must exist in generated STABLE_ERROR_IDS")
+        .or_else(|| vw::intern_error_code(id))
+        .expect("mapped error id must be a contract error code or a frozen-mirror stable id")
 }

@@ -27,7 +27,7 @@ impl RetentionFrontier {
             .min_by(|a, b| {
                 a.world_revision
                     .cmp(&b.world_revision)
-                    .then_with(|| a.chunk_revision_set.cmp(&b.chunk_revision_set))
+                    .then_with(|| a.section_revision_set.cmp(&b.section_revision_set))
             })
             .cloned()
     }

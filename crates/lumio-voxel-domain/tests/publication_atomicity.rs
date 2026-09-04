@@ -1,10 +1,6 @@
 //! R-00078: one atomic PublishedState root; capture never mixes cuts.
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkDirectoryRoot, ChunkPage, ChunkPayload,
-    ChunkReplacement, ChunkSlot, DirtyFrontier,
-};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -15,6 +11,10 @@ use lumio_voxel_domain::publication::{
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
     to_generated_stamp,
+};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage,
+    SectionPayload, SectionReplacement, SectionSlot,
 };
 use lumio_voxel_test_support::fault_injection::{FaultInjector, FaultPoint};
 use std::collections::BTreeMap;
@@ -87,23 +87,23 @@ fn stamp_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    chunks: &[(&str, u64)],
+    sections: &[(&str, u64)],
 ) -> GeneratedRevisionStamp {
     let world = world_rev(world_rev_n);
     let mut pairs = Vec::new();
-    for (id, rev) in chunks {
-        let mut chunk_alloc = RevisionAllocator::new();
+    for (id, rev) in sections {
+        let mut section_alloc = RevisionAllocator::new();
         for _ in 0..*rev {
-            chunk_alloc.reserve_chunk().unwrap().abandon();
+            section_alloc.reserve_section().unwrap().abandon();
         }
-        let mut c = chunk_alloc.reserve_chunk().unwrap();
+        let mut c = section_alloc.reserve_section().unwrap();
         pairs.push((id.to_string(), c.finalize().unwrap()));
     }
     to_generated_stamp(world_id, context_id, generation, world, &pairs)
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -112,9 +112,11 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
     .expect("valid dense uncompressed page")
 }
 
-fn directory_with(slot: ChunkSlot) -> ChunkDirectoryRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
-    builder.insert("c:0:0:0", slot).expect("canonical chunk id");
+fn directory_with(slot: SectionSlot) -> SectionDirectoryRoot {
+    let mut builder = SectionDirectoryBuilder::new();
+    builder
+        .insert("s:0:0:0", slot)
+        .expect("canonical section id");
     builder.freeze()
 }
 
@@ -122,8 +124,8 @@ fn frontier(world_id: &str, generation: u64) -> DirtyFrontier {
     DirtyFrontier::new(world_id, generation).expect("non-empty world id")
 }
 
-fn empty_replacement(base: &ChunkDirectoryRoot) -> ChunkReplacement {
-    ChunkDeltaBuilder::new(base)
+fn empty_replacement(base: &SectionDirectoryRoot) -> SectionReplacement {
+    SectionDeltaBuilder::new(base)
         .freeze()
         .expect("empty replacement")
 }
@@ -133,7 +135,7 @@ fn root_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    slot: ChunkSlot,
+    slot: SectionSlot,
     dirty_reason: Option<&str>,
 ) -> PublishedStateRoot {
     let directory = directory_with(slot);
@@ -142,11 +144,11 @@ fn root_at(
         context_id,
         generation,
         world_rev_n,
-        &[("c:0:0:0", world_rev_n)],
+        &[("s:0:0:0", world_rev_n)],
     );
     let dirty = match dirty_reason {
         Some(reason) => frontier(world_id, generation)
-            .record("c:0:0:0", world_rev_n, reason)
+            .record("s:0:0:0", world_rev_n, reason)
             .expect("record dirty"),
         None => frontier(world_id, generation),
     };
@@ -168,7 +170,7 @@ fn authority(
 
 fn presence(view: &PublishedReadView) -> &str {
     view.directory()
-        .lookup("c:0:0:0")
+        .lookup("s:0:0:0")
         .expect("canonical id")
         .expect("slot published")
         .presence()
@@ -176,8 +178,8 @@ fn presence(view: &PublishedReadView) -> &str {
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -189,7 +191,7 @@ fn assert_consistent_cut(view: &PublishedReadView) {
     assert_eq!(view.directory(), view.root().directory());
     assert_eq!(view.dirty_frontier(), view.root().dirty_frontier());
     match view.stamp().world_revision {
-        0 => assert_eq!(presence(view), "NotLoaded"),
+        0 => assert_eq!(presence(view), "Unchanged"),
         1 => assert_eq!(presence(view), "Ready"),
         other => panic!("unexpected published world revision {other}"),
     }
@@ -202,12 +204,12 @@ fn publish_swaps_stamp_and_directory_together() {
     assert_send_sync::<PublishedReadView>();
     assert_send_sync::<PublishedStateRoot>();
 
-    let initial = root_at("world-a", "ctx-1", 1, 0, ChunkSlot::not_loaded(), None);
+    let initial = root_at("world-a", "ctx-1", 1, 0, SectionSlot::unchanged(), None);
     let auth = authority("r00078-atomic", "world-a", "ctx-1", 1, initial);
     let before = auth.capture();
     assert_consistent_cut(&before);
     assert_eq!(before.stamp().world_revision, 0);
-    assert_eq!(presence(&before), "NotLoaded");
+    assert_eq!(presence(&before), "Unchanged");
     assert!(before.root().indexes().is_empty());
     let hash_before = before.root().identity();
 
@@ -216,7 +218,7 @@ fn publish_swaps_stamp_and_directory_together() {
         "ctx-1",
         1,
         1,
-        ChunkSlot::ready(payload(b"cut-1")),
+        SectionSlot::ready(payload(b"cut-1")),
         Some("mutation"),
     );
     let mut prepared = auth
@@ -234,7 +236,7 @@ fn publish_swaps_stamp_and_directory_together() {
     assert_eq!(presence(&published), "Ready");
     assert_ne!(published.root().identity(), hash_before);
     assert_eq!(
-        published.dirty_frontier().reason("c:0:0:0").unwrap(),
+        published.dirty_frontier().reason("s:0:0:0").unwrap(),
         Some("mutation")
     );
 
@@ -245,7 +247,7 @@ fn publish_swaps_stamp_and_directory_together() {
     assert_eq!(after.root().identity(), published.root().identity());
 
     assert_eq!(before.stamp().world_revision, 0);
-    assert_eq!(presence(&before), "NotLoaded");
+    assert_eq!(presence(&before), "Unchanged");
     assert_eq!(before.root().identity(), hash_before);
     assert_ne!(before.stamp(), after.stamp());
     assert_ne!(presence(&before), presence(&after));
@@ -253,7 +255,7 @@ fn publish_swaps_stamp_and_directory_together() {
 
 #[test]
 fn stale_wrong_world_and_double_token_leave_root_hash_unchanged() {
-    let initial = root_at("world-a", "ctx-1", 1, 0, ChunkSlot::not_loaded(), None);
+    let initial = root_at("world-a", "ctx-1", 1, 0, SectionSlot::unchanged(), None);
     let auth = authority("r00078-reject", "world-a", "ctx-1", 1, initial);
     let hash0 = auth.capture().root().identity();
 
@@ -265,7 +267,7 @@ fn stale_wrong_world_and_double_token_leave_root_hash_unchanged() {
                 "ctx-1",
                 1,
                 1,
-                ChunkSlot::ready(payload(b"cut-1")),
+                SectionSlot::ready(payload(b"cut-1")),
                 Some("one"),
             ),
             empty_replacement(auth.capture().directory()),
@@ -281,7 +283,7 @@ fn stale_wrong_world_and_double_token_leave_root_hash_unchanged() {
                 "ctx-1",
                 1,
                 1,
-                ChunkSlot::ready(payload(b"stale")),
+                SectionSlot::ready(payload(b"stale")),
                 Some("stale"),
             ),
             empty_replacement(auth.capture().directory()),
@@ -298,7 +300,7 @@ fn stale_wrong_world_and_double_token_leave_root_hash_unchanged() {
     assert_stable_error(stale_err.error_id());
     assert_eq!(auth.capture().root().identity(), hash1);
 
-    let other_initial = root_at("world-b", "ctx-2", 9, 0, ChunkSlot::not_loaded(), None);
+    let other_initial = root_at("world-b", "ctx-2", 9, 0, SectionSlot::unchanged(), None);
     let other = authority("r00078-other", "world-b", "ctx-2", 9, other_initial);
     let mut foreign_prep = other
         .prepare(
@@ -308,7 +310,7 @@ fn stale_wrong_world_and_double_token_leave_root_hash_unchanged() {
                 "ctx-2",
                 9,
                 1,
-                ChunkSlot::ready(payload(b"foreign")),
+                SectionSlot::ready(payload(b"foreign")),
                 Some("foreign"),
             ),
             empty_replacement(other.capture().directory()),
@@ -321,9 +323,9 @@ fn stale_wrong_world_and_double_token_leave_root_hash_unchanged() {
     assert_eq!(auth.capture().root().identity(), hash1);
     assert_eq!(presence(&auth.capture()), "Ready");
     assert_eq!(other.capture().stamp().world_revision, 0);
-    assert_eq!(presence(&other.capture()), "NotLoaded");
+    assert_eq!(presence(&other.capture()), "Unchanged");
 
-    let gen_initial = root_at("world-a", "ctx-1", 2, 0, ChunkSlot::not_loaded(), None);
+    let gen_initial = root_at("world-a", "ctx-1", 2, 0, SectionSlot::unchanged(), None);
     let newer_gen = authority("r00078-gen", "world-a", "ctx-1", 2, gen_initial);
     let mut gen_prep = newer_gen
         .prepare(
@@ -333,7 +335,7 @@ fn stale_wrong_world_and_double_token_leave_root_hash_unchanged() {
                 "ctx-1",
                 2,
                 1,
-                ChunkSlot::ready(payload(b"gen")),
+                SectionSlot::ready(payload(b"gen")),
                 Some("gen"),
             ),
             empty_replacement(newer_gen.capture().directory()),
@@ -353,7 +355,7 @@ fn stale_wrong_world_and_double_token_leave_root_hash_unchanged() {
                 "ctx-1",
                 1,
                 2,
-                ChunkSlot::pending(),
+                SectionSlot::pending(),
                 Some("double"),
             ),
             empty_replacement(auth.capture().directory()),
@@ -367,7 +369,7 @@ fn stale_wrong_world_and_double_token_leave_root_hash_unchanged() {
     drop(first_seal);
     assert_eq!(auth.capture().root().identity(), hash1);
 
-    let foreign_stamp = root_at("world-b", "ctx-9", 1, 1, ChunkSlot::pending(), None);
+    let foreign_stamp = root_at("world-b", "ctx-9", 1, 1, SectionSlot::pending(), None);
     let rejected_prepare = auth
         .prepare(
             world_rev(1),
@@ -387,25 +389,25 @@ fn two_authorities_do_not_share_root_arc() {
         "world-a",
         "ctx-a",
         3,
-        root_at("world-a", "ctx-a", 3, 0, ChunkSlot::not_loaded(), None),
+        root_at("world-a", "ctx-a", 3, 0, SectionSlot::unchanged(), None),
     );
     let b = authority(
         "r00078-b",
         "world-b",
         "ctx-b",
         4,
-        root_at("world-b", "ctx-b", 4, 0, ChunkSlot::unavailable(), None),
+        root_at("world-b", "ctx-b", 4, 0, SectionSlot::unavailable(), None),
     );
 
     let view_a = a.capture();
     let view_b = b.capture();
     assert!(!Arc::ptr_eq(&view_a.root_arc(), &view_b.root_arc()));
     assert_ne!(view_a.root().identity(), view_b.root().identity());
-    assert_eq!(presence(&view_a), "NotLoaded");
+    assert_eq!(presence(&view_a), "Unchanged");
     assert_eq!(
         view_b
             .directory()
-            .lookup("c:0:0:0")
+            .lookup("s:0:0:0")
             .unwrap()
             .unwrap()
             .presence(),
@@ -420,7 +422,7 @@ fn two_authorities_do_not_share_root_arc() {
                 "ctx-a",
                 3,
                 1,
-                ChunkSlot::ready(payload(b"only-a")),
+                SectionSlot::ready(payload(b"only-a")),
                 Some("a"),
             ),
             empty_replacement(view_a.directory()),
@@ -438,7 +440,7 @@ fn two_authorities_do_not_share_root_arc() {
     assert_eq!(
         after_b
             .directory()
-            .lookup("c:0:0:0")
+            .lookup("s:0:0:0")
             .unwrap()
             .unwrap()
             .presence(),
@@ -455,7 +457,7 @@ fn seal_tokens_are_unique_and_used_ids_cannot_publish() {
         "world-a",
         "ctx-1",
         1,
-        root_at("world-a", "ctx-1", 1, 0, ChunkSlot::not_loaded(), None),
+        root_at("world-a", "ctx-1", 1, 0, SectionSlot::unchanged(), None),
     );
     let hash0 = auth.capture().root().identity();
     let base = auth.capture();
@@ -468,7 +470,7 @@ fn seal_tokens_are_unique_and_used_ids_cannot_publish() {
                 "ctx-1",
                 1,
                 1,
-                ChunkSlot::ready(payload(b"token-a")),
+                SectionSlot::ready(payload(b"token-a")),
                 Some("a"),
             ),
             empty_replacement(base.directory()),
@@ -477,7 +479,7 @@ fn seal_tokens_are_unique_and_used_ids_cannot_publish() {
     let mut prep_b = auth
         .prepare(
             world_rev(1),
-            root_at("world-a", "ctx-1", 1, 1, ChunkSlot::pending(), Some("b")),
+            root_at("world-a", "ctx-1", 1, 1, SectionSlot::pending(), Some("b")),
             empty_replacement(base.directory()),
         )
         .expect("prepare B");
@@ -508,7 +510,7 @@ fn seal_tokens_are_unique_and_used_ids_cannot_publish() {
                 "ctx-1",
                 1,
                 2,
-                ChunkSlot::unavailable(),
+                SectionSlot::unavailable(),
                 Some("c"),
             ),
             empty_replacement(auth.capture().directory()),
@@ -529,7 +531,7 @@ fn concurrent_captures_see_complete_old_or_complete_new() {
         "world-a",
         "ctx-1",
         1,
-        root_at("world-a", "ctx-1", 1, 0, ChunkSlot::not_loaded(), None),
+        root_at("world-a", "ctx-1", 1, 0, SectionSlot::unchanged(), None),
     ));
     let start = Arc::new(Barrier::new(5));
     let mut readers = Vec::new();
@@ -561,7 +563,7 @@ fn concurrent_captures_see_complete_old_or_complete_new() {
                         "ctx-1",
                         1,
                         1,
-                        ChunkSlot::ready(payload(b"racy")),
+                        SectionSlot::ready(payload(b"racy")),
                         Some("race"),
                     ),
                     empty_replacement(auth.capture().directory()),
@@ -590,7 +592,7 @@ fn publish_under_fault(
     injector: &mut FaultInjector,
     target: WorldRevision,
     new_root: PublishedStateRoot,
-    replacement: ChunkReplacement,
+    replacement: SectionReplacement,
 ) -> Result<(), &'static str> {
     let mut prepared = auth
         .prepare(target, new_root, replacement)
@@ -603,14 +605,14 @@ fn publish_under_fault(
     Ok(())
 }
 
-fn next_cut(base: &PublishedReadView) -> (PublishedStateRoot, ChunkReplacement) {
+fn next_cut(base: &PublishedReadView) -> (PublishedStateRoot, SectionReplacement) {
     (
         root_at(
             "world-a",
             "ctx-1",
             1,
             1,
-            ChunkSlot::ready(payload(b"cut-1")),
+            SectionSlot::ready(payload(b"cut-1")),
             Some("mutation"),
         ),
         empty_replacement(base.directory()),
@@ -619,7 +621,7 @@ fn next_cut(base: &PublishedReadView) -> (PublishedStateRoot, ChunkReplacement) 
 
 #[test]
 fn injected_pre_publication_fault_leaves_the_published_cut_untouched() {
-    let initial = root_at("world-a", "ctx-1", 1, 0, ChunkSlot::not_loaded(), None);
+    let initial = root_at("world-a", "ctx-1", 1, 0, SectionSlot::unchanged(), None);
     let auth = authority("r00078-fault-pre", "world-a", "ctx-1", 1, initial);
     let before = auth.capture();
     let hash_before = before.root().identity();
@@ -651,7 +653,7 @@ fn injected_pre_publication_fault_leaves_the_published_cut_untouched() {
 
 #[test]
 fn injected_post_publication_fault_does_not_roll_the_visible_cut_back() {
-    let initial = root_at("world-a", "ctx-1", 1, 0, ChunkSlot::not_loaded(), None);
+    let initial = root_at("world-a", "ctx-1", 1, 0, SectionSlot::unchanged(), None);
     let auth = authority("r00078-fault-post", "world-a", "ctx-1", 1, initial);
     let before = auth.capture();
     let hash_before = before.root().identity();

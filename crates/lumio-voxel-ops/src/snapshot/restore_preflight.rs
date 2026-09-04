@@ -10,7 +10,7 @@ use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SNAPSHOT_MAGIC};
 use lumio_voxel_domain::config_snapshot::VoxelConfigSnapshot;
 use std::collections::BTreeMap;
 
-const CHUNK_REVISION_PREFIX: &str = "chunkRevision.";
+const SECTION_REVISION_PREFIX: &str = "sectionRevision.";
 
 /// Stable restore/preflight error. `error_id` is interned from generated ids.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,7 +81,7 @@ pub struct DecodedRestore {
     context_id: String,
     generation: u64,
     world_revision: u64,
-    chunk_revision_set: BTreeMap<String, u64>,
+    section_revision_set: BTreeMap<String, u64>,
     config_hash: String,
     root_identity: [u8; 32],
 }
@@ -103,8 +103,8 @@ impl DecodedRestore {
         self.world_revision
     }
 
-    pub fn chunk_revision_set(&self) -> &BTreeMap<String, u64> {
-        &self.chunk_revision_set
+    pub fn section_revision_set(&self) -> &BTreeMap<String, u64> {
+        &self.section_revision_set
     }
 
     pub fn config_hash(&self) -> &str {
@@ -174,14 +174,14 @@ impl RestorePreflight {
         let root_hex = require_text(&fields, "rootIdentity")?;
         let root_identity = parse_hex32(&root_hex)?;
 
-        let chunk_revision_set = collect_chunk_revisions(&fields)?;
+        let section_revision_set = collect_section_revisions(&fields)?;
 
         Ok(DecodedRestore {
             world_id,
             context_id,
             generation,
             world_revision,
-            chunk_revision_set,
+            section_revision_set,
             config_hash,
             root_identity,
         })
@@ -205,27 +205,27 @@ fn require_uint(fields: &CanonicalObject, key: &str) -> Result<u64, RestoreError
         .ok_or_else(RestoreError::invalid_handle)
 }
 
-fn collect_chunk_revisions(
+fn collect_section_revisions(
     fields: &CanonicalObject,
 ) -> Result<BTreeMap<String, u64>, RestoreError> {
-    let mut chunks = BTreeMap::new();
+    let mut sections = BTreeMap::new();
     for (key, value) in fields.members() {
-        if !key.starts_with(CHUNK_REVISION_PREFIX) {
+        if !key.starts_with(SECTION_REVISION_PREFIX) {
             if !is_known_field(key) {
                 return Err(RestoreError::manifest_unsupported_version());
             }
             continue;
         }
-        let chunk_id = &key[CHUNK_REVISION_PREFIX.len()..];
-        if chunk_id.is_empty() {
+        let section_id = &key[SECTION_REVISION_PREFIX.len()..];
+        if section_id.is_empty() {
             return Err(RestoreError::invalid_handle());
         }
         let revision = value.as_uint().ok_or_else(RestoreError::invalid_handle)?;
-        if chunks.insert(chunk_id.to_string(), revision).is_some() {
+        if sections.insert(section_id.to_string(), revision).is_some() {
             return Err(RestoreError::invalid_handle());
         }
     }
-    Ok(chunks)
+    Ok(sections)
 }
 
 fn is_known_field(key: &str) -> bool {

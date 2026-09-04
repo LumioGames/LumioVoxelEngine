@@ -11,13 +11,9 @@ use crate::b2_harness::{B2VerificationReport, run_b2_matrix};
 use crate::deterministic_executor::{DeterministicExecutor, Schedule};
 use crate::reference_harness::GeneratedVoxelOperation;
 use crate::workspace_root_from_manifest;
+use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
 use lumio_voxel_contracts::{
-    BASELINE_ID, CHUNK_PRESENCE, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256,
-    verify_artifact_hashes,
-};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkDirectoryRoot, ChunkPage, ChunkPayload,
-    ChunkReplacement, ChunkSlot, CoveredChunkAck, DirtyFrontier, DurabilityAckContext,
+    BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256, verify_artifact_hashes,
 };
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
@@ -26,6 +22,11 @@ use lumio_voxel_domain::config_snapshot::{
 use lumio_voxel_domain::publication::PublishedStateRoot;
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
+};
+use lumio_voxel_domain::section::{
+    CoveredSectionAck, DirtyFrontier, DurabilityAckContext, SectionDeltaBuilder,
+    SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage, SectionPayload, SectionReplacement,
+    SectionSlot,
 };
 use lumio_voxel_ops::SNAPSHOT_FEATURE;
 use lumio_voxel_ops::async_support::{APPLY_PHASES, OriginEnvelope, OriginToken};
@@ -73,7 +74,7 @@ const STEPS: [(&str, &str); STEP_COUNT] = [
 const SEED_A: u64 = 0x00A1_1CE0;
 const SEED_B: u64 = 0x00B0_5EED;
 
-const FOUR_STATE_IDS: [&str; 5] = ["c:4:0:0", "c:3:0:0", "c:2:0:0", "c:1:0:0", "c:0:0:0"];
+const FOUR_STATE_IDS: [&str; 5] = ["s:4:0:0", "s:3:0:0", "s:2:0:0", "s:1:0:0", "s:0:0:0"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MvpStepResult {
@@ -238,7 +239,7 @@ fn step_create(report: &mut MvpIntegrationReport) -> Result<LiveSlice, String> {
     if !std::ptr::eq(adapter_schema, interned_schema) {
         return Err("adapter.schema_id is not interned SCHEMA_IDS".into());
     }
-    let replica_query = query_envelope(&replica, "q-replica", &["c:0:0:0"])?;
+    let replica_query = query_envelope(&replica, "q-replica", &["s:0:0:0"])?;
     let replica_items = {
         let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut replica);
         adapter
@@ -249,7 +250,7 @@ fn step_create(report: &mut MvpIntegrationReport) -> Result<LiveSlice, String> {
         .commands
         .push("GeneratedVoxelWorldPortAdapter::query Replica".into());
     if replica_items.payload.items().len() != 1
-        || replica_items.payload.items()[0].presence() != "NotLoaded"
+        || replica_items.payload.items()[0].presence() != "Unchanged"
     {
         return Err("replica query implicit-loaded an empty directory".into());
     }
@@ -273,8 +274,8 @@ fn step_create(report: &mut MvpIntegrationReport) -> Result<LiveSlice, String> {
 
 fn step_query(live: &mut LiveSlice, report: &mut MvpIntegrationReport) -> Result<String, String> {
     require_schema(QUERY_SCHEMA)?;
-    if CHUNK_PRESENCE != ["Ready", "NotLoaded", "Pending", "Unavailable"] {
-        return Err(format!("CHUNK_PRESENCE {CHUNK_PRESENCE:?}"));
+    if SECTION_PRESENCE != ["Ready", "Unchanged", "Pending", "Unavailable"] {
+        return Err(format!("SECTION_PRESENCE {SECTION_PRESENCE:?}"));
     }
     // Adapter mutation cannot insert Pending/Unavailable; this fixture is the B2 helper.
     seed_four_state(&live.authority)?;
@@ -296,26 +297,26 @@ fn step_query(live: &mut LiveSlice, report: &mut MvpIntegrationReport) -> Result
         return Err("query mutated the published identity".into());
     }
     let expected = [
-        ("c:0:0:0", "Ready", true),
-        ("c:1:0:0", "NotLoaded", false),
-        ("c:2:0:0", "Pending", false),
-        ("c:3:0:0", "Unavailable", false),
-        ("c:4:0:0", "NotLoaded", false),
+        ("s:0:0:0", "Ready", true),
+        ("s:1:0:0", "Unchanged", false),
+        ("s:2:0:0", "Pending", false),
+        ("s:3:0:0", "Unavailable", false),
+        ("s:4:0:0", "Unchanged", false),
     ];
     if outcome.payload.items().len() != expected.len() {
         return Err(format!("item count {}", outcome.payload.items().len()));
     }
     for (item, (id, presence, ready)) in outcome.payload.items().iter().zip(expected) {
         intern_presence(item.presence())?;
-        if item.chunk_id() != id || item.presence() != presence {
+        if item.section_id() != id || item.presence() != presence {
             return Err(format!(
                 "{} mapped to {} not {presence}",
-                item.chunk_id(),
+                item.section_id(),
                 item.presence()
             ));
         }
         if (item.presence() == "Ready") != ready {
-            return Err(format!("{} ready flag", item.chunk_id()));
+            return Err(format!("{} ready flag", item.section_id()));
         }
         if ready {
             let schema = item
@@ -323,11 +324,11 @@ fn step_query(live: &mut LiveSlice, report: &mut MvpIntegrationReport) -> Result
                 .ok_or_else(|| "Ready missing schema_id".to_string())?;
             require_schema(schema)?;
         } else if item.schema_id().is_some() {
-            return Err(format!("{} leaked schema_id", item.chunk_id()));
+            return Err(format!("{} leaked schema_id", item.section_id()));
         }
     }
     live.authority_refresh(report);
-    Ok("four-state query via adapter; absent id NotLoaded; no implicit load".into())
+    Ok("four-state query via adapter; absent id Unchanged; no implicit load".into())
 }
 
 fn step_prepare(
@@ -338,7 +339,7 @@ fn step_prepare(
     let envelope = mutation_envelope(
         &live.authority,
         "txn-mvp",
-        &[("c:0:0:0/cell-0", "mvp-edit")],
+        &[("s:0:0:0/cell-0", "mvp-edit")],
     )?;
     live.mutation = Some(envelope.clone());
     let prepared = {
@@ -531,7 +532,7 @@ fn step_restore(
     }
     report.restored_hash = receipt.new_root();
     live.authority_refresh(report);
-    Ok("restore swapped a new identity (NotLoaded rematerialize)".into())
+    Ok("restore swapped a new identity (Unchanged rematerialize)".into())
 }
 
 fn step_durability_ack(
@@ -540,14 +541,14 @@ fn step_durability_ack(
 ) -> Result<String, String> {
     require_schema("voxel-durability-ack")?;
     // RestoreShadowBuilder publishes an empty dirty frontier; re-seed Ready then mutate.
-    seed_ready(&live.authority, &["c:0:0:0"])?;
+    seed_ready(&live.authority, &["s:0:0:0"])?;
     report
         .commands
         .push("seed_ready after restore for DurabilityAck dirty".into());
     let dirty_env = mutation_envelope(
         &live.authority,
         "txn-mvp-ack",
-        &[("c:0:0:0/cell-1", "mvp-ack-edit")],
+        &[("s:0:0:0/cell-1", "mvp-ack-edit")],
     )?;
     let dirty_receipt = {
         let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut live.authority);
@@ -563,12 +564,12 @@ fn step_durability_ack(
         .push("GeneratedVoxelWorldPortAdapter::prepare_mutation/commit (ack dirty)".into());
     push_receipt(report, &dirty_receipt.payload);
     let latest =
-        latest_dirty(&live.authority, "c:0:0:0")?.ok_or_else(|| "chunk not dirty".to_string())?;
+        latest_dirty(&live.authority, "s:0:0:0")?.ok_or_else(|| "section not dirty".to_string())?;
     if latest == 0 {
         return Err("no older revision available for a stale ack".into());
     }
     let before = identity_of(&live.authority);
-    let old: AckEvidence = ack_for(&live.authority, &[("c:0:0:0", latest - 1)]);
+    let old: AckEvidence = ack_for(&live.authority, &[("s:0:0:0", latest - 1)]);
     let old_receipt = {
         let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut live.authority);
         adapter
@@ -582,12 +583,12 @@ fn step_durability_ack(
         || old_receipt.old_root() != before
         || old_receipt.new_root() != before
         || identity_of(&live.authority) != before
-        || latest_dirty(&live.authority, "c:0:0:0")? != Some(latest)
+        || latest_dirty(&live.authority, "s:0:0:0")? != Some(latest)
     {
         return Err("old ack cleared newer dirty".into());
     }
 
-    let covering: AckEvidence = ack_for(&live.authority, &[("c:0:0:0", latest)]);
+    let covering: AckEvidence = ack_for(&live.authority, &[("s:0:0:0", latest)]);
     let receipt = {
         let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut live.authority);
         adapter
@@ -601,7 +602,7 @@ fn step_durability_ack(
         return Err("covering ack did not publish a new identity".into());
     }
     if identity_of(&live.authority) != receipt.new_root()
-        || latest_dirty(&live.authority, "c:0:0:0")?.is_some()
+        || latest_dirty(&live.authority, "s:0:0:0")?.is_some()
     {
         return Err("covering ack left dirty in place".into());
     }
@@ -610,7 +611,7 @@ fn step_durability_ack(
 }
 
 fn step_close(live: &mut LiveSlice, report: &mut MvpIntegrationReport) -> Result<String, String> {
-    let stale_query = query_envelope(&live.authority, "q-stale-close", &["c:0:0:0"])?;
+    let stale_query = query_envelope(&live.authority, "q-stale-close", &["s:0:0:0"])?;
     let before_gen = live.authority.generation_guard().generation();
     let before_id = identity_of(&live.authority);
     {
@@ -922,7 +923,7 @@ fn drive_to_running(
 fn query_envelope(
     world: &VoxelWorld,
     query_id: &str,
-    chunks: &[&str],
+    sections: &[&str],
 ) -> Result<OriginEnvelope<GeneratedVoxelQueryRequest>, String> {
     let view = world.state_view();
     Ok(OriginEnvelope {
@@ -932,7 +933,10 @@ fn query_envelope(
             query_id: query_id.to_string(),
             world_id: view.world_id().to_string(),
             context: view.world_context_id().to_string(),
-            chunk_ids: chunks.iter().map(|chunk| (*chunk).to_string()).collect(),
+            section_ids: sections
+                .iter()
+                .map(|section| (*section).to_string())
+                .collect(),
             cancel: false,
         },
     })
@@ -975,8 +979,8 @@ fn world_rev(n: u64) -> WorldRevision {
     reserved.finalize().unwrap()
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -985,8 +989,8 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
     .expect("valid dense uncompressed page")
 }
 
-fn empty_replacement(base: &ChunkDirectoryRoot) -> ChunkReplacement {
-    ChunkDeltaBuilder::new(base)
+fn empty_replacement(base: &SectionDirectoryRoot) -> SectionReplacement {
+    SectionDeltaBuilder::new(base)
         .freeze()
         .expect("empty replacement")
 }
@@ -995,22 +999,22 @@ fn seed_four_state(world: &VoxelWorld) -> Result<(), String> {
     let view = world.state_view();
     let before = world.publication_authority().capture();
     let next = before.stamp().world_revision + 1;
-    let mut builder = ChunkDirectoryBuilder::new();
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", ChunkSlot::ready(payload(b"mvp-ready")))
+        .insert("s:0:0:0", SectionSlot::ready(payload(b"mvp-ready")))
         .map_err(|err| format!("insert Ready: {}", err.error_id()))?;
     builder
-        .insert("c:1:0:0", ChunkSlot::not_loaded())
-        .map_err(|err| format!("insert NotLoaded: {}", err.error_id()))?;
+        .insert("s:1:0:0", SectionSlot::unchanged())
+        .map_err(|err| format!("insert Unchanged: {}", err.error_id()))?;
     builder
-        .insert("c:2:0:0", ChunkSlot::pending())
+        .insert("s:2:0:0", SectionSlot::pending())
         .map_err(|err| format!("insert Pending: {}", err.error_id()))?;
     builder
-        .insert("c:3:0:0", ChunkSlot::unavailable())
+        .insert("s:3:0:0", SectionSlot::unavailable())
         .map_err(|err| format!("insert Unavailable: {}", err.error_id()))?;
-    let mut chunk_revision_set = BTreeMap::new();
-    for id in ["c:0:0:0", "c:1:0:0", "c:2:0:0", "c:3:0:0"] {
-        chunk_revision_set.insert(id.to_string(), next);
+    let mut section_revision_set = BTreeMap::new();
+    for id in ["s:0:0:0", "s:1:0:0", "s:2:0:0", "s:3:0:0"] {
+        section_revision_set.insert(id.to_string(), next);
     }
     let stamp = GeneratedRevisionStamp {
         schema_id: REVISION_STAMP_SCHEMA,
@@ -1018,7 +1022,7 @@ fn seed_four_state(world: &VoxelWorld) -> Result<(), String> {
         context_id: view.world_context_id().to_string(),
         generation: view.instance_generation(),
         world_revision: next,
-        chunk_revision_set,
+        section_revision_set,
     };
     let dirty = DirtyFrontier::new(view.world_id(), view.instance_generation())
         .map_err(|err| err.error_id().to_string())?;
@@ -1042,17 +1046,17 @@ fn seed_four_state(world: &VoxelWorld) -> Result<(), String> {
     Ok(())
 }
 
-fn seed_ready(world: &VoxelWorld, chunks: &[&str]) -> Result<(), String> {
+fn seed_ready(world: &VoxelWorld, sections: &[&str]) -> Result<(), String> {
     let view = world.state_view();
     let before = world.publication_authority().capture();
     let next = before.stamp().world_revision + 1;
-    let mut builder = ChunkDirectoryBuilder::new();
-    let mut chunk_revision_set = BTreeMap::new();
-    for id in chunks {
+    let mut builder = SectionDirectoryBuilder::new();
+    let mut section_revision_set = BTreeMap::new();
+    for id in sections {
         builder
-            .insert(id, ChunkSlot::ready(payload(id.as_bytes())))
+            .insert(id, SectionSlot::ready(payload(id.as_bytes())))
             .map_err(|err| format!("seed {id}: {}", err.error_id()))?;
-        chunk_revision_set.insert((*id).to_string(), next);
+        section_revision_set.insert((*id).to_string(), next);
     }
     let stamp = GeneratedRevisionStamp {
         schema_id: REVISION_STAMP_SCHEMA,
@@ -1060,7 +1064,7 @@ fn seed_ready(world: &VoxelWorld, chunks: &[&str]) -> Result<(), String> {
         context_id: view.world_context_id().to_string(),
         generation: view.instance_generation(),
         world_revision: next,
-        chunk_revision_set,
+        section_revision_set,
     };
     let dirty = DirtyFrontier::new(view.world_id(), view.instance_generation())
         .map_err(|err| err.error_id().to_string())?;
@@ -1084,7 +1088,7 @@ fn seed_ready(world: &VoxelWorld, chunks: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
-fn ack_for(world: &VoxelWorld, chunks: &[(&str, u64)]) -> AckEvidence {
+fn ack_for(world: &VoxelWorld, sections: &[(&str, u64)]) -> AckEvidence {
     let view = world.state_view();
     AckEvidence {
         kind: "DurabilityAck".to_string(),
@@ -1098,22 +1102,22 @@ fn ack_for(world: &VoxelWorld, chunks: &[(&str, u64)]) -> AckEvidence {
             .capture()
             .stamp()
             .world_revision,
-        covered_chunks: chunks
+        covered_sections: sections
             .iter()
-            .map(|(id, rev)| CoveredChunkAck {
-                chunk_id: (*id).to_string(),
-                up_to_chunk_revision: *rev,
+            .map(|(id, rev)| CoveredSectionAck {
+                section_id: (*id).to_string(),
+                up_to_section_revision: *rev,
             })
             .collect(),
     }
 }
 
-fn latest_dirty(world: &VoxelWorld, chunk_id: &str) -> Result<Option<u64>, String> {
+fn latest_dirty(world: &VoxelWorld, section_id: &str) -> Result<Option<u64>, String> {
     world
         .publication_authority()
         .capture()
         .dirty_frontier()
-        .latest_revision(chunk_id)
+        .latest_revision(section_id)
         .map_err(|err| err.error_id().to_string())
 }
 
@@ -1130,11 +1134,11 @@ fn intern_schema(id: &str) -> Result<&'static str, String> {
 }
 
 fn intern_presence(name: &str) -> Result<&'static str, String> {
-    CHUNK_PRESENCE
+    SECTION_PRESENCE
         .iter()
         .copied()
         .find(|item| *item == name)
-        .ok_or_else(|| format!("{name} missing from CHUNK_PRESENCE"))
+        .ok_or_else(|| format!("{name} missing from SECTION_PRESENCE"))
 }
 
 fn require_schema(id: &str) -> Result<(), String> {
@@ -1142,10 +1146,12 @@ fn require_schema(id: &str) -> Result<(), String> {
 }
 
 fn require_stable(id: &str) -> Result<(), String> {
-    if STABLE_ERROR_IDS.contains(&id) {
+    if is_stable_error_id(id) {
         Ok(())
     } else {
-        Err(format!("{id} is not in STABLE_ERROR_IDS"))
+        Err(format!(
+            "{id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
+        ))
     }
 }
 

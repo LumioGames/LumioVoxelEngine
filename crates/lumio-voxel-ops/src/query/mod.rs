@@ -1,25 +1,26 @@
 //! Deterministic query planner and adapter-internal budget admission (R-00080).
 //!
 //! Production code must not depend on `lumio-voxel-test-support`.
-//! The planner does not read chunk payload, stream, or load.
+//! The planner does not read section payload, stream, or load.
 
 #![forbid(unsafe_code)]
 
 mod budget;
-mod chunk_access;
 mod execute;
 mod plan;
 mod result_assembly;
+mod section_access;
 mod validate;
 
 pub use budget::BUDGET_FAMILY;
-pub use chunk_access::ChunkAccessResult;
 pub use execute::QueryExecutor;
 pub use plan::{QueryPlan, QueryPlanner};
 pub use result_assembly::{GeneratedVoxelQueryOutcome, QueryEvidence};
+pub use section_access::SectionAccessResult;
 pub use validate::GeneratedVoxelQueryRequest;
 
 use lumio_voxel_contracts::{SCHEMA_IDS, STABLE_ERROR_IDS};
+use lumio_voxel_domain::key::KeyError;
 
 /// Generated schema this mapping wraps. Must stay in `SCHEMA_IDS`.
 pub const QUERY_SCHEMA: &str = "voxel-query";
@@ -40,9 +41,10 @@ impl QueryError {
         }
     }
 
-    pub(super) fn coordinate_out_of_bounds() -> Self {
+    /// 直接透传键解析给出的契约错误码。
+    pub(super) fn from_key(err: KeyError) -> Self {
         Self {
-            error_id: stable("CoordinateOutOfBounds"),
+            error_id: err.error_id(),
         }
     }
 

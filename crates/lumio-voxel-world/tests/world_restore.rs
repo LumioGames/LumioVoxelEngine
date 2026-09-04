@@ -1,10 +1,6 @@
 //! R-00136: preflight + shadow root + atomic restore publish.
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, STABLE_ERROR_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkReplacement, ChunkSlot,
-    DirtyFrontier,
-};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -12,6 +8,10 @@ use lumio_voxel_domain::config_snapshot::{
 use lumio_voxel_domain::publication::PublishedStateRoot;
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
+};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionPage, SectionPayload,
+    SectionReplacement, SectionSlot,
 };
 use lumio_voxel_ops::async_support::OriginToken;
 use lumio_voxel_ops::snapshot::{
@@ -154,8 +154,8 @@ fn world_rev(n: u64) -> WorldRevision {
     reserved.finalize().unwrap()
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -164,8 +164,10 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
     .expect("valid dense uncompressed page")
 }
 
-fn empty_replacement(base: &lumio_voxel_domain::chunk::ChunkDirectoryRoot) -> ChunkReplacement {
-    ChunkDeltaBuilder::new(base)
+fn empty_replacement(
+    base: &lumio_voxel_domain::section::SectionDirectoryRoot,
+) -> SectionReplacement {
+    SectionDeltaBuilder::new(base)
         .freeze()
         .expect("empty replacement")
 }
@@ -175,11 +177,13 @@ fn root_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    slot: ChunkSlot,
+    slot: SectionSlot,
     dirty_reason: Option<&str>,
 ) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
-    builder.insert("c:0:0:0", slot).expect("canonical chunk id");
+    let mut builder = SectionDirectoryBuilder::new();
+    builder
+        .insert("s:0:0:0", slot)
+        .expect("canonical section id");
     let directory = builder.freeze();
     let stamp = GeneratedRevisionStamp {
         schema_id: REVISION_STAMP_SCHEMA,
@@ -187,12 +191,12 @@ fn root_at(
         context_id: context_id.to_string(),
         generation,
         world_revision: world_rev_n,
-        chunk_revision_set: BTreeMap::from([("c:0:0:0".to_string(), world_rev_n)]),
+        section_revision_set: BTreeMap::from([("s:0:0:0".to_string(), world_rev_n)]),
     };
     let dirty = match dirty_reason {
         Some(reason) => DirtyFrontier::new(world_id, generation)
             .expect("world id")
-            .record("c:0:0:0", world_rev_n, reason)
+            .record("s:0:0:0", world_rev_n, reason)
             .expect("record dirty"),
         None => DirtyFrontier::new(world_id, generation).expect("world id"),
     };
@@ -222,7 +226,7 @@ fn encode_bytes(capture: &VoxelCaptureRef) -> Vec<u8> {
     writer.as_slice().to_vec()
 }
 
-fn publish_ready_chunk(world: &VoxelWorld) {
+fn publish_ready_section(world: &VoxelWorld) {
     let view = world.state_view();
     let before = world.publication_authority().capture();
     let later = root_at(
@@ -230,7 +234,7 @@ fn publish_ready_chunk(world: &VoxelWorld) {
         view.world_context_id(),
         view.instance_generation(),
         1,
-        ChunkSlot::ready(payload(b"restore-src")),
+        SectionSlot::ready(payload(b"restore-src")),
         Some("mutation"),
     );
     let mut prepared = world
@@ -245,8 +249,8 @@ fn publish_ready_chunk(world: &VoxelWorld) {
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -260,7 +264,7 @@ fn restore_roundtrip_replaces_identity_and_matches_decoded_stamp() {
         "r00136-happy",
     );
     drive_to_running(&mut world);
-    publish_ready_chunk(&world);
+    publish_ready_section(&world);
     let before = identity_of(&world);
     let lifecycle_before = world.state_view().lifecycle();
     let capture = capture_of(&world, snap.config_hash());
@@ -295,16 +299,16 @@ fn restore_roundtrip_replaces_identity_and_matches_decoded_stamp() {
     assert_eq!(view.stamp().generation, decoded.generation());
     assert_eq!(view.stamp().world_revision, decoded.world_revision());
     assert_eq!(
-        view.stamp().chunk_revision_set,
-        *decoded.chunk_revision_set()
+        view.stamp().section_revision_set,
+        *decoded.section_revision_set()
     );
     assert_eq!(
         view.directory()
-            .lookup("c:0:0:0")
+            .lookup("s:0:0:0")
             .expect("lookup")
             .expect("slot")
             .presence(),
-        "NotLoaded"
+        "Unchanged"
     );
     assert_eq!(
         view.dirty_frontier(),

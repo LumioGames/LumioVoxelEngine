@@ -1,15 +1,15 @@
-//! Monotonic World/Chunk revision allocator (R-00070).
+//! Monotonic World/Section revision allocator (R-00070).
 
 #![allow(dead_code)]
 
 use lumio_voxel_contracts::STABLE_ERROR_IDS;
 
-/// World and Chunk revision domains are separate generated integers (min 0).
+/// World and Section revision domains are separate generated integers (min 0).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WorldRevision(u64);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ChunkRevision(u64);
+pub struct SectionRevision(u64);
 
 impl WorldRevision {
     pub fn value(self) -> u64 {
@@ -17,7 +17,7 @@ impl WorldRevision {
     }
 }
 
-impl ChunkRevision {
+impl SectionRevision {
     pub fn value(self) -> u64 {
         self.0
     }
@@ -88,7 +88,7 @@ impl<T: Copy> RevisionReservation<T> {
 #[derive(Debug)]
 pub struct RevisionAllocator {
     next_world: u64,
-    next_chunk: u64,
+    next_section: u64,
 }
 
 impl Default for RevisionAllocator {
@@ -101,7 +101,7 @@ impl RevisionAllocator {
     pub fn new() -> Self {
         Self {
             next_world: 0,
-            next_chunk: 0,
+            next_section: 0,
         }
     }
 
@@ -118,14 +118,16 @@ impl RevisionAllocator {
         })
     }
 
-    pub fn reserve_chunk(&mut self) -> Result<RevisionReservation<ChunkRevision>, RevisionError> {
-        let v = self.next_chunk;
+    pub fn reserve_section(
+        &mut self,
+    ) -> Result<RevisionReservation<SectionRevision>, RevisionError> {
+        let v = self.next_section;
         let next = v.checked_add(1).ok_or(RevisionError::Overflow {
             error_id: stable("InvalidHandle"),
         })?;
-        self.next_chunk = next;
+        self.next_section = next;
         Ok(RevisionReservation {
-            value: ChunkRevision(v),
+            value: SectionRevision(v),
             finalized: false,
             abandoned: false,
         })
@@ -140,13 +142,13 @@ mod overflow_tests {
     fn overflow_fails_before_any_visible_write() {
         let mut a = RevisionAllocator {
             next_world: u64::MAX,
-            next_chunk: u64::MAX,
+            next_section: u64::MAX,
         };
         let err = a.reserve_world().unwrap_err();
         assert_eq!(err.error_id(), "InvalidHandle");
         assert_eq!(a.next_world, u64::MAX);
-        let err = a.reserve_chunk().unwrap_err();
+        let err = a.reserve_section().unwrap_err();
         assert_eq!(err.error_id(), "InvalidHandle");
-        assert_eq!(a.next_chunk, u64::MAX);
+        assert_eq!(a.next_section, u64::MAX);
     }
 }

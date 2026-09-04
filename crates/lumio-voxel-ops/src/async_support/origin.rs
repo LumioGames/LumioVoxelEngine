@@ -26,7 +26,7 @@ pub struct OriginToken {
     instance_generation: u64,
     request_id: String,
     input_world_revision: u64,
-    input_chunk_revision_set: BTreeMap<String, u64>,
+    input_section_revision_set: BTreeMap<String, u64>,
     apply_phase: &'static str,
 }
 
@@ -47,7 +47,7 @@ impl OriginToken {
         instance_generation: u64,
         request_id: impl Into<String>,
         input_world_revision: u64,
-        input_chunk_revision_set: BTreeMap<String, u64>,
+        input_section_revision_set: BTreeMap<String, u64>,
         apply_phase: &'static str,
     ) -> Result<Self, OriginError> {
         let world_context_id = world_context_id.into();
@@ -68,7 +68,7 @@ impl OriginToken {
             instance_generation,
             request_id,
             input_world_revision,
-            input_chunk_revision_set,
+            input_section_revision_set,
             apply_phase,
         })
     }
@@ -85,8 +85,8 @@ impl OriginToken {
     pub fn input_world_revision(&self) -> u64 {
         self.input_world_revision
     }
-    pub fn input_chunk_revision_set(&self) -> &BTreeMap<String, u64> {
-        &self.input_chunk_revision_set
+    pub fn input_section_revision_set(&self) -> &BTreeMap<String, u64> {
+        &self.input_section_revision_set
     }
     pub fn apply_phase(&self) -> &'static str {
         self.apply_phase

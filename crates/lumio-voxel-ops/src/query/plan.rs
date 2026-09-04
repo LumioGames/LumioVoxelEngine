@@ -1,9 +1,9 @@
-//! QueryPlanner binds max_chunks to an approved snapshot and captures one plan.
+//! QueryPlanner binds max_sections to an approved snapshot and captures one plan.
 
 #![forbid(unsafe_code)]
 
 use super::budget;
-use super::validate::{GeneratedVoxelQueryRequest, canonicalize_chunks, validate_request};
+use super::validate::{GeneratedVoxelQueryRequest, canonicalize_sections, validate_request};
 use super::{QUERY_SCHEMA, QueryError, query_schema};
 use crate::canonical::{CanonicalObject, CanonicalValue};
 use lumio_voxel_contracts::{Hash256, sha256};
@@ -14,13 +14,13 @@ use std::sync::Arc;
 
 pub struct QueryPlanner {
     snapshot: Arc<VoxelConfigSnapshot>,
-    max_chunks: usize,
+    max_sections: usize,
 }
 
 /// Captured deterministic plan. Fields are owned so later publish/reload cannot mutate it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueryPlan {
-    canonical_chunks: Vec<String>,
+    canonical_sections: Vec<String>,
     read_stamp: GeneratedRevisionStamp,
     budget: usize,
     config_hash: String,
@@ -29,20 +29,20 @@ pub struct QueryPlan {
 }
 
 impl QueryPlanner {
-    /// Bind a planner to an approved snapshot. `max_chunks` is adapter-internal
+    /// Bind a planner to an approved snapshot. `max_sections` is adapter-internal
     /// StrictAdmission capacity captured with this snapshot; there is no unbounded
     /// constructor and no generated Schema capacity column.
     pub fn from_approved_snapshot(
         snapshot: Arc<VoxelConfigSnapshot>,
-        max_chunks: usize,
+        max_sections: usize,
     ) -> Result<Self, QueryError> {
         let _ = query_schema();
-        if max_chunks == 0 {
+        if max_sections == 0 {
             return Err(QueryError::budget_exceeded());
         }
         Ok(Self {
             snapshot,
-            max_chunks,
+            max_sections,
         })
     }
 
@@ -61,23 +61,23 @@ impl QueryPlanner {
         if config.capabilities().is_empty() {
             return Err(QueryError::claim_not_granted());
         }
-        if budget::exceeds(request.chunk_ids.len(), self.max_chunks) {
+        if budget::exceeds(request.section_ids.len(), self.max_sections) {
             return Err(QueryError::budget_exceeded());
         }
-        let canonical_chunks = canonicalize_chunks(&request.chunk_ids)?;
+        let canonical_sections = canonicalize_sections(&request.section_ids)?;
         let read_stamp = stamp.clone();
         let config_hash = config.config_hash().to_string();
         let plan_hash = compute_plan_hash(
             request,
             &read_stamp,
-            &canonical_chunks,
+            &canonical_sections,
             &config_hash,
-            self.max_chunks,
+            self.max_sections,
         )?;
         Ok(QueryPlan {
-            canonical_chunks,
+            canonical_sections,
             read_stamp,
-            budget: self.max_chunks,
+            budget: self.max_sections,
             config_hash,
             cancel_token: request.query_id.clone(),
             plan_hash,
@@ -86,8 +86,8 @@ impl QueryPlanner {
 }
 
 impl QueryPlan {
-    pub fn canonical_chunks(&self) -> &[String] {
-        &self.canonical_chunks
+    pub fn canonical_sections(&self) -> &[String] {
+        &self.canonical_sections
     }
 
     pub fn read_stamp(&self) -> &GeneratedRevisionStamp {
@@ -114,7 +114,7 @@ impl QueryPlan {
 fn compute_plan_hash(
     request: &GeneratedVoxelQueryRequest,
     stamp: &GeneratedRevisionStamp,
-    chunks: &[String],
+    sections: &[String],
     config_hash: &str,
     budget: usize,
 ) -> Result<Hash256, QueryError> {
@@ -146,8 +146,8 @@ fn compute_plan_hash(
     )?;
     put(
         &mut object,
-        "canonicalChunks".into(),
-        CanonicalValue::TextArray(chunks.to_vec()),
+        "canonicalSections".into(),
+        CanonicalValue::TextArray(sections.to_vec()),
     )?;
     put(
         &mut object,
@@ -169,10 +169,10 @@ fn compute_plan_hash(
         "worldRevision".into(),
         CanonicalValue::Uint(stamp.world_revision),
     )?;
-    for (id, rev) in &stamp.chunk_revision_set {
+    for (id, rev) in &stamp.section_revision_set {
         put(
             &mut object,
-            format!("chunkRevision.{id}"),
+            format!("sectionRevision.{id}"),
             CanonicalValue::Uint(*rev),
         )?;
     }
@@ -183,7 +183,7 @@ fn compute_plan_hash(
     )?;
     put(
         &mut object,
-        "maxChunks".into(),
+        "maxSections".into(),
         CanonicalValue::Uint(budget as u64),
     )?;
     Ok(Hash256(sha256(object.encode().as_bytes())))

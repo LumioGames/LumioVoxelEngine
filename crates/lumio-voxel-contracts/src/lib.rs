@@ -1,9 +1,25 @@
-//! L0 generated-contract bindings.
+//! L0 contract bindings.
 //!
-//! This crate re-exports Architecture-published V1.4 artifacts. It must not
-//! define a second set of Schema fields, IDs, or serializers.
+//! Two sources live here and they are not equals:
+//!
+//! * [`voxel_world`] is the live one. It mirrors `wire/voxel-world-v1.json`
+//!   (`lumio.voxel-world.v1`), the frozen public contract for voxel world data —
+//!   Block / Section / Chunk layering, canonical keys, limits, presence, error codes.
+//!   `tests/voxel_world_conformance.rs` proves every value equals that JSON.
+//! * The `generated/` tree is a read-only mirror of baseline `LGE-V1.4-2026-08-27`.
+//!   **It is deprecated**: its publisher repo `LumioGameEngineArchitecture` no longer
+//!   exists, so it can never be regenerated, and it names the 16×16×16 data unit
+//!   `Chunk`, which the live contract forbids. Live code must not take voxel layering
+//!   semantics from it. What it still supplies is baseline-neutral plumbing (SHA-256,
+//!   bounded buffers, and schema / binding / error tables that are not voxel-layering
+//!   names).
+//!
+//! This crate must not define a second set of Schema fields, IDs, or serializers.
 
 #![forbid(unsafe_code)]
+
+pub mod legacy_baseline;
+pub mod voxel_world;
 
 #[path = "../generated/rust/lumio-gen-canonical-serializer/src/lib.rs"]
 #[rustfmt::skip]
@@ -62,13 +78,29 @@ pub use lumio_gen_language_binding::Binding;
 // Re-exported as `static`, not `pub use` of the generated `const`. A `const` is inlined
 // at every use site, so each consuming crate materializes its own copy and there is no
 // canonical address for an interned identifier — `std::ptr::eq` against the table then
-// compares two distinct per-crate allocations. These three tables are the ones the
-// intern seams hand back by reference, so they must have exactly one materialization.
-pub static CHUNK_PRESENCE: &[&str] = lumio_gen_contract_types::CHUNK_PRESENCE;
+// compares two distinct per-crate allocations. These tables are the ones the intern seams
+// hand back by reference, so they must have exactly one materialization.
+//
+// The mirror's `CHUNK_PRESENCE` is deliberately NOT re-exported. Its four names belong to
+// the 16×16×16 data unit, which the live contract calls a Section, and its second state is
+// `NotLoaded` where the contract says `Unchanged`. Presence now comes from
+// `voxel_world::SECTION_PRESENCE`; re-exporting the mirror's table would keep the wrong
+// layering name reachable from every consumer.
 pub static SCHEMA_IDS: &[&str] = lumio_gen_contract_types::SCHEMA_IDS;
 pub static BINDINGS: &[Binding] = lumio_gen_language_binding::BINDINGS;
 pub use lumio_gen_mapping_table::{MAPPING_REQUIRED, MAPPING_ROLES};
 pub use lumio_gen_protocol_permission_validator::{ACTIVE_PERMISSION_FIELDS, is_active_field};
+
+/// Is `id` a stable error identifier this workspace may report?
+///
+/// Two namespaces coexist by design. Voxel world-data semantics report the live contract's
+/// snake_case codes (`voxel_world::VOXEL_WORLD_ERROR_CODES`); engine-generic failures that
+/// the voxel contract does not define — handles, sessions, budgets, queues — still report
+/// the frozen mirror's PascalCase ids. A single predicate keeps callers from having to know
+/// which side a given error came from.
+pub fn is_stable_error_id(id: &str) -> bool {
+    STABLE_ERROR_IDS.contains(&id) || voxel_world::is_error_code(id)
+}
 
 pub const CRATE_NAME: &str = "lumio-voxel-contracts";
 pub const SCHEMA_EPOCH: u64 = 1;

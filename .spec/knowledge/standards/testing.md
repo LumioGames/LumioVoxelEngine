@@ -57,10 +57,10 @@ python tools/architecture/test_guards.py
 
 ## 本仓 Headless / 契约测试面
 
-- Chunk/坐标/边界/Revision/Mutation/Reservation/幂等和冲突 Property/Golden Test。
+- Section/坐标/边界/Revision/Mutation/Reservation/幂等和冲突 Property/Golden Test；`SectionId`/`ChunkId` 键解析、派生与旧式三坐标 `c:x:y:z` 的显式拒绝。
 - Snapshot/Diff、Canonical Serialization、压缩、损坏、恢复和 Migration Fixture。
-- Load/Unload/Streaming 背压、取消、超时、缺 Chunk Query 和资源预算。
+- Load/Unload/Streaming 背压、取消、超时、缺 Section Query 和资源预算。
 - Reference Voxel Port 与真实 Native 实现的 Differential Test。
-- Voxel Spatial/AOI/Collision Benchmark，记录 Chunk 密度、AOI 半径、队列、CPU 与内存。
-- Fault：Chunk Load Failure、Revision Conflict、Lost Result、Snapshot Corruption、Migration Failure、OOM、磁盘满。
-- 破坏性 Chunk/Revision 变化必须同时覆盖旧版本 Fixture、Migration 和失败恢复路径。
+- Voxel Spatial/AOI/Collision Benchmark，记录 Section 密度、AOI 半径、队列、CPU 与内存。
+- Fault：Section Load Failure、Revision Conflict、Lost Result、Snapshot Corruption、Migration Failure、OOM、磁盘满。
+- 破坏性 Section/Revision 变化必须同时覆盖旧版本 Fixture、Migration 和失败恢复路径。

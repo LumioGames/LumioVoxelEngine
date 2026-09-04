@@ -6,9 +6,9 @@
 
 use super::QueryError;
 use super::budget;
-use super::chunk_access;
 use super::plan::QueryPlan;
 use super::result_assembly::{GeneratedVoxelQueryOutcome, assemble};
+use super::section_access;
 use lumio_voxel_domain::publication::PublishedReadView;
 
 pub struct QueryExecutor;
@@ -67,15 +67,15 @@ fn walk_bound(
         return Err(QueryError::budget_exceeded());
     }
     let mut used = already_used;
-    let mut items = Vec::with_capacity(plan.canonical_chunks().len());
-    for chunk_id in plan.canonical_chunks() {
+    let mut items = Vec::with_capacity(plan.canonical_sections().len());
+    for section_id in plan.canonical_sections() {
         used = used
             .checked_add(1)
             .ok_or_else(QueryError::budget_exceeded)?;
         if budget::exceeds(used, plan.budget()) {
             return Err(QueryError::budget_exceeded());
         }
-        items.push(chunk_access::access(view, chunk_id)?);
+        items.push(section_access::access(view, section_id)?);
     }
     Ok(assemble(
         items,

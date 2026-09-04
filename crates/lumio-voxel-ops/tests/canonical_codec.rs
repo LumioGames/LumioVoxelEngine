@@ -89,8 +89,8 @@ fn decode_round_trips_every_value_kind() {
             CanonicalValue::TextArray(vec!["x".into(), "y,\"z".into()]),
         ),
         ("emptylist", CanonicalValue::TextArray(vec![])),
-        ("c:0:0:0", text("chunk")),
-        ("chunkRevision.c:0:0:0", CanonicalValue::Uint(7)),
+        ("s:0:0:0", text("section")),
+        ("sectionRevision.c:0:0:0", CanonicalValue::Uint(7)),
     ]);
     let bytes = original.encode_bytes();
     assert_eq!(decode(&bytes).expect("round trip"), original);
@@ -378,8 +378,8 @@ fn empty_member_name_and_value_is_canonical_and_distinct() {
 }
 
 /// The snapshot manifest shape `ManifestAdapter::object` builds, at a chosen size:
-/// fixed header members plus one `chunkRevision.<id>` per chunk.
-fn manifest_bytes(chunks: usize) -> Vec<u8> {
+/// fixed header members plus one `sectionRevision.<id>` per section.
+fn manifest_bytes(sections: usize) -> Vec<u8> {
     let mut manifest = CanonicalObject::new();
     for (key, value) in [
         ("schemaId", text("voxel-snapshot-payload")),
@@ -397,10 +397,13 @@ fn manifest_bytes(chunks: usize) -> Vec<u8> {
             .insert(key, value)
             .expect("distinct header members");
     }
-    for i in 0..chunks {
+    for i in 0..sections {
         manifest
-            .insert(format!("chunkRevision.c:{i}:0:0"), CanonicalValue::Uint(1))
-            .expect("distinct chunk members");
+            .insert(
+                format!("sectionRevision.c:{i}:0:0"),
+                CanonicalValue::Uint(1),
+            )
+            .expect("distinct section members");
     }
     manifest.encode_bytes()
 }

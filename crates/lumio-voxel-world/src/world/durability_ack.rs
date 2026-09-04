@@ -9,9 +9,9 @@ use super::WorldError;
 use super::barrier::{BarrierScope, admit_scope};
 use super::instance::VoxelWorld;
 use lumio_voxel_contracts::SCHEMA_IDS;
-use lumio_voxel_domain::chunk::{ChunkDeltaBuilder, DurabilityAckEvidence};
 use lumio_voxel_domain::publication::PublishedStateRoot;
 use lumio_voxel_domain::revision::{RevisionAllocator, WorldRevision};
+use lumio_voxel_domain::section::{DurabilityAckEvidence, SectionDeltaBuilder};
 
 const ACK_KIND: &str = "DurabilityAck";
 const ACK_SCHEMA: &str = "voxel-durability-ack";
@@ -91,7 +91,7 @@ impl<'a> DurabilityAckBarrier<'a> {
 
         let stamp = view.stamp().clone();
         let directory = view.directory().clone();
-        let replacement = ChunkDeltaBuilder::new(view.directory())
+        let replacement = SectionDeltaBuilder::new(view.directory())
             .freeze()
             .map_err(|err| WorldError::mapped(err.error_id()))?;
         let world_revision = world_revision_matching(stamp.world_revision)?;

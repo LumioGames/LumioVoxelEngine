@@ -40,3 +40,4 @@
 | [0010](0010-generated-clean-keeps-its-own-sha256.md) | generated-clean 守卫保留自己的 SHA-256，不复用被审计树内的实现 | 生效 |
 | [0011](0011-voxel-local-canonical-object-encoding.md) | Voxel 自持类型化 canonical 对象编码，不再经上游 `canonical_object_pairs` | 生效 |
 | [0012](0012-canonical-decode-cost-and-refusal-naming.md) | Canonical 解码按输入长度线性收费，长度上限与拒绝命名都不落本库 | 生效 |
+| [0013](0013-voxel-world-contract-and-section-rename.md) | 体素公共语义改从 `voxel-world-v1.json` 取，16³ 数据单元改名 Section | 生效 |

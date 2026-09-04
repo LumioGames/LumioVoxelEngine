@@ -28,7 +28,7 @@ metadata:
 ## 合并 / PR 流程
 
 - PR 交付说明必须包含 Summary、改动清单、验证命令与关键输出、known gaps、知识沉淀落点或豁免声明。
-- 根 `.github/CODEOWNERS` 当前将全仓指派给 `@Go1c`；涉及公共架构、ABI、Chunk/Revision、存档或迁移的改动必须由对应所有者审查。
+- 根 `.github/CODEOWNERS` 当前将全仓指派给 `@Go1c`；涉及公共架构、ABI、Section/Revision、存档或迁移的改动必须由对应所有者审查。
 - 合并前必须通过 Repository Policy、`AGENTS.md` 的收口门槛与 reviewer 闭环；不把架构源尚未发布的公共字段或依赖方向提前合入实现仓。
 
 ## 改动完成 = 知识已同步

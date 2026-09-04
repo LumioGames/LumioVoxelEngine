@@ -1,4 +1,4 @@
-//! Canonical cell/chunk edit batch. Duplicates fail with no partial plan.
+//! Canonical cell/section edit batch. Duplicates fail with no partial plan.
 
 #![forbid(unsafe_code)]
 
@@ -10,14 +10,14 @@ use std::collections::BTreeMap;
 pub(crate) const WORLD_REVISION_FIELD: &str = "world_revision";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ChunkEdits {
-    chunk_value: Option<String>,
+pub(crate) struct SectionEdits {
+    section_value: Option<String>,
     cells: BTreeMap<String, String>,
 }
 
-impl ChunkEdits {
+impl SectionEdits {
     pub(crate) fn payload_bytes(&self) -> Vec<u8> {
-        if let Some(value) = &self.chunk_value {
+        if let Some(value) = &self.section_value {
             return value.as_bytes().to_vec();
         }
         self.cells
@@ -35,7 +35,7 @@ impl ChunkEdits {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MutationPlan {
     expected_world_revision: u64,
-    chunks: BTreeMap<String, ChunkEdits>,
+    sections: BTreeMap<String, SectionEdits>,
 }
 
 impl MutationPlan {
@@ -43,12 +43,12 @@ impl MutationPlan {
         self.expected_world_revision
     }
 
-    pub(crate) fn chunk_ids(&self) -> impl Iterator<Item = &str> {
-        self.chunks.keys().map(String::as_str)
+    pub(crate) fn section_ids(&self) -> impl Iterator<Item = &str> {
+        self.sections.keys().map(String::as_str)
     }
 
-    pub(crate) fn chunk_edits(&self) -> &BTreeMap<String, ChunkEdits> {
-        &self.chunks
+    pub(crate) fn section_edits(&self) -> &BTreeMap<String, SectionEdits> {
+        &self.sections
     }
 }
 
@@ -66,31 +66,31 @@ impl MutationPlanner {
             None => return Err(MutationError::invalid_handle()),
         };
 
-        let mut chunks: BTreeMap<String, ChunkEdits> = BTreeMap::new();
+        let mut sections: BTreeMap<String, SectionEdits> = BTreeMap::new();
         for (key, value) in &request.fields {
             if key == WORLD_REVISION_FIELD {
                 continue;
             }
-            // Occupancy keys wrap canonical `voxelChunkId` (`c:x:y:z`), not Schema fields.
-            if !key.starts_with("c:") {
+            // Occupancy keys wrap canonical `voxelSectionId` (`c:x:y:z`), not Schema fields.
+            if !key.starts_with("s:") {
                 continue;
             }
-            let (chunk_id, cell_id) = match key.split_once('/') {
-                Some((chunk, cell)) => {
+            let (section_id, cell_id) = match key.split_once('/') {
+                Some((section, cell)) => {
                     if cell.is_empty() {
                         return Err(MutationError::invalid_handle());
                     }
-                    (chunk, Some(cell))
+                    (section, Some(cell))
                 }
                 None => (key.as_str(), None),
             };
-            let entry = chunks.entry(chunk_id.to_string()).or_default();
+            let entry = sections.entry(section_id.to_string()).or_default();
             match cell_id {
                 None => {
-                    if entry.chunk_value.is_some() {
+                    if entry.section_value.is_some() {
                         return Err(MutationError::invalid_handle());
                     }
-                    entry.chunk_value = Some(value.clone());
+                    entry.section_value = Some(value.clone());
                 }
                 Some(cell) => {
                     if entry
@@ -106,7 +106,7 @@ impl MutationPlanner {
 
         Ok(MutationPlan {
             expected_world_revision,
-            chunks,
+            sections,
         })
     }
 }

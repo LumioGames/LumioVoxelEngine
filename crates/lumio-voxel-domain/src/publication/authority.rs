@@ -5,11 +5,11 @@
 use super::prepared::{PreparedPublication, PublicationToken};
 use super::root::PublishedStateRoot;
 use super::{PublishError, map_pin};
-use crate::chunk::{ChunkDirectoryRoot, ChunkReplacement, DirtyFrontier};
 use crate::revision::{
     GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, ReadViewLease, RevisionPin,
     WorldRevision,
 };
+use crate::section::{DirtyFrontier, SectionDirectoryRoot, SectionReplacement};
 use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -72,7 +72,7 @@ impl PublicationAuthority {
         &self,
         target_revision: WorldRevision,
         mut new_root: PublishedStateRoot,
-        replacement: ChunkReplacement,
+        replacement: SectionReplacement,
     ) -> Result<PreparedPublication, PublishError> {
         check_stamp(
             &self.world_id,
@@ -184,7 +184,7 @@ impl PublishedReadView {
         self.root.stamp()
     }
 
-    pub fn directory(&self) -> &ChunkDirectoryRoot {
+    pub fn directory(&self) -> &SectionDirectoryRoot {
         self.root.directory()
     }
 

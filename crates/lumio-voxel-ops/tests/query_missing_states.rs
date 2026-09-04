@@ -1,15 +1,16 @@
-//! R-00081: four-state CHUNK_PRESENCE mapping; absent directory id is NotLoaded.
+//! R-00081: four-state SECTION_PRESENCE mapping; absent directory id is Unchanged.
 
-use lumio_voxel_contracts::{BASELINE_ID, CHUNK_PRESENCE, SCHEMA_EPOCH, SCHEMA_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkSlot, DirtyFrontier,
-};
+use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
 };
 use lumio_voxel_domain::publication::{PublicationAuthority, PublishedStateRoot};
 use lumio_voxel_domain::revision::{GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDirectoryBuilder, SectionPage, SectionPayload, SectionSlot,
+};
 use lumio_voxel_ops::query::{
     GeneratedVoxelQueryRequest, QUERY_SCHEMA, QueryExecutor, QueryPlanner,
 };
@@ -81,12 +82,12 @@ fn stamp(
         context_id: context.to_string(),
         generation,
         world_revision,
-        chunk_revision_set: BTreeMap::new(),
+        section_revision_set: BTreeMap::new(),
     }
 }
 
-fn dummy_payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn dummy_payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -96,18 +97,18 @@ fn dummy_payload(bytes: &[u8]) -> ChunkPayload {
 }
 
 fn four_state_root(world_id: &str, context: &str, generation: u64) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", ChunkSlot::ready(dummy_payload(b"ready-bytes")))
+        .insert("s:0:0:0", SectionSlot::ready(dummy_payload(b"ready-bytes")))
         .expect("Ready");
     builder
-        .insert("c:1:0:0", ChunkSlot::not_loaded())
-        .expect("NotLoaded");
+        .insert("s:1:0:0", SectionSlot::unchanged())
+        .expect("Unchanged");
     builder
-        .insert("c:2:0:0", ChunkSlot::pending())
+        .insert("s:2:0:0", SectionSlot::pending())
         .expect("Pending");
     builder
-        .insert("c:3:0:0", ChunkSlot::unavailable())
+        .insert("s:3:0:0", SectionSlot::unavailable())
         .expect("Unavailable");
     PublishedStateRoot::new(
         stamp(world_id, context, generation, 0),
@@ -133,12 +134,12 @@ fn authority(
         .expect("initial root matches authority")
 }
 
-fn request(chunks: &[&str]) -> GeneratedVoxelQueryRequest {
+fn request(sections: &[&str]) -> GeneratedVoxelQueryRequest {
     GeneratedVoxelQueryRequest {
         query_id: "q-1".to_string(),
         world_id: "world-a".to_string(),
         context: "ctx-1".to_string(),
-        chunk_ids: chunks.iter().map(|c| (*c).to_string()).collect(),
+        section_ids: sections.iter().map(|c| (*c).to_string()).collect(),
         cancel: false,
     }
 }
@@ -146,8 +147,8 @@ fn request(chunks: &[&str]) -> GeneratedVoxelQueryRequest {
 #[test]
 fn four_presence_states_and_absent_id_map_without_load() {
     assert_eq!(
-        CHUNK_PRESENCE,
-        ["Ready", "NotLoaded", "Pending", "Unavailable"]
+        SECTION_PRESENCE,
+        ["Ready", "Unchanged", "Pending", "Unavailable"]
     );
     assert!(SCHEMA_IDS.contains(&QUERY_SCHEMA));
 
@@ -166,19 +167,19 @@ fn four_presence_states_and_absent_id_map_without_load() {
 
     let plan = planner
         .plan(
-            &request(&["c:4:0:0", "c:3:0:0", "c:2:0:0", "c:1:0:0", "c:0:0:0"]),
+            &request(&["s:4:0:0", "s:3:0:0", "s:2:0:0", "s:1:0:0", "s:0:0:0"]),
             &view,
             snap.as_ref(),
         )
         .expect("plan five ids including absent");
     assert_eq!(
-        plan.canonical_chunks(),
+        plan.canonical_sections(),
         &[
-            "c:0:0:0".to_string(),
-            "c:1:0:0".to_string(),
-            "c:2:0:0".to_string(),
-            "c:3:0:0".to_string(),
-            "c:4:0:0".to_string(),
+            "s:0:0:0".to_string(),
+            "s:1:0:0".to_string(),
+            "s:2:0:0".to_string(),
+            "s:3:0:0".to_string(),
+            "s:4:0:0".to_string(),
         ]
     );
 
@@ -188,18 +189,18 @@ fn four_presence_states_and_absent_id_map_without_load() {
     assert_eq!(outcome.evidence().read_stamp(), view.stamp());
 
     let expected = [
-        ("c:0:0:0", "Ready", true),
-        ("c:1:0:0", "NotLoaded", false),
-        ("c:2:0:0", "Pending", false),
-        ("c:3:0:0", "Unavailable", false),
-        ("c:4:0:0", "NotLoaded", false),
+        ("s:0:0:0", "Ready", true),
+        ("s:1:0:0", "Unchanged", false),
+        ("s:2:0:0", "Pending", false),
+        ("s:3:0:0", "Unavailable", false),
+        ("s:4:0:0", "Unchanged", false),
     ];
     for (item, (id, presence, ready)) in outcome.items().iter().zip(expected) {
-        assert_eq!(item.chunk_id(), id);
+        assert_eq!(item.section_id(), id);
         assert_eq!(item.presence(), presence);
         assert!(
-            CHUNK_PRESENCE.contains(&item.presence()),
-            "presence {} must be interned CHUNK_PRESENCE",
+            SECTION_PRESENCE.contains(&item.presence()),
+            "presence {} must be interned SECTION_PRESENCE",
             item.presence()
         );
         assert_eq!(item.presence() == "Ready", ready);
@@ -213,14 +214,14 @@ fn four_presence_states_and_absent_id_map_without_load() {
 
     let missing = outcome.evidence().missing_states();
     assert_eq!(missing.len(), 4);
-    assert_eq!(missing[0].chunk_id(), "c:1:0:0");
-    assert_eq!(missing[0].presence(), "NotLoaded");
-    assert_eq!(missing[1].chunk_id(), "c:2:0:0");
+    assert_eq!(missing[0].section_id(), "s:1:0:0");
+    assert_eq!(missing[0].presence(), "Unchanged");
+    assert_eq!(missing[1].section_id(), "s:2:0:0");
     assert_eq!(missing[1].presence(), "Pending");
-    assert_eq!(missing[2].chunk_id(), "c:3:0:0");
+    assert_eq!(missing[2].section_id(), "s:3:0:0");
     assert_eq!(missing[2].presence(), "Unavailable");
-    assert_eq!(missing[3].chunk_id(), "c:4:0:0");
-    assert_eq!(missing[3].presence(), "NotLoaded");
+    assert_eq!(missing[3].section_id(), "s:4:0:0");
+    assert_eq!(missing[3].presence(), "Unchanged");
 
     assert_eq!(
         sha256(format!("{:?}", view.directory()).as_bytes()),

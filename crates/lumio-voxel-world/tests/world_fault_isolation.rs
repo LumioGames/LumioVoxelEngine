@@ -1,12 +1,8 @@
 //! R-00121: target-World fault isolation. Other instances keep progressing.
 
 use lumio_voxel_contracts::{
-    BASELINE_ID, MACHINE_IDS, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256,
+    BASELINE_ID, MACHINE_IDS, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256,
     state_transition_table,
-};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkReplacement, ChunkSlot,
-    DirtyFrontier,
 };
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
@@ -15,6 +11,10 @@ use lumio_voxel_domain::config_snapshot::{
 use lumio_voxel_domain::publication::PublishedStateRoot;
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
+};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionPage, SectionPayload,
+    SectionReplacement, SectionSlot,
 };
 use lumio_voxel_ops::async_support::OriginToken;
 use lumio_voxel_ops::mutation::MutationRequest;
@@ -162,7 +162,7 @@ fn query_cmd(world: &VoxelWorld, query_id: &str) -> WorldCommand {
             query_id: query_id.to_string(),
             world_id: view.world_id().to_string(),
             context: view.world_context_id().to_string(),
-            chunk_ids: vec!["c:0:0:0".to_string()],
+            section_ids: vec!["s:0:0:0".to_string()],
             cancel: false,
         },
     }
@@ -177,8 +177,8 @@ fn world_rev(n: u64) -> WorldRevision {
     reserved.finalize().unwrap()
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -187,8 +187,10 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
     .expect("valid dense uncompressed page")
 }
 
-fn empty_replacement(base: &lumio_voxel_domain::chunk::ChunkDirectoryRoot) -> ChunkReplacement {
-    ChunkDeltaBuilder::new(base)
+fn empty_replacement(
+    base: &lumio_voxel_domain::section::SectionDirectoryRoot,
+) -> SectionReplacement {
+    SectionDeltaBuilder::new(base)
         .freeze()
         .expect("empty replacement")
 }
@@ -198,11 +200,13 @@ fn root_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    slot: ChunkSlot,
+    slot: SectionSlot,
     dirty_reason: Option<&str>,
 ) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
-    builder.insert("c:0:0:0", slot).expect("canonical chunk id");
+    let mut builder = SectionDirectoryBuilder::new();
+    builder
+        .insert("s:0:0:0", slot)
+        .expect("canonical section id");
     let directory = builder.freeze();
     let stamp = GeneratedRevisionStamp {
         schema_id: REVISION_STAMP_SCHEMA,
@@ -210,12 +214,12 @@ fn root_at(
         context_id: context_id.to_string(),
         generation,
         world_revision: world_rev_n,
-        chunk_revision_set: BTreeMap::from([("c:0:0:0".to_string(), world_rev_n)]),
+        section_revision_set: BTreeMap::from([("s:0:0:0".to_string(), world_rev_n)]),
     };
     let dirty = match dirty_reason {
         Some(reason) => DirtyFrontier::new(world_id, generation)
             .expect("world id")
-            .record("c:0:0:0", world_rev_n, reason)
+            .record("s:0:0:0", world_rev_n, reason)
             .expect("record dirty"),
         None => DirtyFrontier::new(world_id, generation).expect("world id"),
     };
@@ -228,8 +232,8 @@ fn identity_of(world: &VoxelWorld) -> [u8; 32] {
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -253,7 +257,7 @@ fn publish_cut(world: &VoxelWorld, label: &[u8]) {
                 view.world_context_id(),
                 view.instance_generation(),
                 1,
-                ChunkSlot::ready(payload(label)),
+                SectionSlot::ready(payload(label)),
                 Some("mutation"),
             ),
             empty_replacement(before.directory()),

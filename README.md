@@ -1,6 +1,6 @@
 # LumioVoxelEngine
 
-> 可复用的 Rust VoxelWorld 领域实现、Chunk 数据域和空间数据源。
+> 可复用的 Rust VoxelWorld 领域实现、Section 数据域和空间数据源。
 
 <!-- lumio-community:start -->
 <div align="center">
@@ -30,18 +30,20 @@
 - 实现蓝图：[`docs/plans/lve-v1.4-implementation-blueprint.md`](docs/plans/lve-v1.4-implementation-blueprint.md)
 - 历史来源（非当前规范）：`LGE-V1.3-2026-08-27` 的设计包 [`docs/LumioVoxelEngine_Framework_Design_LGE-V1.3/`](docs/LumioVoxelEngine_Framework_Design_LGE-V1.3/) 仅作需求提取来源；与 V1.4 或仓内 ADR 0006 冲突的 crate、字段和依赖方向无效。
 
-本仓库拥有 VoxelWorld 的权威数据和领域生命周期。Server 保存权威世界，Client 保存独立 VoxelReplicaWorld；LocalEmbedded 也必须创建两份实例。C# Runtime 只能通过版本化 `IVoxelWorldPort` 和生成契约访问，不能读取内部 Chunk Storage。
+本仓库拥有 VoxelWorld 的权威数据和领域生命周期。Server 保存权威世界，Client 保存独立 VoxelReplicaWorld；LocalEmbedded 也必须创建两份实例。C# Runtime 只能通过版本化 `IVoxelWorldPort` 和生成契约访问，不能读取内部 Section Storage。
+
+体素分层语义的唯一真值是架构仓 `engine/wire/voxel-world-v1.json`（`contractId: lumio.voxel-world.v1`）：**Section** 是 16×16×16 = 4096 格的数据单元，是最小同步单位、驻留单位和 `SectionRevision` 的版本锚点；**Chunk** 是 16 个 Section 竖着摞成的列（16×256×16），只作存档打包与按列计算的容器，不携带数据、不持有独立版本。本仓现状见 [`.spec/knowledge/features/voxel-section-chunk.md`](.spec/knowledge/features/voxel-section-chunk.md) 与 [0013](.spec/decisions/0013-voxel-world-contract-and-section-rename.md)。
 
 ## Architecture Gate
 
-跨仓公共 Voxel Contract、Revision/Snapshot Schema、ID Registry、正向/失败 Fixture 和契约校验器只在 `LumioGameEngineArchitecture` 发布与校验；本仓库的 Voxel 领域源 Schema 必须与该基线同步。Chunk/World 格式变更必须先更新源 Schema、Migration/Fixture 和 Baseline，再生成本仓库使用的只读产物；校验命令为 `python3 tools/lumio_contract.py validate`（在架构源执行）。
+跨仓公共 Voxel Contract、Revision/Snapshot Schema、ID Registry、正向/失败 Fixture 和契约校验器只在 `LumioGameEngineArchitecture` 发布与校验；本仓库的 Voxel 领域源 Schema 必须与该基线同步。Section/World 格式变更必须先更新源 Schema、Migration/Fixture 和 Baseline，再生成本仓库使用的只读产物；校验命令为 `python3 tools/lumio_contract.py validate`（在架构源执行）。
 
 ## 拥有的状态与生命周期
 
-- World、Chunk、Block、坐标、加载/卸载和 Streaming 状态。
-- 单调 `WorldRevision`、每 Chunk `ChunkRevision`、Mutation Batch 和 `VoxelCaptureRef`（对应 Runtime 已固定的 `SnapshotCut`）。
+- World、Section、Block、坐标、加载/卸载和 Streaming 状态。
+- 单调 `WorldRevision`、每 Section `SectionRevision`、Mutation Batch 和 `VoxelCaptureRef`（对应 Runtime 已固定的 `SnapshotCut`）。
 - Mesh Source、Collision Source、Spatial Source 的缓存和构建任务。
-- `VoxelWorldHandle`、`VoxelChunkHandle`、ChunkId 及其 Generation/Context 生命周期。
+- `VoxelWorldHandle`、`VoxelSectionHandle`、`SectionId` 及其 Generation/Context 生命周期。
 
 Host 负责创建和销毁实例，VoxelEngine 负责实例内部状态转换和数据一致性。Runtime Coordinator 拥有跨域 `SnapshotCut` 与 `SessionRevisionVector`，只能通过 Port 发起查询、Prepare、Commit、Capture 和取消，不拥有 Voxel 状态机。
 
@@ -52,22 +54,22 @@ Host 负责创建和销毁实例，VoxelEngine 负责实例内部状态转换和
 | 子模块 | 责任 | 物理 crate | 优先级 |
 | --- | --- | --- | --- |
 | [`world`](modules/world/README.md) | VoxelWorld 实例、Role/Context 和实例生命周期 | `lumio-voxel-world` | P0 |
-| [`chunk`](modules/chunk/README.md) | Chunk 布局、Block、坐标、压缩页和加载状态 | `lumio-voxel-domain` | P0 |
-| [`revision`](modules/revision/README.md) | World/Chunk Revision、比较和 Snapshot Pin | `lumio-voxel-domain` | P0 |
-| [`query`](modules/query/README.md) | 只读批量查询、缺 Chunk 结果和版本返回 | `lumio-voxel-ops` | P0 |
+| [`section`](modules/section/README.md) | Section 布局、Block、坐标、页编码和驻留状态 | `lumio-voxel-domain` | P0 |
+| [`revision`](modules/revision/README.md) | World/Section Revision、比较和 Snapshot Pin | `lumio-voxel-domain` | P0 |
+| [`query`](modules/query/README.md) | 只读批量查询、缺 Section 结果和版本返回 | `lumio-voxel-ops` | P0 |
 | [`mutation`](modules/mutation/README.md) | 单域 Mutation、Prepare Token、幂等 Commit/Abort | `lumio-voxel-ops` | P0 |
 | [`snapshot`](modules/snapshot/README.md) | Snapshot/Diff、Canonical 编码、校验和恢复 | `lumio-voxel-ops` | P0 |
 | [`streaming`](modules/streaming/README.md) | Load/Unload、优先级、预算、取消和背压 | `lumio-voxel-ops` | P2 |
 | [`spatial`](modules/spatial/README.md) | Voxel 候选、遮挡和带 Revision 的空间 Source | `lumio-voxel-project` | P2 |
-| [`migration`](modules/migration/README.md) | Chunk/World Schema 转换、校验和失败保留 | `lumio-voxel-migration` | P2 |
+| [`migration`](modules/migration/README.md) | Section/World Schema 转换、校验和失败保留 | `lumio-voxel-migration` | P2 |
 | [`mesh-collision`](modules/mesh-collision/README.md) | Mesh/Collision Source 构建，不拥有 Gameplay 规则 | `lumio-voxel-project` | P2 |
 
 ## 职责
 
-- 定义 VoxelWorld、Chunk、Block、Revision、Mutation、Snapshot/Diff 和 Streaming 的领域 Schema。
+- 定义 VoxelWorld、Chunk / Section / Block 分层、Revision、Mutation、Snapshot/Diff 和 Streaming 的领域 Schema。
 - 提供有界、可取消、版本化的只读 Query 和批量 Mutation API。
 - 实现 Voxel 侧 Prepare/Reservation/Commit/Abort 参与者；Coordinator 语义由 Runtime 统一编排。
-- 提供带 `WorldRevision/ChunkRevision` 的 Voxel Spatial/Collision/Chunk 候选结果。
+- 提供带 `WorldRevision/SectionRevision` 的 Voxel Spatial/Collision/Section 候选结果。
 - 生成 Native ABI 源元数据、Voxel Contract 输入、序列化 Fixture 和恢复测试。
 - 为 Server 权威、Client Replica、NativeHeadless 和 Local 双实例提供适配器。
 
@@ -77,33 +79,33 @@ Host 负责创建和销毁实例，VoxelEngine 负责实例内部状态转换和
 - 不创建或直接修改 C# ECS Entity/Component、Session 或 Host 状态。
 - 不拥有 Connection、RPC 路由、Release Pool、CoreCLR、Socket 或进程治理。
 - 不把玩家权限、阵营、隐身、订阅优先级等产品语义放入 Voxel Kernel。
-- 不把完整 Chunk 复制到 C# 作为第二权威真相。
+- 不把完整 Section 复制到 C# 作为第二权威真相。
 
 ## Revision 与读取一致性
 
-`WorldRevision` 用于世界级排序和 Snapshot；`ChunkRevision` 用于局部乐观并发。所有 Query 返回读取 Revision，Mutation 携带 Expected Revision；冲突必须返回稳定 `RevisionConflict`，不能静默覆盖。
+`WorldRevision` 用于世界级排序和 Snapshot；`SectionRevision` 用于局部乐观并发。所有 Query 返回读取 Revision，Mutation 携带 Expected Revision；冲突必须返回稳定 `RevisionConflict`，不能静默覆盖。
 
-Runtime 在协调 Barrier 固定 `SnapshotCut` 后，VoxelEngine 对指定 Revision 做 Pin 或 Copy-on-Write，并持有 `VoxelCaptureRef`。运行中 Snapshot 的编码在短 Barrier 之外继续；异步序列化期间 Chunk 可以继续服务读写，但不得把变化后的数据标记为旧 Snapshot。缺 Chunk 的 Query 必须明确返回 `NotLoaded`、`Pending` 或 `Unavailable`，不能当作空世界。
+Runtime 在协调 Barrier 固定 `SnapshotCut` 后，VoxelEngine 对指定 Revision 做 Pin 或 Copy-on-Write，并持有 `VoxelCaptureRef`。运行中 Snapshot 的编码在短 Barrier 之外继续；异步序列化期间 Section 可以继续服务读写，但不得把变化后的数据标记为旧 Snapshot。未 Ready 的 Section 查询必须明确返回契约四态里的 `Unchanged`、`Pending` 或 `Unavailable`；`Pending` 与 `Unavailable` 都不得被物化成空气或当作空世界。
 
 ## CrossWorldTxnV1 参与者
 
-Voxel Prepare 只验证 Chunk 可用性、Cell 可写性、Expected ChunkRevision、容量和权限所需的结构条件，并创建有租约的不可见 Mutation Reservation。V1 在 `CommitIntent` 持久化后先执行 Voxel Apply，再由 Runtime 提交 Game/ECS；Commit 使用 `TxnId` 幂等应用并返回新的 World/Chunk Revision，重复 Commit 返回原结果。Native 锁内不能调用 C#，Worker 不能回调 Hot Gameplay。
+Voxel Prepare 只验证 Section 可用性、Cell 可写性、Expected SectionRevision、容量和权限所需的结构条件，并创建有租约的不可见 Mutation Reservation。V1 在 `CommitIntent` 持久化后先执行 Voxel Apply，再由 Runtime 提交 Game/ECS；Commit 使用 `TxnId` 幂等应用并返回新的 World/Section Revision，重复 Commit 返回原结果。Native 锁内不能调用 C#，Worker 不能回调 Hot Gameplay。
 
 ## AOI、Streaming 与空间边界
 
-NativeCore 提供通用空间 Kernel；本仓库根据 Chunk/Block/遮挡/可用性生成 `VoxelInterestCandidateBatch` 或 `VoxelSpatialProjection`。Runtime/Server 再结合 Role、Owner、Permission、带宽和 Interest 做最终过滤。结果必须包含 Revision、批次上限、查询预算、超时和取消原因，不暴露内部指针或 Storage。
+NativeCore 提供通用空间 Kernel；本仓库根据 Section/Block/遮挡/可用性生成 `VoxelInterestCandidateBatch` 或 `VoxelSpatialProjection`。Runtime/Server 再结合 Role、Owner、Permission、带宽和 Interest 做最终过滤。结果必须包含 Revision、批次上限、查询预算、超时和取消原因，不暴露内部指针或 Storage。
 
 ## 序列化、存档与恢复
 
-- Chunk、World Snapshot、Diff 和 Migration 输入使用版本化 Canonical Serializer。
-- Envelope 至少包含 Magic、SchemaVersion、Length、World/Chunk Revision、Hash/Checksum、Compression 和可选加密信息。
+- Section 页、World Snapshot、Diff 和 Migration 输入使用版本化 Canonical Serializer。
+- Envelope 至少包含 Magic、SchemaVersion、Length、World/Section Revision、Hash/Checksum、Compression 和可选加密信息。
 - Voxel snapshot 生成并校验 Canonical payload；Host persistence 负责 staging、fsync、原子激活和 checkpoint retention。WAL/Command Log 由 Host 追加并关联 Txn/Session。
-- 支持部分 Chunk 加载、流式加载、旧版本 Migrator、损坏检测和从最近有效 Checkpoint 恢复。
+- 支持部分 Section 加载、流式加载、旧版本 Migrator、损坏检测和从最近有效 Checkpoint 恢复。
 - Singleplayer 与 Dedicated Server 在同一 Release 使用同一 Voxel 存档格式；跨版本必须通过迁移工具。
 
 ## 日志与观测
 
-输出 Voxel Diagnostic、Streaming Metrics、Revision/Mutation Audit 和 Trace Event，不拥有最终日志 Sink。事件至少带 `GameReleaseId、SessionId、WorldId、TickId、TxnId、ChunkId、WorldRevision、ChunkRevision、TraceId`。Load Failure、Revision Conflict、Snapshot Corruption、Migration Failure 和 QueueFull 必须有稳定错误码和 Failure Bundle 片段。
+输出 Voxel Diagnostic、Streaming Metrics、Revision/Mutation Audit 和 Trace Event，不拥有最终日志 Sink。事件至少带 `GameReleaseId、SessionId、WorldId、TickId、TxnId、SectionId、WorldRevision、SectionRevision、TraceId`。Load Failure、Revision Conflict、Snapshot Corruption、Migration Failure 和 QueueFull 必须有稳定错误码和 Failure Bundle 片段。
 
 ## Source / Compile-Time Dependencies
 
@@ -124,11 +126,11 @@ LumioCoreEngine package
   -> Runtime IVoxelWorldPort / generated Voxel Contract
 ```
 
-Server/Client/Local 分别创建实例；Local 的两份世界不能共享对象引用、Chunk Buffer 或 Revision 写入。
+Server/Client/Local 分别创建实例；Local 的两份世界不能共享对象引用、Section Buffer 或 Revision 写入。
 
 ## Release Composition Relationships
 
-发布 Voxel Schema、Chunk 格式、压缩字典、Migration 版本、Artifact Hash、NativeCore 依赖和平台能力。`GameManifest` 锁定 Voxel ABI/Schema/Migration；不负责 Product Release 路由或 Gameplay 语义。
+发布 Voxel Schema、Section 页格式、压缩字典、Migration 版本、Artifact Hash、NativeCore 依赖和平台能力。`GameManifest` 锁定 Voxel ABI/Schema/Migration；不负责 Product Release 路由或 Gameplay 语义。
 
 ## Room Modes / Host Profiles
 
@@ -136,16 +138,16 @@ Server/Client/Local 分别创建实例；Local 的两份世界不能共享对象
 
 ## Headless Test Surface
 
-- Chunk/坐标/边界/Revision/Mutation/Reservation/幂等和冲突 Property/Golden Test。
+- Section/坐标/边界/Revision/Mutation/Reservation/幂等和冲突 Property/Golden Test。
 - Snapshot/Diff、Canonical Serialization、压缩、损坏、恢复和 Migration Fixture。
-- Load/Unload/Streaming 背压、取消、超时、缺 Chunk Query 和资源预算。
+- Load/Unload/Streaming 背压、取消、超时、缺 Section Query 和资源预算。
 - Reference Voxel Port 与真实 Native 实现的 Differential Test。
-- Voxel Spatial/AOI/Collision Benchmark，记录 Chunk 密度、AOI 半径、队列和内存。
-- Fault：Chunk Load Failure、Revision Conflict、Lost Result、Snapshot Corruption、Migration Failure、OOM、磁盘满。
+- Voxel Spatial/AOI/Collision Benchmark，记录 Section 密度、AOI 半径、队列和内存。
+- Fault：Section Load Failure、Revision Conflict、Lost Result、Snapshot Corruption、Migration Failure、OOM、磁盘满。
 
 ## Version / Manifest
 
-Manifest 至少包含 Voxel API/ABI、World/Chunk Schema、压缩字典、Migration、平台 Artifact Hash、NativeCore 版本和 Capability。启动、迁移和重连前校验；不匹配返回稳定错误并拒绝使用不兼容数据。
+Manifest 至少包含 Voxel API/ABI、World/Section Schema、压缩字典、Migration、平台 Artifact Hash、NativeCore 版本和 Capability。启动、迁移和重连前校验；不匹配返回稳定错误并拒绝使用不兼容数据。
 
 ## 开源优先与供应链
 
@@ -155,13 +157,13 @@ Manifest 至少包含 Voxel API/ABI、World/Chunk Schema、压缩字典、Migrat
 
 - 权威修改只能在 VoxelWorld 所属 Role 的 Simulation Barrier 执行。
 - 不持有对方 World 的指针、锁或 Storage 引用；异步结果必须可取消且带 Revision。
-- 每个破坏性 Chunk/Revision 变化都要有旧版本 Fixture、Migration 和失败恢复路径。
+- 每个破坏性 Section/Revision 变化都要有旧版本 Fixture、Migration 和失败恢复路径。
 - Voxel-aware 优化记录数据密度、AOI、Streaming、CPU、内存和结果版本，不下沉 Gameplay 判断。
 
 ## 当前阶段与开发节奏
 
-1. **Architecture Gate**：消费 `LGE-V1.4-2026-08-27` 已冻结的 World/Chunk/Revision/Mutation/Snapshot Schema 和 Port 错误语义。
-2. **Foundation**：按七 crate DAG 实现 `world/chunk/revision/query/mutation/snapshot` 单域闭环和 NativeHeadless 测试。
+1. **Architecture Gate**：消费 `LGE-V1.4-2026-08-27` 已冻结的 World/Section/Revision/Mutation/Snapshot Schema 和 Port 错误语义；分层与键的名字以活契约 `lumio.voxel-world.v1` 为准（[0013](.spec/decisions/0013-voxel-world-contract-and-section-rename.md)）。
+2. **Foundation**：按七 crate DAG 实现 `world/section/revision/query/mutation/snapshot` 单域闭环和 NativeHeadless 测试。
 3. **Vertical Slice**：接入 CrossWorldTxn、Local 双实例、Snapshot/WAL 和 Reference Differential。
 4. **Production Hardening**：Streaming/AOI/恢复/Migration/损坏注入和性能曲线。
 5. **P2**：复杂空间优化、可替换后端和跨服迁移；不改变 V1 权威边界。物理 crate 仍只允许 ADR 0006 的七仓。

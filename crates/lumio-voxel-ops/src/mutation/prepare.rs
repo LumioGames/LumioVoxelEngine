@@ -9,10 +9,10 @@ use super::prepared_token::PreparedMutation;
 use super::receipt_ledger::ReceiptLedger;
 use super::reservation::MutationReservation;
 use lumio_voxel_contracts::sha256;
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkPage, ChunkPayload, ChunkSlot, StagedEdit,
-};
 use lumio_voxel_domain::publication::PublishedReadView;
+use lumio_voxel_domain::section::{
+    SectionDeltaBuilder, SectionPage, SectionPayload, SectionSlot, StagedEdit,
+};
 
 /// Capture base identity, validate, stage privately, reserve. Does not publish Root,
 /// finalize a receipt, clear Dirty, do I/O, or invoke a callback.
@@ -45,26 +45,26 @@ fn seal_private(
     base_identity: [u8; 32],
     reservation: MutationReservation,
 ) -> Result<PreparedMutation, MutationError> {
-    let mut builder = ChunkDeltaBuilder::new(base.directory());
-    for (chunk_id, edits) in plan.chunk_edits() {
-        let slot = ChunkSlot::ready(payload_bytes(&edits.payload_bytes())?);
+    let mut builder = SectionDeltaBuilder::new(base.directory());
+    for (section_id, edits) in plan.section_edits() {
+        let slot = SectionSlot::ready(payload_bytes(&edits.payload_bytes())?);
         let cells: Vec<String> = edits.cell_ids().map(str::to_string).collect();
         builder
-            .stage(StagedEdit::new(chunk_id.clone(), slot).cells(cells))
-            .map_err(MutationError::from_chunk)?;
+            .stage(StagedEdit::new(section_id.clone(), slot).cells(cells))
+            .map_err(MutationError::from_section)?;
     }
-    let replacement = builder.freeze().map_err(MutationError::from_chunk)?;
+    let replacement = builder.freeze().map_err(MutationError::from_section)?;
 
     let mut dirty = base.dirty_frontier().clone();
     let stamp = base.stamp();
-    for chunk_id in plan.chunk_ids() {
+    for section_id in plan.section_ids() {
         let revision = stamp
-            .chunk_revision_set
-            .get(chunk_id)
+            .section_revision_set
+            .get(section_id)
             .copied()
             .unwrap_or(stamp.world_revision);
         dirty = dirty
-            .record(chunk_id, revision, "mutation")
+            .record(section_id, revision, "mutation")
             .map_err(MutationError::from_dirty)?;
     }
 
@@ -88,12 +88,12 @@ fn seal_private(
     ))
 }
 
-fn payload_bytes(bytes: &[u8]) -> Result<ChunkPayload, MutationError> {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload_bytes(bytes: &[u8]) -> Result<SectionPayload, MutationError> {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
         sha256(bytes),
     )])
-    .map_err(MutationError::from_chunk)
+    .map_err(MutationError::from_section)
 }

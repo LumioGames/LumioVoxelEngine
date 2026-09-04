@@ -5,21 +5,21 @@
 
 ## 模块定位与目标
 
-`world` 是 LumioVoxelEngine 的运行期组合根和 VoxelWorld 生命周期所有者。它创建一个独立的 Authority 或 Replica 世界，组装各模块并提供版本化 Port 的入口；它保存句柄和 Context，不把 Chunk Storage、Revision 表或投影缓存上移到 Runtime/Host。Host 负责进程级创建/销毁编排，Runtime 负责 Logical Tick/Coordinator，`world` 负责实例内部状态转换和一致性闸门。
+`world` 是 LumioVoxelEngine 的运行期组合根和 VoxelWorld 生命周期所有者。它创建一个独立的 Authority 或 Replica 世界，组装各模块并提供版本化 Port 的入口；它保存句柄和 Context，不把 Section Storage、Revision 表或投影缓存上移到 Runtime/Host。Host 负责进程级创建/销毁编排，Runtime 负责 Logical Tick/Coordinator，`world` 负责实例内部状态转换和一致性闸门。
 
 ## 负责什么
 
 - 创建、初始化、Ready、运行、Quiesce、Capture 路由、restore 入口、迁移配合和销毁一个 VoxelWorld 实例。
-- 校验 Role、WorldId、Context、Capability、Schema/ABI 和资源预算，然后组装 P0 `chunk/revision/query/mutation/snapshot`。
+- 校验 Role、WorldId、Context、Capability、Schema/ABI 和资源预算，然后组装 P0 `section/revision/query/mutation/snapshot`。
 - 按能力挂接 P2 `streaming/spatial/mesh-collision`，记录模块句柄和初始化顺序。
 - 提供唯一的 `IVoxelWorldPort`/Reference Port 入口，把 Query、Prepare、Commit、Abort、Capture 和取消转交给正确模块。
 - 维护 Voxel 侧 Simulation Barrier/Generation 闸门，拒绝销毁后或 Context 不匹配的迟到结果。
-- 转发 Host `DurabilityAck` 到 `chunk.clear_dirty`；转发 restore 字节到 `snapshot.decode` 再物化进 `chunk`/`revision`。
+- 转发 Host `DurabilityAck` 到 `section.clear_dirty`；转发 restore 字节到 `snapshot.decode` 再物化进 `section`/`revision`。
 - 在 LocalEmbedded 中创建两棵完全独立的 World 树，验证不共享 Storage、Lock、Buffer 或 Revision 写入。
 
 ## 明确不负责什么
 
-- 不拥有 Chunk/Block 数据、Revision 计数、Query 结果、Reservation、Pin 记录、投影缓存或 `SnapshotCut`。
+- 不拥有 Section/Block 数据、Revision 计数、Query 结果、Reservation、Pin 记录、投影缓存或 `SnapshotCut`。
 - 不决定 Host Wall Clock、Logical Tick Phase、跨域 Cut、CrossWorld 的 Game/ECS 提交顺序或最终 Gameplay 权限。
 - 不直接操作 C# ECS/Session/Connection，不调用 Hot Gameplay；跨边界只使用版本化 Port/Generated Contract。
 - 不执行文件 fsync、WAL、Release 路由或进程级恢复；只向 Host/Runtime 提供 Capture/恢复接口。
@@ -75,8 +75,8 @@ Created/Initializing/Ready/Running/Quiescing/... -> Faulted
 - **运行**：Runtime Port 调用 → Context/Role/预算检查 → Query 或 Mutation → Barrier 提交 → 返回 Revision/错误。
 - **运行中快照**：接收 Runtime 已固定的 Cut → `revision` Pin/COW → 取得 `VoxelCaptureRef` → 立即恢复权威写入 → `snapshot` 后台编码 → 交 Host 持久化。
 - **Quiesce/维护快照**：关闭新写入并排空请求后，再走同一套 Cut → CaptureRef 路径。
-- **恢复**：Host 字节 → `snapshot.decode` → `chunk` 物化页 + `revision` 恢复 Stamp；不走 Streaming Load。
-- **耐久回执**：Host `DurabilityAck` → Barrier → `chunk.clear_dirty`。
+- **恢复**：Host 字节 → `snapshot.decode` → `section` 物化页 + `revision` 恢复 Stamp；不走 Streaming Load。
+- **耐久回执**：Host `DurabilityAck` → Barrier → `section.clear_dirty`。
 - **关闭**：取消新请求 → 完成/中止 Reservation → 停止 Streaming/投影任务 → 释放 Pin/Views → 逆序释放模块 → `Destroyed`。
 - **失败路径**：模块初始化/状态迁移/Context 校验/资源预算失败进入明确 `Faulted`；已创建资源按逆序清理并保留 Failure Bundle 素材。
 
@@ -85,7 +85,7 @@ Created/Initializing/Ready/Running/Quiescing/... -> Faulted
 - **可重试**：P2 可选模块暂时不可用（仅在 Capability 允许的情况下延迟挂接）；核心 P0 初始化不隐式降级。
 - **可拒绝**：Role/Schema/ABI/Capability 不匹配、预算不足、非法状态调用、过期 Handle/Token。
 - **可致命**：Context/Storage 不变量破坏、无法保证 World 隔离或 Barrier 一致性；实例停止并由 Host/Runtime 恢复。
-- **降级**：只允许 Capability 声明的 Reference/Native、无 Spatial/Mesh 等明确能力差异；不得把缺 Chunk、Snapshot 失败或 Mutation 冲突当成功。
+- **降级**：只允许 Capability 声明的 Reference/Native、无 Spatial/Mesh 等明确能力差异；不得把未 Ready 的 Section、Snapshot 失败或 Mutation 冲突当成功。
 
 ## 配置、Capability 与安全约束
 

@@ -4,11 +4,11 @@ use lumio_voxel_contracts::{SCHEMA_IDS, STABLE_ERROR_IDS};
 use lumio_voxel_domain::revision::{REVISION_STAMP_SCHEMA, RevisionAllocator, to_generated_stamp};
 
 #[test]
-fn world_and_chunk_domains_are_independent_and_monotonic() {
+fn world_and_section_domains_are_independent_and_monotonic() {
     let mut a = RevisionAllocator::new();
     let mut w0 = a.reserve_world().unwrap();
     let mut w1 = a.reserve_world().unwrap();
-    let mut c0 = a.reserve_chunk().unwrap();
+    let mut c0 = a.reserve_section().unwrap();
     assert_eq!(w0.value().value(), 0);
     assert_eq!(w1.value().value(), 1);
     assert_eq!(c0.value().value(), 0);
@@ -24,19 +24,19 @@ fn world_and_chunk_domains_are_independent_and_monotonic() {
     );
     // Independence is domain isolation, not different starting numbers: both domains
     // start at 0 by design, and the type system already forbids comparing a
-    // WorldRevision with a ChunkRevision. Prove instead that each counter advances
+    // WorldRevision with a SectionRevision. Prove instead that each counter advances
     // only on its own domain's reservations.
-    let c1 = a.reserve_chunk().unwrap();
+    let c1 = a.reserve_section().unwrap();
     assert_eq!(
         c1.value().value(),
         1,
-        "two world reservations must not advance the chunk domain"
+        "two world reservations must not advance the section domain"
     );
     let w2 = a.reserve_world().unwrap();
     assert_eq!(
         w2.value().value(),
         2,
-        "chunk reservations must not advance the world domain"
+        "section reservations must not advance the world domain"
     );
 }
 
@@ -60,18 +60,18 @@ fn abandon_leaves_a_hole_and_double_finalize_is_stable_error() {
 fn stamp_wraps_generated_schema_id_only() {
     let mut a = RevisionAllocator::new();
     let mut w = a.reserve_world().unwrap();
-    let mut c = a.reserve_chunk().unwrap();
+    let mut c = a.reserve_section().unwrap();
     let world = w.finalize().unwrap();
-    let chunk = c.finalize().unwrap();
+    let section = c.finalize().unwrap();
     let stamp = to_generated_stamp(
         "world-a",
         "ctx-1",
         7,
         world,
-        &[("c:0:0:0".to_string(), chunk)],
+        &[("s:0:0:0".to_string(), section)],
     );
     assert_eq!(stamp.schema_id, REVISION_STAMP_SCHEMA);
     assert!(SCHEMA_IDS.contains(&stamp.schema_id));
     assert_eq!(stamp.world_revision, 0);
-    assert_eq!(stamp.chunk_revision_set.get("c:0:0:0"), Some(&0));
+    assert_eq!(stamp.section_revision_set.get("s:0:0:0"), Some(&0));
 }

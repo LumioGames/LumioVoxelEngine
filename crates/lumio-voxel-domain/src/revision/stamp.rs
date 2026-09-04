@@ -1,6 +1,6 @@
 //! Map internal revisions onto generated VoxelRevisionStamp field names.
 
-use super::allocator::{ChunkRevision, WorldRevision};
+use super::allocator::{SectionRevision, WorldRevision};
 use lumio_voxel_contracts::SCHEMA_IDS;
 use std::collections::BTreeMap;
 
@@ -14,7 +14,7 @@ pub struct GeneratedRevisionStamp {
     pub context_id: String,
     pub generation: u64,
     pub world_revision: u64,
-    pub chunk_revision_set: BTreeMap<String, u64>,
+    pub section_revision_set: BTreeMap<String, u64>,
 }
 
 pub fn to_generated_stamp(
@@ -22,12 +22,12 @@ pub fn to_generated_stamp(
     context_id: impl Into<String>,
     generation: u64,
     world: WorldRevision,
-    chunks: &[(String, ChunkRevision)],
+    sections: &[(String, SectionRevision)],
 ) -> GeneratedRevisionStamp {
     debug_assert!(SCHEMA_IDS.contains(&REVISION_STAMP_SCHEMA));
-    let mut chunk_revision_set = BTreeMap::new();
-    for (id, rev) in chunks {
-        chunk_revision_set.insert(id.clone(), rev.value());
+    let mut section_revision_set = BTreeMap::new();
+    for (id, rev) in sections {
+        section_revision_set.insert(id.clone(), rev.value());
     }
     GeneratedRevisionStamp {
         schema_id: REVISION_STAMP_SCHEMA,
@@ -35,6 +35,6 @@ pub fn to_generated_stamp(
         context_id: context_id.into(),
         generation,
         world_revision: world.value(),
-        chunk_revision_set,
+        section_revision_set,
     }
 }

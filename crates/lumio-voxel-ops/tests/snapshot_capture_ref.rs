@@ -2,10 +2,7 @@
 
 #![cfg(feature = "snapshot")]
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkSlot, DirtyFrontier,
-};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -15,6 +12,10 @@ use lumio_voxel_domain::publication::{
 };
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
+};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionPage, SectionPayload,
+    SectionSlot,
 };
 use lumio_voxel_ops::snapshot::{
     CaptureError, CaptureReadPort, CutEvidence, ManifestAdapter, MemoryCaptureWriter, PinOrLease,
@@ -101,12 +102,12 @@ fn stamp(
         context_id: context.to_string(),
         generation,
         world_revision,
-        chunk_revision_set: BTreeMap::new(),
+        section_revision_set: BTreeMap::new(),
     }
 }
 
-fn dummy_payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn dummy_payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -122,10 +123,13 @@ fn dummy_root(
     world_revision: u64,
     with_payload: bool,
 ) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
+    let mut builder = SectionDirectoryBuilder::new();
     if with_payload {
         builder
-            .insert("c:0:0:0", ChunkSlot::ready(dummy_payload(b"must-not-read")))
+            .insert(
+                "s:0:0:0",
+                SectionSlot::ready(dummy_payload(b"must-not-read")),
+            )
             .expect("canonical dummy id");
     }
     PublishedStateRoot::new(
@@ -180,7 +184,7 @@ fn publish_later(auth: &PublicationAuthority, view: &PublishedReadView, payload:
         .prepare(
             world_rev(1),
             later,
-            ChunkDeltaBuilder::new(view.directory())
+            SectionDeltaBuilder::new(view.directory())
                 .freeze()
                 .expect("empty replacement"),
         )
@@ -191,8 +195,8 @@ fn publish_later(auth: &PublicationAuthority, view: &PublishedReadView, payload:
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -214,7 +218,10 @@ fn assert_port_identity(port: &impl CaptureReadPort, view: &PublishedReadView, c
     assert_eq!(port.world_id(), view.stamp().world_id);
     assert_eq!(port.context_id(), view.stamp().context_id);
     assert_eq!(port.instance_generation(), view.stamp().generation);
-    assert_eq!(port.chunk_revision_set(), &view.stamp().chunk_revision_set);
+    assert_eq!(
+        port.section_revision_set(),
+        &view.stamp().section_revision_set
+    );
     assert_eq!(port.config_hash(), config_hash);
 }
 
@@ -344,8 +351,15 @@ fn two_encodes_of_same_ref_are_byte_identical_and_decode_back() {
     // rather than by calling the code under test. Regenerating it from a failure
     // here is the wrong move: a changed digest means manifests written before the
     // change no longer round-trip, which is an ADR decision, not a test update.
+    //
+    // Moved from b513120c… by the chunk→section rename (ADR 0013): the manifest carries
+    // `rootIdentity`, and that fingerprint includes the Debug rendering of the directory,
+    // so renaming the key type changed it. Snapshots written before the rename therefore
+    // do not round-trip — which is the ADR's decision, taken deliberately, not a quiet
+    // test update. The value below came out of the oracle after its `rootIdentity` input
+    // was moved, not out of this test's failure output.
     const MANIFEST_SHA256: &str =
-        "b513120c559bd74211a4ed775914f666c2e65a4b21579426c690939be136880f";
+        "1893afc9f731966250394262a38e0e5a7fae90a33b35d99684ac2adcf47c98ea";
     assert_eq!(
         hex32(&sha256(expected.as_bytes())),
         MANIFEST_SHA256,
