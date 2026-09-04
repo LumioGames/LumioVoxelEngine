@@ -238,8 +238,12 @@ SNAPSHOT_MANIFEST_FIXTURE = [
     ("worldRevision", uint(0)),
     ("configHash",
      text("aac0591628275ee9f9df6cadb2b9e21ec3b97021f6e0592b1f3883107e546cde")),
+    # Root identity is an INPUT to the manifest, not something this oracle derives:
+    # `PublishedStateRoot::identity` fingerprints the whole cut, including the Debug
+    # rendering of the directory — so the chunk→section rename of the key type moved it
+    # from efd3b6f9… to the value below. See ADR 0013.
     ("rootIdentity",
-     text("efd3b6f99cd27fdfe35404e4c9b8b8d5fd60eb44d1d7c44bbf84c8bc20658ba1")),
+     text("e2cbcd177ed719ba648170938f39d628c8eba57829ef250b85b55b32066913ea")),
 ]
 
 

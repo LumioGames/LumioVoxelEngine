@@ -1,6 +1,6 @@
 //! R-00071: immutable ReadView pin, live-pin retention, dual-world isolation.
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -69,7 +69,7 @@ fn stamp_at(
     context_id: &str,
     generation: u64,
     world_rev: u64,
-    chunks: &[(&str, u64)],
+    sections: &[(&str, u64)],
 ) -> GeneratedRevisionStamp {
     let mut alloc = RevisionAllocator::new();
     for _ in 0..world_rev {
@@ -78,12 +78,12 @@ fn stamp_at(
     let mut w = alloc.reserve_world().unwrap();
     let world = w.finalize().unwrap();
     let mut pairs = Vec::new();
-    for (id, rev) in chunks {
-        let mut chunk_alloc = RevisionAllocator::new();
+    for (id, rev) in sections {
+        let mut section_alloc = RevisionAllocator::new();
         for _ in 0..*rev {
-            chunk_alloc.reserve_chunk().unwrap().abandon();
+            section_alloc.reserve_section().unwrap().abandon();
         }
-        let mut c = chunk_alloc.reserve_chunk().unwrap();
+        let mut c = section_alloc.reserve_section().unwrap();
         pairs.push((id.to_string(), c.finalize().unwrap()));
     }
     to_generated_stamp(world_id, context_id, generation, world, &pairs)
@@ -91,8 +91,8 @@ fn stamp_at(
 
 fn assert_generated_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
     assert!(
         id == "InvalidHandle" || id == "BudgetExceeded",
@@ -110,11 +110,11 @@ fn read_view_stamp_is_frozen_across_later_stamp_and_config_reload() {
 
     let snap = approved_snapshot("r00071-read-view");
     let registry = PinRegistry::from_approved_snapshot(snap, 4, "ctx-1", 7);
-    let stamp0 = stamp_at("world-a", "ctx-1", 7, 0, &[("c:0:0:0", 0)]);
+    let stamp0 = stamp_at("world-a", "ctx-1", 7, 0, &[("s:0:0:0", 0)]);
     let pin = registry.try_pin(stamp0.clone()).unwrap();
     let view = ReadViewLease::from_pin(pin.clone());
 
-    let stamp1 = stamp_at("world-a", "ctx-1", 7, 1, &[("c:0:0:0", 3)]);
+    let stamp1 = stamp_at("world-a", "ctx-1", 7, 1, &[("s:0:0:0", 3)]);
     assert!(stamp1.world_revision > view.stamp().world_revision);
 
     let reloaded =
@@ -131,9 +131,9 @@ fn read_view_stamp_is_frozen_across_later_stamp_and_config_reload() {
 fn retention_frontier_follows_live_pins_out_of_order_drop_keeps_pinned_stamp() {
     let snap = approved_snapshot("r00071-retention");
     let registry = PinRegistry::from_approved_snapshot(snap, 4, "ctx-1", 1);
-    let old = stamp_at("world-a", "ctx-1", 1, 0, &[("c:0:0:0", 0)]);
-    let mid = stamp_at("world-a", "ctx-1", 1, 2, &[("c:0:0:0", 4)]);
-    let new = stamp_at("world-a", "ctx-1", 1, 5, &[("c:0:0:0", 9)]);
+    let old = stamp_at("world-a", "ctx-1", 1, 0, &[("s:0:0:0", 0)]);
+    let mid = stamp_at("world-a", "ctx-1", 1, 2, &[("s:0:0:0", 4)]);
+    let new = stamp_at("world-a", "ctx-1", 1, 5, &[("s:0:0:0", 9)]);
 
     let pin_old = registry.try_pin(old.clone()).unwrap();
     let pin_mid = registry.try_pin(mid.clone()).unwrap();

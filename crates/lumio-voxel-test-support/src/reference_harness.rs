@@ -2,11 +2,8 @@
 //! generated schema/error ids (no second Schema).
 
 use crate::fault_injection::{FaultInjector, FaultPoint};
+use lumio_voxel_contracts::voxel_world as vw;
 use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkSlot, CoveredChunkAck,
-    DirtyFrontier, DurabilityAckContext,
-};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -14,6 +11,10 @@ use lumio_voxel_domain::config_snapshot::{
 use lumio_voxel_domain::publication::PublishedStateRoot;
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
+};
+use lumio_voxel_domain::section::{
+    CoveredSectionAck, DirtyFrontier, DurabilityAckContext, SectionDeltaBuilder,
+    SectionDirectoryBuilder, SectionPage, SectionPayload, SectionSlot,
 };
 use lumio_voxel_ops::async_support::{OriginEnvelope, OriginToken};
 use lumio_voxel_ops::mutation::{MutationRequest, PreparedMutation, canonical_fingerprint};
@@ -157,15 +158,15 @@ const ORACLE_LIFECYCLE_EXPECTATIONS: [&str; VECTOR_COUNT] = [
     "Running",
     "Disposed",
 ];
-const KNOWN_CHUNKS: &[&str] = &[
-    "c:-10:0:0",
-    "c:-1:0:0",
-    "c:0:0:0",
-    "c:1:0:0",
-    "c:2:0:0",
-    "c:9:0:0",
+const KNOWN_SECTIONS: &[&str] = &[
+    "s:-10:0:0",
+    "s:-1:0:0",
+    "s:0:0:0",
+    "s:1:0:0",
+    "s:2:0:0",
+    "s:9:0:0",
 ];
-const READY_CHUNKS: &[&str] = &["c:-10:0:0", "c:-1:0:0", "c:0:0:0", "c:1:0:0", "c:2:0:0"];
+const READY_SECTIONS: &[&str] = &["s:-10:0:0", "s:-1:0:0", "s:0:0:0", "s:1:0:0", "s:2:0:0"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DifferentialOperation {
@@ -174,13 +175,13 @@ pub enum DifferentialOperation {
     Start,
     Query {
         query_id: String,
-        chunk_ids: Vec<String>,
+        section_ids: Vec<String>,
         cancel: bool,
     },
     Prepare {
         txn_id: String,
         expected_world_revision: u64,
-        chunk_id: String,
+        section_id: String,
         cell_id: String,
         value: String,
     },
@@ -198,16 +199,16 @@ pub struct DifferentialVector {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ChunkStateEvidence {
-    pub chunk_id: String,
+pub struct SectionStateEvidence {
+    pub section_id: String,
     pub presence: Option<String>,
-    pub chunk_revision: Option<u64>,
+    pub section_revision: Option<u64>,
     pub payload_digest: Option<[u8; 32]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirtyStateEvidence {
-    pub chunk_id: String,
+    pub section_id: String,
     pub first_revision: Option<u64>,
     pub latest_revision: Option<u64>,
     pub reason: Option<String>,
@@ -222,8 +223,8 @@ pub struct StateEvidence {
     pub lifecycle_machine: String,
     pub lifecycle: String,
     pub world_revision: u64,
-    pub chunk_revision_set: Vec<(String, u64)>,
-    pub chunks: Vec<ChunkStateEvidence>,
+    pub section_revision_set: Vec<(String, u64)>,
+    pub sections: Vec<SectionStateEvidence>,
     pub published_root: [u8; 32],
     /// Canonical cross-leg root over the published contract projection. The
     /// raw `published_root` remains available for per-leg identity checks.
@@ -246,7 +247,7 @@ pub struct CaptureObservation {
     pub context_id: String,
     pub generation: u64,
     pub world_revision: u64,
-    pub chunk_revision_set: Vec<(String, u64)>,
+    pub section_revision_set: Vec<(String, u64)>,
     pub config_hash: String,
     pub artifact_hash: [u8; 32],
     pub semantic_digest: [u8; 32],
@@ -272,7 +273,7 @@ pub struct AckObservation {
     pub context_id: String,
     pub generation: u64,
     pub covered_world_revision: u64,
-    pub covered_chunks: Vec<(String, u64)>,
+    pub covered_sections: Vec<(String, u64)>,
     pub coverage_len: usize,
     pub old_root: [u8; 32],
     pub new_root: [u8; 32],
@@ -288,7 +289,7 @@ pub struct RestoreObservation {
     pub context_id: String,
     pub generation: u64,
     pub world_revision: u64,
-    pub chunk_revision_set: Vec<(String, u64)>,
+    pub section_revision_set: Vec<(String, u64)>,
     pub config_hash: String,
     pub semantic_digest: [u8; 32],
 }
@@ -298,7 +299,7 @@ pub struct ProbeObservation {
     pub label: String,
     pub ok: bool,
     pub error_id: Option<String>,
-    pub returned_chunks: Vec<(String, String)>,
+    pub returned_sections: Vec<(String, String)>,
     pub state: StateEvidence,
     pub capture: Option<CaptureObservation>,
     pub receipt: Option<ReceiptObservation>,
@@ -320,9 +321,9 @@ pub struct DifferentialObservation {
     pub generation: u64,
     pub stamp_generation: u64,
     pub world_revision: u64,
-    pub chunk_presence: Vec<(String, String)>,
-    pub chunk_revision_set: Vec<(String, u64)>,
-    pub chunks: Vec<ChunkStateEvidence>,
+    pub section_presence: Vec<(String, String)>,
+    pub section_revision_set: Vec<(String, u64)>,
+    pub sections: Vec<SectionStateEvidence>,
     pub published_root: [u8; 32],
     pub contract_root: [u8; 32],
     pub directory_digest: [u8; 32],
@@ -539,13 +540,13 @@ fn differential_vectors() -> Vec<DifferentialVector> {
             sequence: 3,
             operation: DifferentialOperation::Query {
                 query_id: "q-diff-signed".into(),
-                chunk_ids: vec![
-                    "c:-1:0:0".into(),
-                    "c:-10:0:0".into(),
-                    "c:0:0:0".into(),
-                    "c:-1:0:0".into(),
-                    "c:1:0:0".into(),
-                    "c:9:0:0".into(),
+                section_ids: vec![
+                    "s:-1:0:0".into(),
+                    "s:-10:0:0".into(),
+                    "s:0:0:0".into(),
+                    "s:-1:0:0".into(),
+                    "s:1:0:0".into(),
+                    "s:9:0:0".into(),
                 ],
                 cancel: false,
             },
@@ -554,7 +555,7 @@ fn differential_vectors() -> Vec<DifferentialVector> {
             sequence: 4,
             operation: DifferentialOperation::Query {
                 query_id: "q-diff-errors".into(),
-                chunk_ids: vec!["c:0:0:0".into()],
+                section_ids: vec!["s:0:0:0".into()],
                 cancel: true,
             },
         },
@@ -563,7 +564,7 @@ fn differential_vectors() -> Vec<DifferentialVector> {
             operation: DifferentialOperation::Prepare {
                 txn_id: "txn-diff".into(),
                 expected_world_revision: 1,
-                chunk_id: "c:0:0:0".into(),
+                section_id: "s:0:0:0".into(),
                 cell_id: "cell-0".into(),
                 value: "edited".into(),
             },
@@ -619,7 +620,7 @@ struct OracleState {
     world_revision: u64,
     stamp_generation: u64,
     generation: u64,
-    chunk_revisions: BTreeMap<String, u64>,
+    section_revisions: BTreeMap<String, u64>,
     payloads: BTreeMap<String, Vec<u8>>,
     ready: BTreeSet<String>,
     dirty: BTreeMap<String, OracleDirty>,
@@ -634,11 +635,11 @@ struct OracleState {
 
 impl OracleState {
     fn new(generation: u64) -> Self {
-        let mut chunk_revisions = BTreeMap::new();
+        let mut section_revisions = BTreeMap::new();
         let mut payloads = BTreeMap::new();
         let mut ready = BTreeSet::new();
-        for id in READY_CHUNKS {
-            chunk_revisions.insert((*id).into(), 1);
+        for id in READY_SECTIONS {
+            section_revisions.insert((*id).into(), 1);
             payloads.insert((*id).into(), format!("seed:{id}").into_bytes());
             ready.insert((*id).into());
         }
@@ -647,7 +648,7 @@ impl OracleState {
             world_revision: 1,
             stamp_generation: generation,
             generation,
-            chunk_revisions,
+            section_revisions,
             payloads,
             ready,
             dirty: BTreeMap::new(),
@@ -662,18 +663,18 @@ impl OracleState {
     }
 
     fn state(&self) -> StateEvidence {
-        let chunks = KNOWN_CHUNKS
+        let sections = KNOWN_SECTIONS
             .iter()
-            .map(|id| ChunkStateEvidence {
-                chunk_id: (*id).into(),
+            .map(|id| SectionStateEvidence {
+                section_id: (*id).into(),
                 presence: if self.ready.contains(*id) {
                     Some("Ready".into())
-                } else if self.chunk_revisions.contains_key(*id) {
-                    Some("NotLoaded".into())
+                } else if self.section_revisions.contains_key(*id) {
+                    Some("Unchanged".into())
                 } else {
                     None
                 },
-                chunk_revision: self.chunk_revisions.get(*id).copied(),
+                section_revision: self.section_revisions.get(*id).copied(),
                 payload_digest: self
                     .ready
                     .contains(*id)
@@ -681,21 +682,21 @@ impl OracleState {
                     .flatten(),
             })
             .collect::<Vec<_>>();
-        let dirty = KNOWN_CHUNKS
+        let dirty = KNOWN_SECTIONS
             .iter()
             .map(|id| DirtyStateEvidence {
-                chunk_id: (*id).into(),
+                section_id: (*id).into(),
                 first_revision: self.dirty.get(*id).map(|d| d.first),
                 latest_revision: self.dirty.get(*id).map(|d| d.latest),
                 reason: self.dirty.get(*id).map(|d| d.reason.clone()),
             })
             .collect::<Vec<_>>();
         let revisions = self
-            .chunk_revisions
+            .section_revisions
             .iter()
             .map(|(id, rev)| (id.clone(), *rev))
             .collect::<Vec<_>>();
-        let directory_digest = oracle_directory_digest(&chunks);
+        let directory_digest = oracle_directory_digest(&sections);
         let dirty_digest = oracle_dirty_digest(&dirty);
         let semantic = oracle_state_digest(
             WORLD_ID,
@@ -706,7 +707,7 @@ impl OracleState {
             self.stamp_generation,
             self.generation,
             &revisions,
-            &chunks,
+            &sections,
             &dirty,
             &self.config_hash,
             self.publication_epoch,
@@ -719,8 +720,8 @@ impl OracleState {
             lifecycle_machine: MACHINE.into(),
             lifecycle: self.lifecycle.clone(),
             world_revision: self.world_revision,
-            chunk_revision_set: revisions,
-            chunks,
+            section_revision_set: revisions,
+            sections,
             published_root: oracle_root(self, semantic),
             contract_root: semantic,
             directory_digest,
@@ -763,14 +764,14 @@ impl OracleState {
             (
                 DifferentialOperation::Query {
                     query_id,
-                    chunk_ids,
+                    section_ids,
                     cancel,
                 },
                 3,
             ) => match oracle_query(
                 self,
                 query_id,
-                chunk_ids,
+                section_ids,
                 *cancel,
                 WORLD_ID,
                 CONTEXT_ID,
@@ -786,7 +787,7 @@ impl OracleState {
             (
                 DifferentialOperation::Query {
                     query_id,
-                    chunk_ids,
+                    section_ids,
                     cancel,
                 },
                 4,
@@ -794,7 +795,7 @@ impl OracleState {
                 match oracle_query(
                     self,
                     query_id,
-                    chunk_ids,
+                    section_ids,
                     *cancel,
                     WORLD_ID,
                     CONTEXT_ID,
@@ -810,7 +811,7 @@ impl OracleState {
                 probes.push(self.oracle_query_probe(
                     "cancel",
                     "q-cancel",
-                    &["c:0:0:0".into()],
+                    &["s:0:0:0".into()],
                     true,
                     WORLD_ID,
                     CONTEXT_ID,
@@ -820,7 +821,7 @@ impl OracleState {
                 probes.push(self.oracle_query_probe(
                     "malformed-coordinate",
                     "q-malformed",
-                    &["c:-0:0:0".into()],
+                    &["s:-0:0:0".into()],
                     false,
                     WORLD_ID,
                     CONTEXT_ID,
@@ -830,7 +831,7 @@ impl OracleState {
                 probes.push(self.oracle_query_probe(
                     "leading-zero-coordinate",
                     "q-leading-zero",
-                    &["c:01:0:0".into()],
+                    &["s:01:0:0".into()],
                     false,
                     WORLD_ID,
                     CONTEXT_ID,
@@ -840,7 +841,7 @@ impl OracleState {
                 probes.push(self.oracle_query_probe(
                     "out-of-range-coordinate",
                     "q-out-of-range",
-                    &["c:2147483648:0:0".into()],
+                    &["s:2147483648:0:0".into()],
                     false,
                     WORLD_ID,
                     CONTEXT_ID,
@@ -850,7 +851,7 @@ impl OracleState {
                 probes.push(self.oracle_query_probe(
                     "wrong-world",
                     "q-wrong-world",
-                    &["c:0:0:0".into()],
+                    &["s:0:0:0".into()],
                     false,
                     "world-other",
                     CONTEXT_ID,
@@ -860,7 +861,7 @@ impl OracleState {
                 probes.push(self.oracle_query_probe(
                     "wrong-context",
                     "q-wrong-context",
-                    &["c:0:0:0".into()],
+                    &["s:0:0:0".into()],
                     false,
                     WORLD_ID,
                     "ctx-other",
@@ -870,7 +871,7 @@ impl OracleState {
                 probes.push(self.oracle_query_probe(
                     "stale-generation",
                     "q-stale",
-                    &["c:0:0:0".into()],
+                    &["s:0:0:0".into()],
                     false,
                     WORLD_ID,
                     CONTEXT_ID,
@@ -880,7 +881,7 @@ impl OracleState {
                 probes.push(self.oracle_query_probe(
                     "wrong-config",
                     "q-config",
-                    &["c:0:0:0".into()],
+                    &["s:0:0:0".into()],
                     false,
                     WORLD_ID,
                     CONTEXT_ID,
@@ -902,7 +903,7 @@ impl OracleState {
                 DifferentialOperation::Prepare {
                     txn_id,
                     expected_world_revision,
-                    chunk_id,
+                    section_id,
                     cell_id,
                     value,
                 },
@@ -913,7 +914,7 @@ impl OracleState {
                     WORLD_ID,
                     self.generation,
                     *expected_world_revision,
-                    chunk_id,
+                    section_id,
                     cell_id,
                     value,
                 );
@@ -929,7 +930,7 @@ impl OracleState {
                         WORLD_ID,
                         self.generation,
                         expected_world_revision.saturating_sub(1),
-                        chunk_id,
+                        section_id,
                         cell_id,
                         value,
                     ),
@@ -942,7 +943,7 @@ impl OracleState {
                         "world-other",
                         self.generation,
                         *expected_world_revision,
-                        chunk_id,
+                        section_id,
                         cell_id,
                         value,
                     ),
@@ -955,7 +956,7 @@ impl OracleState {
                         WORLD_ID,
                         self.generation + 1,
                         *expected_world_revision,
-                        chunk_id,
+                        section_id,
                         cell_id,
                         value,
                     ),
@@ -966,7 +967,7 @@ impl OracleState {
                     WORLD_ID,
                     self.generation,
                     self.world_revision,
-                    chunk_id,
+                    section_id,
                     cell_id,
                     value,
                 )));
@@ -977,20 +978,20 @@ impl OracleState {
                         WORLD_ID,
                         self.generation,
                         *expected_world_revision,
-                        chunk_id,
+                        section_id,
                         cell_id,
                         value,
                     ),
                     &"0".repeat(64),
                 ));
                 probes.push(self.oracle_prepare_probe(
-                    "malformed-chunk",
+                    "malformed-section",
                     oracle_request(
                         "txn-malformed",
                         WORLD_ID,
                         self.generation,
                         *expected_world_revision,
-                        "c:01:0:0",
+                        "s:01:0:0",
                         cell_id,
                         value,
                     ),
@@ -1041,22 +1042,22 @@ impl OracleState {
                 probes.push(self.oracle_restore_probe("stale-generation", "StaleEpoch"));
             }
             (DifferentialOperation::DurabilityAck, 9) => {
-                let _ = self.oracle_mutation("txn-ack-1", "c:1:0:0", "ack-one");
+                let _ = self.oracle_mutation("txn-ack-1", "s:1:0:0", "ack-one");
                 probes.push(
                     self.oracle_ack(
                         "stale",
                         self.world_revision - 1,
-                        vec![("c:0:0:0".into(), 0)],
+                        vec![("s:0:0:0".into(), 0)],
                     )
                     .0,
                 );
                 probes.push(
-                    self.oracle_ack("partial", self.world_revision, vec![("c:0:0:0".into(), 1)])
+                    self.oracle_ack("partial", self.world_revision, vec![("s:0:0:0".into(), 1)])
                         .0,
                 );
-                let _ = self.oracle_mutation("txn-ack-new", "c:0:0:0", "newer");
+                let _ = self.oracle_mutation("txn-ack-new", "s:0:0:0", "newer");
                 probes.push(
-                    self.oracle_ack("replayed-old", 2, vec![("c:0:0:0".into(), 1)])
+                    self.oracle_ack("replayed-old", 2, vec![("s:0:0:0".into(), 1)])
                         .0,
                 );
                 let current = self
@@ -1117,12 +1118,12 @@ impl OracleState {
                 );
                 probes.push(
                     self.oracle_ack_identity(
-                        "duplicate-chunk",
+                        "duplicate-section",
                         WORLD_ID,
                         CONTEXT_ID,
                         self.generation,
                         self.world_revision,
-                        vec![("c:0:0:0".into(), 0), ("c:0:0:0".into(), 0)],
+                        vec![("s:0:0:0".into(), 0), ("s:0:0:0".into(), 0)],
                     )
                     .0,
                 );
@@ -1178,19 +1179,17 @@ impl OracleState {
         if expected != Some(self.world_revision) {
             return Err("RevisionConflict");
         }
-        let chunk = request
+        let section = request
             .fields
             .keys()
-            .find(|k| k.starts_with("c:"))
+            .find(|k| k.starts_with("s:"))
             .and_then(|k| k.split('/').next());
-        let Some(chunk) = chunk else {
+        let Some(section) = section else {
             return Err("InvalidHandle");
         };
-        if parse_coordinate(chunk).is_none() {
-            return Err("CoordinateOutOfBounds");
-        }
-        if !self.ready.contains(chunk) {
-            return Err("ChunkUnavailable");
+        parse_coordinate(section)?;
+        if !self.ready.contains(section) {
+            return Err(vw::SECTION_UNAVAILABLE);
         }
         let fp = oracle_fingerprint(&request)?;
         if let Some(entry) = self.ledger.get(&request.txn_id) {
@@ -1219,11 +1218,11 @@ impl OracleState {
         prepared: OraclePrepared,
         disposition: &str,
     ) -> Result<ReceiptObservation, &'static str> {
-        let chunk = prepared
+        let section = prepared
             .request
             .fields
             .keys()
-            .find(|k| k.starts_with("c:"))
+            .find(|k| k.starts_with("s:"))
             .and_then(|k| k.split('/').next())
             .ok_or("InvalidHandle")?
             .to_string();
@@ -1231,24 +1230,25 @@ impl OracleState {
             .request
             .fields
             .iter()
-            .find(|(key, _)| key.starts_with("c:"))
+            .find(|(key, _)| key.starts_with("s:"))
             .map(|(_, value)| value.as_bytes().to_vec())
             .ok_or("InvalidHandle")?;
         let old = self.state().published_root;
-        let old_chunk = self
-            .chunk_revisions
-            .get(&chunk)
+        let old_section = self
+            .section_revisions
+            .get(&section)
             .copied()
             .unwrap_or(self.world_revision);
         self.world_revision = self.world_revision.checked_add(1).ok_or("InvalidHandle")?;
-        self.chunk_revisions.insert(chunk.clone(), old_chunk + 1);
-        self.payloads.insert(chunk.clone(), payload);
+        self.section_revisions
+            .insert(section.clone(), old_section + 1);
+        self.payloads.insert(section.clone(), payload);
         self.dirty
-            .entry(chunk)
-            .and_modify(|d| d.latest = d.latest.max(old_chunk))
+            .entry(section)
+            .and_modify(|d| d.latest = d.latest.max(old_section))
             .or_insert(OracleDirty {
-                first: old_chunk,
-                latest: old_chunk,
+                first: old_section,
+                latest: old_section,
                 reason: "mutation".into(),
             });
         self.publication_epoch += 1;
@@ -1269,7 +1269,7 @@ impl OracleState {
     fn oracle_mutation(
         &mut self,
         txn: &str,
-        chunk: &str,
+        section: &str,
         value: &str,
     ) -> Result<ReceiptObservation, &'static str> {
         let req = oracle_request(
@@ -1277,7 +1277,7 @@ impl OracleState {
             WORLD_ID,
             self.generation,
             self.world_revision,
-            chunk,
+            section,
             "cell",
             value,
         );
@@ -1291,7 +1291,7 @@ impl OracleState {
         &mut self,
         label: &str,
         covered: u64,
-        chunks: Vec<(String, u64)>,
+        sections: Vec<(String, u64)>,
     ) -> (ProbeObservation, Option<AckObservation>) {
         self.oracle_ack_identity(
             label,
@@ -1299,7 +1299,7 @@ impl OracleState {
             CONTEXT_ID,
             self.generation,
             covered,
-            chunks,
+            sections,
         )
     }
 
@@ -1310,7 +1310,7 @@ impl OracleState {
         context: &str,
         generation: u64,
         covered: u64,
-        chunks: Vec<(String, u64)>,
+        sections: Vec<(String, u64)>,
     ) -> (ProbeObservation, Option<AckObservation>) {
         let before = self.state();
         let old_root = before.published_root;
@@ -1328,10 +1328,10 @@ impl OracleState {
             error = Some("EvidenceDigestMismatch".into());
         } else {
             let mut seen = BTreeSet::new();
-            for (id, up_to) in &chunks {
-                if parse_coordinate(id).is_none() {
+            for (id, up_to) in &sections {
+                if let Err(code) = parse_coordinate(id) {
                     ok = false;
-                    error = Some("CoordinateOutOfBounds".into());
+                    error = Some(code.into());
                     break;
                 }
                 if !seen.insert(id.clone()) {
@@ -1357,7 +1357,7 @@ impl OracleState {
             context_id: context.into(),
             generation,
             covered_world_revision: covered,
-            covered_chunks: chunks.clone(),
+            covered_sections: sections.clone(),
             coverage_len: coverage.len(),
             old_root,
             new_root: after.published_root,
@@ -1366,7 +1366,7 @@ impl OracleState {
                 context,
                 generation,
                 covered,
-                &chunks,
+                &sections,
                 coverage.len(),
             ),
         });
@@ -1374,7 +1374,7 @@ impl OracleState {
             label: label.into(),
             ok,
             error_id: error,
-            returned_chunks: Vec::new(),
+            returned_sections: Vec::new(),
             state: after,
             capture: None,
             receipt: None,
@@ -1386,12 +1386,12 @@ impl OracleState {
 
     fn oracle_ack_malformed_probe(&mut self) -> ProbeObservation {
         let (probe, _) = self.oracle_ack_identity(
-            "malformed-chunk",
+            "malformed-section",
             WORLD_ID,
             CONTEXT_ID,
             self.generation,
             self.world_revision,
-            vec![("c:-0:0:0".into(), 0)],
+            vec![("s:-0:0:0".into(), 0)],
         );
         probe
     }
@@ -1401,7 +1401,7 @@ impl OracleState {
             label: "wrong-kind".into(),
             ok: false,
             error_id: Some("InvalidHandle".into()),
-            returned_chunks: Vec::new(),
+            returned_sections: Vec::new(),
             state: self.state(),
             capture: None,
             receipt: None,
@@ -1418,7 +1418,7 @@ impl OracleState {
                 WORLD_ID,
                 trial.generation,
                 trial.world_revision,
-                "c:0:0:0",
+                "s:0:0:0",
                 "cell-0",
                 "edited",
             )
@@ -1426,7 +1426,7 @@ impl OracleState {
         if conflict {
             request
                 .fields
-                .insert("c:0:0:0/cell-0".into(), "conflicting".into());
+                .insert("s:0:0:0/cell-0".into(), "conflicting".into());
         }
         let fingerprint = match oracle_fingerprint(&request) {
             Ok(fingerprint) => fingerprint,
@@ -1440,7 +1440,7 @@ impl OracleState {
                     .into(),
                     ok: false,
                     error_id: Some(error.into()),
-                    returned_chunks: Vec::new(),
+                    returned_sections: Vec::new(),
                     state: trial.state(),
                     capture: None,
                     receipt: None,
@@ -1472,7 +1472,7 @@ impl OracleState {
             .into(),
             ok,
             error_id: error.map(str::to_string),
-            returned_chunks: Vec::new(),
+            returned_sections: Vec::new(),
             state: trial.state(),
             capture: None,
             receipt,
@@ -1489,7 +1489,7 @@ impl OracleState {
                 WORLD_ID,
                 trial.generation,
                 trial.world_revision,
-                "c:0:0:0",
+                "s:0:0:0",
                 "cell-0",
                 "edited",
             )
@@ -1505,7 +1505,7 @@ impl OracleState {
             label: "stale-replay".into(),
             ok,
             error_id: error.map(str::to_string),
-            returned_chunks: Vec::new(),
+            returned_sections: Vec::new(),
             state: trial.state(),
             capture: None,
             receipt: None,
@@ -1536,7 +1536,7 @@ impl OracleState {
             label: label.into(),
             ok,
             error_id: error.map(str::to_string),
-            returned_chunks: returned,
+            returned_sections: returned,
             state: self.state(),
             capture: None,
             receipt: None,
@@ -1552,7 +1552,7 @@ impl OracleState {
             label: "illegal-transition".into(),
             ok: false,
             error_id: Some("InvalidHandle".into()),
-            returned_chunks: Vec::new(),
+            returned_sections: Vec::new(),
             state: self.state(),
             capture: None,
             receipt: None,
@@ -1577,7 +1577,7 @@ impl OracleState {
             label: label.into(),
             ok,
             error_id: error.map(str::to_string),
-            returned_chunks: Vec::new(),
+            returned_sections: Vec::new(),
             state: trial.state(),
             capture: None,
             receipt: None,
@@ -1600,7 +1600,7 @@ impl OracleState {
             label: "abort".into(),
             ok,
             error_id: error.map(str::to_string),
-            returned_chunks: Vec::new(),
+            returned_sections: Vec::new(),
             state: trial.state(),
             capture: None,
             receipt: None,
@@ -1624,7 +1624,7 @@ impl OracleState {
             label: label.into(),
             ok: false,
             error_id: Some(error.into()),
-            returned_chunks: Vec::new(),
+            returned_sections: Vec::new(),
             state: self.state(),
             capture: None,
             receipt: None,
@@ -1651,7 +1651,7 @@ impl OracleState {
             context_id: CONTEXT_ID.into(),
             generation: self.generation,
             world_revision: self.world_revision,
-            chunk_revision_set: after.chunk_revision_set.clone(),
+            section_revision_set: after.section_revision_set.clone(),
             config_hash: after.config_hash.clone(),
             semantic_digest: restore_semantic_digest(
                 WORLD_ID,
@@ -1674,7 +1674,7 @@ fn run_reference(
 struct RustRun {
     world: VoxelWorld,
     config_hash: String,
-    known_chunks: Vec<String>,
+    known_sections: Vec<String>,
     last_request: Option<OriginEnvelope<MutationRequest>>,
     prepared: Option<OriginEnvelope<PreparedMutation>>,
     receipts: BTreeMap<String, Vec<u8>>,
@@ -1686,12 +1686,12 @@ struct RustRun {
 
 fn run_rust(vectors: &[DifferentialVector]) -> Result<Vec<DifferentialObservation>, String> {
     let mut world = create_differential_world()?;
-    seed_differential_ready_chunks(&mut world)?;
+    seed_differential_ready_sections(&mut world)?;
     let initial_root = world.publication_authority().capture().root().identity();
     let mut run = RustRun {
         world,
         config_hash: config_hash_for(CONFIG_LABEL),
-        known_chunks: KNOWN_CHUNKS.iter().map(|s| (*s).into()).collect(),
+        known_sections: KNOWN_SECTIONS.iter().map(|s| (*s).into()).collect(),
         last_request: None,
         prepared: None,
         receipts: BTreeMap::new(),
@@ -1734,7 +1734,7 @@ fn execute_rust_vector(
         (
             DifferentialOperation::Query {
                 query_id,
-                chunk_ids,
+                section_ids,
                 cancel,
             },
             3,
@@ -1742,7 +1742,7 @@ fn execute_rust_vector(
             match rust_query(
                 run,
                 query_id,
-                chunk_ids,
+                section_ids,
                 *cancel,
                 WORLD_ID,
                 CONTEXT_ID,
@@ -1759,7 +1759,7 @@ fn execute_rust_vector(
         (
             DifferentialOperation::Query {
                 query_id,
-                chunk_ids,
+                section_ids,
                 cancel,
             },
             4,
@@ -1767,7 +1767,7 @@ fn execute_rust_vector(
             match rust_query(
                 run,
                 query_id,
-                chunk_ids,
+                section_ids,
                 *cancel,
                 WORLD_ID,
                 CONTEXT_ID,
@@ -1785,7 +1785,7 @@ fn execute_rust_vector(
                 run,
                 "cancel",
                 "q-cancel",
-                &["c:0:0:0".into()],
+                &["s:0:0:0".into()],
                 true,
                 WORLD_ID,
                 CONTEXT_ID,
@@ -1796,7 +1796,7 @@ fn execute_rust_vector(
                 run,
                 "malformed-coordinate",
                 "q-malformed",
-                &["c:-0:0:0".into()],
+                &["s:-0:0:0".into()],
                 false,
                 WORLD_ID,
                 CONTEXT_ID,
@@ -1807,7 +1807,7 @@ fn execute_rust_vector(
                 run,
                 "leading-zero-coordinate",
                 "q-leading-zero",
-                &["c:01:0:0".into()],
+                &["s:01:0:0".into()],
                 false,
                 WORLD_ID,
                 CONTEXT_ID,
@@ -1818,7 +1818,7 @@ fn execute_rust_vector(
                 run,
                 "out-of-range-coordinate",
                 "q-out-of-range",
-                &["c:2147483648:0:0".into()],
+                &["s:2147483648:0:0".into()],
                 false,
                 WORLD_ID,
                 CONTEXT_ID,
@@ -1829,7 +1829,7 @@ fn execute_rust_vector(
                 run,
                 "wrong-world",
                 "q-wrong-world",
-                &["c:0:0:0".into()],
+                &["s:0:0:0".into()],
                 false,
                 "world-other",
                 CONTEXT_ID,
@@ -1840,7 +1840,7 @@ fn execute_rust_vector(
                 run,
                 "wrong-context",
                 "q-wrong-context",
-                &["c:0:0:0".into()],
+                &["s:0:0:0".into()],
                 false,
                 WORLD_ID,
                 "ctx-other",
@@ -1851,7 +1851,7 @@ fn execute_rust_vector(
                 run,
                 "stale-generation",
                 "q-stale",
-                &["c:0:0:0".into()],
+                &["s:0:0:0".into()],
                 false,
                 WORLD_ID,
                 CONTEXT_ID,
@@ -1862,7 +1862,7 @@ fn execute_rust_vector(
                 run,
                 "wrong-config",
                 "q-config",
-                &["c:0:0:0".into()],
+                &["s:0:0:0".into()],
                 false,
                 WORLD_ID,
                 CONTEXT_ID,
@@ -1885,7 +1885,7 @@ fn execute_rust_vector(
             DifferentialOperation::Prepare {
                 txn_id,
                 expected_world_revision,
-                chunk_id,
+                section_id,
                 cell_id,
                 value,
             },
@@ -1896,7 +1896,7 @@ fn execute_rust_vector(
                 run,
                 txn_id,
                 *expected_world_revision,
-                chunk_id,
+                section_id,
                 cell_id,
                 value,
                 WORLD_ID,
@@ -1916,7 +1916,7 @@ fn execute_rust_vector(
                 "stale-revision",
                 txn_id,
                 0,
-                chunk_id,
+                section_id,
                 cell_id,
                 value,
                 WORLD_ID,
@@ -1928,7 +1928,7 @@ fn execute_rust_vector(
                 "wrong-world",
                 txn_id,
                 *expected_world_revision,
-                chunk_id,
+                section_id,
                 cell_id,
                 value,
                 "world-other",
@@ -1940,7 +1940,7 @@ fn execute_rust_vector(
                 "stale-generation",
                 txn_id,
                 *expected_world_revision,
-                chunk_id,
+                section_id,
                 cell_id,
                 value,
                 WORLD_ID,
@@ -1949,7 +1949,7 @@ fn execute_rust_vector(
             )?);
             probes.push(rust_abort_probe(
                 run,
-                chunk_id,
+                section_id,
                 cell_id,
                 value,
                 &config_hash,
@@ -1959,7 +1959,7 @@ fn execute_rust_vector(
                 "wrong-config",
                 txn_id,
                 *expected_world_revision,
-                chunk_id,
+                section_id,
                 cell_id,
                 value,
                 WORLD_ID,
@@ -1968,10 +1968,10 @@ fn execute_rust_vector(
             )?);
             probes.push(rust_prepare_probe(
                 run,
-                "malformed-chunk",
+                "malformed-section",
                 "txn-malformed",
                 *expected_world_revision,
-                "c:01:0:0",
+                "s:01:0:0",
                 cell_id,
                 value,
                 WORLD_ID,
@@ -2007,7 +2007,7 @@ fn execute_rust_vector(
                         label: "exact-replay".into(),
                         ok: true,
                         error_id: None,
-                        returned_chunks: Vec::new(),
+                        returned_sections: Vec::new(),
                         state: rust_state(run),
                         capture: None,
                         receipt: Some(v),
@@ -2038,7 +2038,7 @@ fn execute_rust_vector(
                 .capture()
                 .stamp()
                 .world_revision;
-            rust_commit_new(run, "txn-ack-1", "c:1:0:0", "ack-one", rev)?;
+            rust_commit_new(run, "txn-ack-1", "s:1:0:0", "ack-one", rev)?;
             probes.push(rust_ack_probe(
                 run,
                 "stale",
@@ -2048,7 +2048,7 @@ fn execute_rust_vector(
                     .stamp()
                     .world_revision
                     - 1,
-                vec![("c:0:0:0", 0)],
+                vec![("s:0:0:0", 0)],
                 WORLD_ID,
                 CONTEXT_ID,
                 &mut ack,
@@ -2061,7 +2061,7 @@ fn execute_rust_vector(
                     .capture()
                     .stamp()
                     .world_revision,
-                vec![("c:0:0:0", 1)],
+                vec![("s:0:0:0", 1)],
                 WORLD_ID,
                 CONTEXT_ID,
                 &mut ack,
@@ -2072,12 +2072,12 @@ fn execute_rust_vector(
                 .capture()
                 .stamp()
                 .world_revision;
-            rust_commit_new(run, "txn-ack-new", "c:0:0:0", "newer", rev)?;
+            rust_commit_new(run, "txn-ack-new", "s:0:0:0", "newer", rev)?;
             probes.push(rust_ack_probe(
                 run,
                 "replayed-old",
                 2,
-                vec![("c:0:0:0", 1)],
+                vec![("s:0:0:0", 1)],
                 WORLD_ID,
                 CONTEXT_ID,
                 &mut ack,
@@ -2213,9 +2213,9 @@ fn make_observation(
         generation: state.generation,
         stamp_generation: state.stamp_generation,
         world_revision: state.world_revision,
-        chunk_presence: returned,
-        chunk_revision_set: state.chunk_revision_set.clone(),
-        chunks: state.chunks.clone(),
+        section_presence: returned,
+        section_revision_set: state.section_revision_set.clone(),
+        sections: state.sections.clone(),
         published_root: state.published_root,
         contract_root: state.contract_root,
         directory_digest: state.directory_digest,
@@ -2244,8 +2244,8 @@ fn rust_state(run: &mut RustRun) -> StateEvidence {
         run.last_root = root;
     }
     let state_view = run.world.state_view();
-    let chunks = run
-        .known_chunks
+    let sections = run
+        .known_sections
         .iter()
         .map(|id| {
             let presence = match view.directory().lookup(id) {
@@ -2263,19 +2263,19 @@ fn rust_state(run: &mut RustRun) -> StateEvidence {
                         .and_then(|slot| slot.payload())
                         .and_then(payload_declared_digest)
                 });
-            ChunkStateEvidence {
-                chunk_id: id.clone(),
+            SectionStateEvidence {
+                section_id: id.clone(),
                 presence,
-                chunk_revision: stamp.chunk_revision_set.get(id).copied(),
+                section_revision: stamp.section_revision_set.get(id).copied(),
                 payload_digest,
             }
         })
         .collect::<Vec<_>>();
     let dirty = run
-        .known_chunks
+        .known_sections
         .iter()
         .map(|id| DirtyStateEvidence {
-            chunk_id: id.clone(),
+            section_id: id.clone(),
             first_revision: view.dirty_frontier().first_revision(id).ok().flatten(),
             latest_revision: view.dirty_frontier().latest_revision(id).ok().flatten(),
             reason: view
@@ -2287,11 +2287,11 @@ fn rust_state(run: &mut RustRun) -> StateEvidence {
         })
         .collect::<Vec<_>>();
     let revisions = stamp
-        .chunk_revision_set
+        .section_revision_set
         .iter()
         .map(|(id, rev)| (id.clone(), *rev))
         .collect::<Vec<_>>();
-    let directory_digest = rust_directory_digest(&chunks);
+    let directory_digest = rust_directory_digest(&sections);
     let dirty_digest = rust_dirty_digest(&dirty);
     let semantic = rust_state_digest(
         stamp,
@@ -2299,7 +2299,7 @@ fn rust_state(run: &mut RustRun) -> StateEvidence {
         state_view.lifecycle_machine(),
         state_view.instance_generation(),
         &revisions,
-        &chunks,
+        &sections,
         &dirty,
         &run.config_hash,
         run.publication_epoch,
@@ -2312,8 +2312,8 @@ fn rust_state(run: &mut RustRun) -> StateEvidence {
         lifecycle_machine: state_view.lifecycle_machine().into(),
         lifecycle: state_view.lifecycle().into(),
         world_revision: stamp.world_revision,
-        chunk_revision_set: revisions,
-        chunks,
+        section_revision_set: revisions,
+        sections,
         published_root: root,
         contract_root: semantic,
         directory_digest,
@@ -2362,7 +2362,7 @@ fn rust_lifecycle_probe(run: &mut RustRun) -> Result<ProbeObservation, String> {
         label: "illegal-transition".into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -2386,7 +2386,7 @@ fn rust_query(
         query_id: query_id.into(),
         world_id: world.into(),
         context: context.into(),
-        chunk_ids: ids.to_vec(),
+        section_ids: ids.to_vec(),
         cancel,
     };
     let env = OriginEnvelope {
@@ -2399,7 +2399,7 @@ fn rust_query(
             .payload
             .items()
             .iter()
-            .map(|i| (i.chunk_id().into(), i.presence().into()))
+            .map(|i| (i.section_id().into(), i.presence().into()))
             .collect())),
         Err(e) => Ok(Err(e.error_id().into())),
     }
@@ -2426,7 +2426,7 @@ fn rust_query_probe(
         label: label.into(),
         ok,
         error_id: error,
-        returned_chunks: returned,
+        returned_sections: returned,
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -2440,7 +2440,7 @@ fn rust_mutation_request(
     run: &RustRun,
     txn: &str,
     expected: u64,
-    chunk: &str,
+    section: &str,
     cell: &str,
     value: &str,
     world: &str,
@@ -2450,7 +2450,7 @@ fn rust_mutation_request(
     let context = run.world.state_view().world_context_id().to_string();
     let mut fields = BTreeMap::new();
     fields.insert("world_revision".into(), expected.to_string());
-    fields.insert(format!("{chunk}/{cell}"), value.into());
+    fields.insert(format!("{section}/{cell}"), value.into());
     Ok(OriginEnvelope {
         origin: rust_origin(&run.world, txn, Some(&context), Some(generation))?,
         config_hash: config.into(),
@@ -2469,7 +2469,7 @@ fn rust_prepare_probe(
     label: &str,
     txn: &str,
     expected: u64,
-    chunk: &str,
+    section: &str,
     cell: &str,
     value: &str,
     world: &str,
@@ -2477,7 +2477,7 @@ fn rust_prepare_probe(
     config: &str,
 ) -> Result<ProbeObservation, String> {
     let env = rust_mutation_request(
-        run, txn, expected, chunk, cell, value, world, generation, config,
+        run, txn, expected, section, cell, value, world, generation, config,
     )?;
     let result = GeneratedVoxelWorldPortAdapter::new(&mut run.world).prepare_mutation(env);
     let (ok, error) = match result {
@@ -2488,7 +2488,7 @@ fn rust_prepare_probe(
         label: label.into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -2499,7 +2499,7 @@ fn rust_prepare_probe(
 
 fn rust_abort_probe(
     run: &mut RustRun,
-    chunk: &str,
+    section: &str,
     cell: &str,
     value: &str,
     config: &str,
@@ -2515,7 +2515,7 @@ fn rust_abort_probe(
         run,
         "txn-abort",
         expected,
-        chunk,
+        section,
         cell,
         value,
         WORLD_ID,
@@ -2535,7 +2535,7 @@ fn rust_abort_probe(
         label: "abort".into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -2657,7 +2657,7 @@ fn rust_commit(
 fn rust_commit_new(
     run: &mut RustRun,
     txn: &str,
-    chunk: &str,
+    section: &str,
     value: &str,
     expected: u64,
 ) -> Result<ReceiptObservation, String> {
@@ -2666,7 +2666,7 @@ fn rust_commit_new(
         run,
         txn,
         expected,
-        chunk,
+        section,
         "cell",
         value,
         WORLD_ID,
@@ -2688,7 +2688,7 @@ fn rust_conflicting_replay_probe(
     conflict
         .payload
         .fields
-        .insert("c:0:0:0/cell-0".into(), "conflicting".into());
+        .insert("s:0:0:0/cell-0".into(), "conflicting".into());
     let result = GeneratedVoxelWorldPortAdapter::new(&mut run.world).prepare_mutation(conflict);
     let (ok, error) = match result {
         Ok(_) => (true, None),
@@ -2698,7 +2698,7 @@ fn rust_conflicting_replay_probe(
         label: "conflicting-replay".into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -2726,8 +2726,8 @@ fn rust_capture(run: &mut RustRun, cut_id: &str) -> Result<CaptureObservation, S
         context_id: stamp.context_id.clone(),
         generation: stamp.generation,
         world_revision: stamp.world_revision,
-        chunk_revision_set: stamp
-            .chunk_revision_set
+        section_revision_set: stamp
+            .section_revision_set
             .iter()
             .map(|(id, rev)| (id.clone(), *rev))
             .collect(),
@@ -2740,7 +2740,7 @@ fn rust_capture(run: &mut RustRun, cut_id: &str) -> Result<CaptureObservation, S
             stamp.world_revision,
             &run.config_hash,
             &stamp
-                .chunk_revision_set
+                .section_revision_set
                 .iter()
                 .map(|(id, rev)| (id.clone(), *rev))
                 .collect::<Vec<_>>(),
@@ -2767,7 +2767,7 @@ fn rust_capture_mismatch_probe(run: &mut RustRun) -> Result<ProbeObservation, St
         label: "capture-root-mismatch".into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -2826,7 +2826,7 @@ fn rust_restore_preflight_probe(
         label: label.into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -2869,9 +2869,9 @@ fn rust_valid_restore(run: &mut RustRun) -> Result<RestoreObservation, String> {
         context_id: view.stamp().context_id.clone(),
         generation: run.world.state_view().instance_generation(),
         world_revision: view.stamp().world_revision,
-        chunk_revision_set: view
+        section_revision_set: view
             .stamp()
-            .chunk_revision_set
+            .section_revision_set
             .iter()
             .map(|(id, rev)| (id.clone(), *rev))
             .collect(),
@@ -2895,7 +2895,7 @@ fn rust_capture_ref(run: &mut RustRun, cut_id: &str) -> Result<VoxelCaptureRef, 
 }
 
 fn dirty_latest(run: &RustRun) -> Vec<(&'static str, u64)> {
-    KNOWN_CHUNKS
+    KNOWN_SECTIONS
         .iter()
         .filter_map(|id| {
             run.world
@@ -2914,13 +2914,13 @@ fn rust_ack_probe(
     run: &mut RustRun,
     label: &str,
     covered: u64,
-    chunks: Vec<(&'static str, u64)>,
+    sections: Vec<(&'static str, u64)>,
     world: &str,
     context: &str,
     last: &mut Option<AckObservation>,
 ) -> Result<ProbeObservation, String> {
     let generation = run.world.state_view().instance_generation();
-    let pairs = chunks
+    let pairs = sections
         .iter()
         .map(|(id, rev)| ((*id).into(), *rev))
         .collect::<Vec<_>>();
@@ -2932,11 +2932,11 @@ fn rust_ack_probe(
             generation,
         },
         covered_world_revision: covered,
-        covered_chunks: chunks
+        covered_sections: sections
             .iter()
-            .map(|(id, rev)| CoveredChunkAck {
-                chunk_id: (*id).into(),
-                up_to_chunk_revision: *rev,
+            .map(|(id, rev)| CoveredSectionAck {
+                section_id: (*id).into(),
+                up_to_section_revision: *rev,
             })
             .collect(),
     };
@@ -2955,7 +2955,7 @@ fn rust_ack_probe(
                 context_id: context.into(),
                 generation,
                 covered_world_revision: covered,
-                covered_chunks: pairs.clone(),
+                covered_sections: pairs.clone(),
                 coverage_len: receipt.coverage_len(),
                 old_root,
                 new_root: receipt.new_root(),
@@ -2973,7 +2973,7 @@ fn rust_ack_probe(
                 label: label.into(),
                 ok: true,
                 error_id: None,
-                returned_chunks: Vec::new(),
+                returned_sections: Vec::new(),
                 state: rust_state(run),
                 capture: None,
                 receipt: None,
@@ -2985,7 +2985,7 @@ fn rust_ack_probe(
             label: label.into(),
             ok: false,
             error_id: Some(e.error_id().into()),
-            returned_chunks: Vec::new(),
+            returned_sections: Vec::new(),
             state: rust_state(run),
             capture: None,
             receipt: None,
@@ -3011,7 +3011,7 @@ fn rust_ack_error_probe(
             generation,
         },
         covered_world_revision: 0,
-        covered_chunks: Vec::new(),
+        covered_sections: Vec::new(),
     };
     let result = GeneratedVoxelWorldPortAdapter::new(&mut run.world).apply_durability_ack(evidence);
     let (ok, error) = match result {
@@ -3025,7 +3025,7 @@ fn rust_ack_error_probe(
         label: label.into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -3051,7 +3051,7 @@ fn rust_ack_future_probe(run: &mut RustRun) -> Result<ProbeObservation, String> 
             generation,
         },
         covered_world_revision: covered,
-        covered_chunks: Vec::new(),
+        covered_sections: Vec::new(),
     };
     let result = GeneratedVoxelWorldPortAdapter::new(&mut run.world).apply_durability_ack(evidence);
     let (ok, error) = match result {
@@ -3067,7 +3067,7 @@ fn rust_ack_future_probe(run: &mut RustRun) -> Result<ProbeObservation, String> 
         label: "future-cut".into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -3091,14 +3091,14 @@ fn rust_ack_duplicate_probe(run: &mut RustRun) -> Result<ProbeObservation, Strin
             .capture()
             .stamp()
             .world_revision,
-        covered_chunks: vec![
-            CoveredChunkAck {
-                chunk_id: "c:0:0:0".into(),
-                up_to_chunk_revision: 0,
+        covered_sections: vec![
+            CoveredSectionAck {
+                section_id: "s:0:0:0".into(),
+                up_to_section_revision: 0,
             },
-            CoveredChunkAck {
-                chunk_id: "c:0:0:0".into(),
-                up_to_chunk_revision: 0,
+            CoveredSectionAck {
+                section_id: "s:0:0:0".into(),
+                up_to_section_revision: 0,
             },
         ],
     };
@@ -3109,14 +3109,14 @@ fn rust_ack_duplicate_probe(run: &mut RustRun) -> Result<ProbeObservation, Strin
     };
     if ok || error.as_deref() != Some("InvalidHandle") {
         return Err(format!(
-            "duplicate-chunk expected InvalidHandle, got {error:?}"
+            "duplicate-section expected InvalidHandle, got {error:?}"
         ));
     }
     Ok(ProbeObservation {
-        label: "duplicate-chunk".into(),
+        label: "duplicate-section".into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -3140,9 +3140,9 @@ fn rust_ack_malformed_probe(run: &mut RustRun) -> Result<ProbeObservation, Strin
             .capture()
             .stamp()
             .world_revision,
-        covered_chunks: vec![CoveredChunkAck {
-            chunk_id: "c:-0:0:0".into(),
-            up_to_chunk_revision: 0,
+        covered_sections: vec![CoveredSectionAck {
+            section_id: "s:-0:0:0".into(),
+            up_to_section_revision: 0,
         }],
     };
     let result = GeneratedVoxelWorldPortAdapter::new(&mut run.world).apply_durability_ack(evidence);
@@ -3150,16 +3150,17 @@ fn rust_ack_malformed_probe(run: &mut RustRun) -> Result<ProbeObservation, Strin
         Ok(_) => (true, None),
         Err(error) => (false, Some(error.error_id().into())),
     };
-    if ok || error.as_deref() != Some("CoordinateOutOfBounds") {
+    if ok || error.as_deref() != Some(vw::UNKNOWN_SECTION_KEY) {
         return Err(format!(
-            "malformed-chunk expected CoordinateOutOfBounds, got {error:?}"
+            "malformed-section expected {}, got {error:?}",
+            vw::UNKNOWN_SECTION_KEY
         ));
     }
     Ok(ProbeObservation {
-        label: "malformed-chunk".into(),
+        label: "malformed-section".into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -3183,7 +3184,7 @@ fn rust_ack_wrong_kind_probe(run: &mut RustRun) -> Result<ProbeObservation, Stri
             .capture()
             .stamp()
             .world_revision,
-        covered_chunks: Vec::new(),
+        covered_sections: Vec::new(),
     };
     let result = GeneratedVoxelWorldPortAdapter::new(&mut run.world).apply_durability_ack(evidence);
     let (ok, error) = match result {
@@ -3197,7 +3198,7 @@ fn rust_ack_wrong_kind_probe(run: &mut RustRun) -> Result<ProbeObservation, Stri
         label: "wrong-kind".into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,
@@ -3211,13 +3212,13 @@ fn oracle_request(
     world: &str,
     generation: u64,
     expected: u64,
-    chunk: &str,
+    section: &str,
     cell: &str,
     value: &str,
 ) -> MutationRequest {
     let mut fields = BTreeMap::new();
     fields.insert("world_revision".into(), expected.to_string());
-    fields.insert(format!("{chunk}/{cell}"), value.into());
+    fields.insert(format!("{section}/{cell}"), value.into());
     MutationRequest {
         txn_id: txn.into(),
         world_id: world.into(),
@@ -3254,10 +3255,7 @@ fn oracle_query(
     }
     let mut parsed = Vec::new();
     for id in ids {
-        parsed.push((
-            parse_coordinate(id).ok_or("CoordinateOutOfBounds")?,
-            id.as_str(),
-        ));
+        parsed.push((parse_coordinate(id)?, id.as_str()));
     }
     parsed.sort_by_key(|(coord, _)| *coord);
     parsed.dedup_by_key(|(coord, _)| *coord);
@@ -3268,7 +3266,7 @@ fn oracle_query(
             let presence = if state.ready.contains(&id) {
                 "Ready"
             } else {
-                "NotLoaded"
+                "Unchanged"
             };
             (id, presence.into())
         })
@@ -3276,24 +3274,34 @@ fn oracle_query(
 }
 
 fn budget_query_ids() -> Vec<String> {
-    (0..=QUERY_BUDGET).map(|_| "c:0:0:0".to_string()).collect()
+    (0..=QUERY_BUDGET).map(|_| "s:0:0:0".to_string()).collect()
 }
 
-fn parse_coordinate(raw: &str) -> Option<(i32, i32, i32)> {
+/// 参考实现自己解析 Section 键(契约 `identity`),不复用被测实现——差分测试的意义就在
+/// 于两侧独立。返回的 Err 是契约错误码。
+fn parse_coordinate(raw: &str) -> Result<(i32, i32, i32), &'static str> {
     let mut parts = raw.split(':');
-    if parts.next()? != "c" {
-        return None;
+    let prefix = parts.next().unwrap_or_default();
+    let rest: Vec<&str> = parts.collect();
+    if prefix != "s" || rest.len() != 3 {
+        return Err(vw::UNKNOWN_SECTION_KEY);
     }
-    let x = parse_coord(parts.next()?)?;
-    let y = parse_coord(parts.next()?)?;
-    let z = parse_coord(parts.next()?)?;
-    if parts.next().is_some() {
-        return None;
+    let x = parse_coord(rest[0]).ok_or(vw::UNKNOWN_SECTION_KEY)?;
+    let y = parse_coord(rest[1]).ok_or(vw::UNKNOWN_SECTION_KEY)?;
+    let z = parse_coord(rest[2]).ok_or(vw::UNKNOWN_SECTION_KEY)?;
+    if y < i64::from(vw::SECTION_Y_MIN) || y > i64::from(vw::SECTION_Y_MAX) {
+        return Err(vw::SECTION_Y_OUT_OF_RANGE);
     }
-    Some((x, y, z))
+    let in_i32 =
+        |v: i64| v >= i64::from(vw::SECTION_COORD_MIN) && v <= i64::from(vw::SECTION_COORD_MAX);
+    if !in_i32(x) || !in_i32(z) {
+        return Err(vw::COORDINATE_OUT_OF_BOUNDS);
+    }
+    Ok((x as i32, y as i32, z as i32))
 }
 
-fn parse_coord(raw: &str) -> Option<i32> {
+/// 规范十进制:非空、无前导零、不得 `-0`。值域由调用方按坐标轴判定。
+fn parse_coord(raw: &str) -> Option<i64> {
     if raw.is_empty() {
         return None;
     }
@@ -3309,7 +3317,7 @@ fn parse_coord(raw: &str) -> Option<i32> {
 }
 
 fn canonical_coordinate((x, y, z): (i32, i32, i32)) -> String {
-    format!("c:{x}:{y}:{z}")
+    format!("s:{x}:{y}:{z}")
 }
 
 fn oracle_fingerprint(request: &MutationRequest) -> Result<[u8; 32], &'static str> {
@@ -3365,25 +3373,25 @@ fn oracle_root(state: &OracleState, _semantic: [u8; 32]) -> [u8; 32] {
     frame_oracle(&mut bytes, WORLD_ID);
     frame_oracle(&mut bytes, CONTEXT_ID);
     frame_oracle(&mut bytes, &state.publication_epoch.to_string());
-    for (id, revision) in &state.chunk_revisions {
+    for (id, revision) in &state.section_revisions {
         frame_oracle(&mut bytes, id);
         frame_oracle(&mut bytes, &revision.to_string());
     }
-    let chunks = state
-        .chunk_revisions
+    let sections = state
+        .section_revisions
         .keys()
-        .map(|id| ChunkStateEvidence {
-            chunk_id: id.clone(),
+        .map(|id| SectionStateEvidence {
+            section_id: id.clone(),
             presence: state.ready.contains(id).then(|| "Ready".into()),
-            chunk_revision: state.chunk_revisions.get(id).copied(),
+            section_revision: state.section_revisions.get(id).copied(),
             payload_digest: state.payloads.get(id).map(|bytes| sha256(bytes)),
         })
         .collect::<Vec<_>>();
-    bytes.extend_from_slice(&oracle_directory_digest(&chunks));
-    let dirty = KNOWN_CHUNKS
+    bytes.extend_from_slice(&oracle_directory_digest(&sections));
+    let dirty = KNOWN_SECTIONS
         .iter()
         .map(|id| DirtyStateEvidence {
-            chunk_id: (*id).into(),
+            section_id: (*id).into(),
             first_revision: state.dirty.get(*id).map(|item| item.first),
             latest_revision: state.dirty.get(*id).map(|item| item.latest),
             reason: state.dirty.get(*id).map(|item| item.reason.clone()),
@@ -3394,10 +3402,10 @@ fn oracle_root(state: &OracleState, _semantic: [u8; 32]) -> [u8; 32] {
 }
 
 /// Extract the declared page digest from the immutable payload debug view.
-/// `ChunkPayload` intentionally exposes only its schema id; the page digest is
+/// `SectionPayload` intentionally exposes only its schema id; the page digest is
 /// still authoritative evidence and is parsed without depending on private
 /// page fields or manufacturing a digest from an id/revision tuple.
-fn payload_declared_digest(payload: &ChunkPayload) -> Option<[u8; 32]> {
+fn payload_declared_digest(payload: &SectionPayload) -> Option<[u8; 32]> {
     let debug = format!("{payload:?}");
     let start = debug.find("digest: [")? + "digest: [".len();
     let end = debug[start..].find(']')? + start;
@@ -3412,16 +3420,19 @@ fn payload_declared_digest(payload: &ChunkPayload) -> Option<[u8; 32]> {
     Some(values)
 }
 
-fn oracle_directory_digest(chunks: &[ChunkStateEvidence]) -> [u8; 32] {
+fn oracle_directory_digest(sections: &[SectionStateEvidence]) -> [u8; 32] {
     let mut bytes = Vec::new();
-    for chunk in chunks {
-        frame_oracle(&mut bytes, &chunk.chunk_id);
-        frame_oracle(&mut bytes, chunk.presence.as_deref().unwrap_or("<missing>"));
+    for section in sections {
+        frame_oracle(&mut bytes, &section.section_id);
         frame_oracle(
             &mut bytes,
-            &chunk.chunk_revision.unwrap_or(u64::MAX).to_string(),
+            section.presence.as_deref().unwrap_or("<missing>"),
         );
-        if let Some(payload) = chunk.payload_digest {
+        frame_oracle(
+            &mut bytes,
+            &section.section_revision.unwrap_or(u64::MAX).to_string(),
+        );
+        if let Some(payload) = section.payload_digest {
             bytes.extend_from_slice(&payload);
         } else {
             bytes.extend_from_slice(&[0u8; 32]);
@@ -3433,7 +3444,7 @@ fn oracle_directory_digest(chunks: &[ChunkStateEvidence]) -> [u8; 32] {
 fn oracle_dirty_digest(dirty: &[DirtyStateEvidence]) -> [u8; 32] {
     let mut bytes = Vec::new();
     for item in dirty {
-        frame_oracle(&mut bytes, &item.chunk_id);
+        frame_oracle(&mut bytes, &item.section_id);
         frame_oracle(
             &mut bytes,
             &item
@@ -3461,7 +3472,7 @@ fn oracle_state_digest(
     stamp_generation: u64,
     generation: u64,
     revisions: &[(String, u64)],
-    chunks: &[ChunkStateEvidence],
+    sections: &[SectionStateEvidence],
     dirty: &[DirtyStateEvidence],
     config: &str,
     epoch: u64,
@@ -3485,7 +3496,7 @@ fn oracle_state_digest(
         frame_oracle(&mut bytes, id);
         frame_oracle(&mut bytes, &revision.to_string());
     }
-    bytes.extend_from_slice(&oracle_directory_digest(chunks));
+    bytes.extend_from_slice(&oracle_directory_digest(sections));
     bytes.extend_from_slice(&oracle_dirty_digest(dirty));
     sha256(&bytes)
 }
@@ -3495,23 +3506,27 @@ fn frame_oracle(out: &mut Vec<u8>, value: &str) {
     out.extend_from_slice(value.as_bytes());
 }
 
-fn rust_directory_digest(chunks: &[ChunkStateEvidence]) -> [u8; 32] {
+fn rust_directory_digest(sections: &[SectionStateEvidence]) -> [u8; 32] {
     let mut bytes = Vec::new();
-    for chunk in chunks {
-        append_rust(&mut bytes, chunk.chunk_id.as_bytes());
+    for section in sections {
+        append_rust(&mut bytes, section.section_id.as_bytes());
         append_rust(
             &mut bytes,
-            chunk.presence.as_deref().unwrap_or("<missing>").as_bytes(),
+            section
+                .presence
+                .as_deref()
+                .unwrap_or("<missing>")
+                .as_bytes(),
         );
         append_rust(
             &mut bytes,
-            chunk
-                .chunk_revision
+            section
+                .section_revision
                 .unwrap_or(u64::MAX)
                 .to_string()
                 .as_bytes(),
         );
-        if let Some(payload) = chunk.payload_digest {
+        if let Some(payload) = section.payload_digest {
             bytes.extend_from_slice(&payload);
         } else {
             bytes.extend_from_slice(&[0u8; 32]);
@@ -3523,7 +3538,7 @@ fn rust_directory_digest(chunks: &[ChunkStateEvidence]) -> [u8; 32] {
 fn rust_dirty_digest(dirty: &[DirtyStateEvidence]) -> [u8; 32] {
     let mut bytes = Vec::new();
     for item in dirty {
-        append_rust(&mut bytes, item.chunk_id.as_bytes());
+        append_rust(&mut bytes, item.section_id.as_bytes());
         append_rust(
             &mut bytes,
             item.first_revision
@@ -3551,7 +3566,7 @@ fn rust_state_digest(
     lifecycle_machine: &str,
     generation: u64,
     revisions: &[(String, u64)],
-    chunks: &[ChunkStateEvidence],
+    sections: &[SectionStateEvidence],
     dirty: &[DirtyStateEvidence],
     config: &str,
     epoch: u64,
@@ -3575,7 +3590,7 @@ fn rust_state_digest(
         append_rust(&mut bytes, id.as_bytes());
         append_rust(&mut bytes, revision.to_string().as_bytes());
     }
-    bytes.extend_from_slice(&rust_directory_digest(chunks));
+    bytes.extend_from_slice(&rust_directory_digest(sections));
     bytes.extend_from_slice(&rust_dirty_digest(dirty));
     sha256(&bytes)
 }
@@ -3643,7 +3658,7 @@ fn ack_semantic_digest(
     context: &str,
     generation: u64,
     covered: u64,
-    chunks: &[(String, u64)],
+    sections: &[(String, u64)],
     count: usize,
 ) -> [u8; 32] {
     let mut bytes = Vec::new();
@@ -3651,7 +3666,7 @@ fn ack_semantic_digest(
     frame_oracle(&mut bytes, context);
     frame_oracle(&mut bytes, &generation.to_string());
     frame_oracle(&mut bytes, &covered.to_string());
-    for (id, revision) in chunks {
+    for (id, revision) in sections {
         frame_oracle(&mut bytes, id);
         frame_oracle(&mut bytes, &revision.to_string());
     }
@@ -3666,7 +3681,7 @@ fn capture_from_state(state: &StateEvidence, cut: &str) -> CaptureObservation {
         context_id: state.context_id.clone(),
         generation: state.stamp_generation,
         world_revision: state.world_revision,
-        chunk_revision_set: state.chunk_revision_set.clone(),
+        section_revision_set: state.section_revision_set.clone(),
         config_hash: state.config_hash.clone(),
         artifact_hash: state.published_root,
         semantic_digest: capture_semantic_digest(
@@ -3675,7 +3690,7 @@ fn capture_from_state(state: &StateEvidence, cut: &str) -> CaptureObservation {
             state.stamp_generation,
             state.world_revision,
             &state.config_hash,
-            &state.chunk_revision_set,
+            &state.section_revision_set,
         ),
     }
 }
@@ -3686,7 +3701,7 @@ fn capture_semantic_digest(
     generation: u64,
     revision: u64,
     config: &str,
-    chunks: &[(String, u64)],
+    sections: &[(String, u64)],
 ) -> [u8; 32] {
     let mut bytes = Vec::new();
     frame_oracle(&mut bytes, world);
@@ -3694,7 +3709,7 @@ fn capture_semantic_digest(
     frame_oracle(&mut bytes, &generation.to_string());
     frame_oracle(&mut bytes, &revision.to_string());
     frame_oracle(&mut bytes, config);
-    for (id, value) in chunks {
+    for (id, value) in sections {
         frame_oracle(&mut bytes, id);
         frame_oracle(&mut bytes, &value.to_string());
     }
@@ -3810,7 +3825,7 @@ fn oracle_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
         if let Some(ack) = &item.ack {
             frame_oracle(&mut bytes, &ack.covered_world_revision.to_string());
             frame_oracle(&mut bytes, &ack.coverage_len.to_string());
-            for (id, revision) in &ack.covered_chunks {
+            for (id, revision) in &ack.covered_sections {
                 frame_oracle(&mut bytes, id);
                 frame_oracle(&mut bytes, &revision.to_string());
             }
@@ -3863,8 +3878,8 @@ fn oracle_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
                 },
             );
             frame_oracle(&mut bytes, &capture.world_revision.to_string());
-            frame_oracle(&mut bytes, &capture.chunk_revision_set.len().to_string());
-            for (id, revision) in &capture.chunk_revision_set {
+            frame_oracle(&mut bytes, &capture.section_revision_set.len().to_string());
+            for (id, revision) in &capture.section_revision_set {
                 frame_oracle(&mut bytes, id);
                 frame_oracle(&mut bytes, &revision.to_string());
             }
@@ -3899,8 +3914,8 @@ fn oracle_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
                 },
             );
             frame_oracle(&mut bytes, &restore.world_revision.to_string());
-            frame_oracle(&mut bytes, &restore.chunk_revision_set.len().to_string());
-            for (id, revision) in &restore.chunk_revision_set {
+            frame_oracle(&mut bytes, &restore.section_revision_set.len().to_string());
+            for (id, revision) in &restore.section_revision_set {
                 frame_oracle(&mut bytes, id);
                 frame_oracle(&mut bytes, &revision.to_string());
             }
@@ -4010,7 +4025,7 @@ fn oracle_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
             if let Some(ack) = &probe.ack {
                 frame_oracle(&mut bytes, &ack.covered_world_revision.to_string());
                 frame_oracle(&mut bytes, &ack.coverage_len.to_string());
-                for (id, revision) in &ack.covered_chunks {
+                for (id, revision) in &ack.covered_sections {
                     frame_oracle(&mut bytes, id);
                     frame_oracle(&mut bytes, &revision.to_string());
                 }
@@ -4063,8 +4078,8 @@ fn oracle_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
                     },
                 );
                 frame_oracle(&mut bytes, &capture.world_revision.to_string());
-                frame_oracle(&mut bytes, &capture.chunk_revision_set.len().to_string());
-                for (id, revision) in &capture.chunk_revision_set {
+                frame_oracle(&mut bytes, &capture.section_revision_set.len().to_string());
+                for (id, revision) in &capture.section_revision_set {
                     frame_oracle(&mut bytes, id);
                     frame_oracle(&mut bytes, &revision.to_string());
                 }
@@ -4099,8 +4114,8 @@ fn oracle_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
                     },
                 );
                 frame_oracle(&mut bytes, &restore.world_revision.to_string());
-                frame_oracle(&mut bytes, &restore.chunk_revision_set.len().to_string());
-                for (id, revision) in &restore.chunk_revision_set {
+                frame_oracle(&mut bytes, &restore.section_revision_set.len().to_string());
+                for (id, revision) in &restore.section_revision_set {
                     frame_oracle(&mut bytes, id);
                     frame_oracle(&mut bytes, &revision.to_string());
                 }
@@ -4229,7 +4244,7 @@ fn rust_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
                 ack.covered_world_revision.to_string().as_bytes(),
             );
             append_rust(&mut bytes, ack.coverage_len.to_string().as_bytes());
-            for (id, revision) in &ack.covered_chunks {
+            for (id, revision) in &ack.covered_sections {
                 append_rust(&mut bytes, id.as_bytes());
                 append_rust(&mut bytes, revision.to_string().as_bytes());
             }
@@ -4284,9 +4299,9 @@ fn rust_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
             append_rust(&mut bytes, capture.world_revision.to_string().as_bytes());
             append_rust(
                 &mut bytes,
-                capture.chunk_revision_set.len().to_string().as_bytes(),
+                capture.section_revision_set.len().to_string().as_bytes(),
             );
-            for (id, revision) in &capture.chunk_revision_set {
+            for (id, revision) in &capture.section_revision_set {
                 append_rust(&mut bytes, id.as_bytes());
                 append_rust(&mut bytes, revision.to_string().as_bytes());
             }
@@ -4323,9 +4338,9 @@ fn rust_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
             append_rust(&mut bytes, restore.world_revision.to_string().as_bytes());
             append_rust(
                 &mut bytes,
-                restore.chunk_revision_set.len().to_string().as_bytes(),
+                restore.section_revision_set.len().to_string().as_bytes(),
             );
-            for (id, revision) in &restore.chunk_revision_set {
+            for (id, revision) in &restore.section_revision_set {
                 append_rust(&mut bytes, id.as_bytes());
                 append_rust(&mut bytes, revision.to_string().as_bytes());
             }
@@ -4445,7 +4460,7 @@ fn rust_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
                     ack.covered_world_revision.to_string().as_bytes(),
                 );
                 append_rust(&mut bytes, ack.coverage_len.to_string().as_bytes());
-                for (id, revision) in &ack.covered_chunks {
+                for (id, revision) in &ack.covered_sections {
                     append_rust(&mut bytes, id.as_bytes());
                     append_rust(&mut bytes, revision.to_string().as_bytes());
                 }
@@ -4500,9 +4515,9 @@ fn rust_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
                 append_rust(&mut bytes, capture.world_revision.to_string().as_bytes());
                 append_rust(
                     &mut bytes,
-                    capture.chunk_revision_set.len().to_string().as_bytes(),
+                    capture.section_revision_set.len().to_string().as_bytes(),
                 );
-                for (id, revision) in &capture.chunk_revision_set {
+                for (id, revision) in &capture.section_revision_set {
                     append_rust(&mut bytes, id.as_bytes());
                     append_rust(&mut bytes, revision.to_string().as_bytes());
                 }
@@ -4539,9 +4554,9 @@ fn rust_trace_digest(items: &[DifferentialObservation]) -> [u8; 32] {
                 append_rust(&mut bytes, restore.world_revision.to_string().as_bytes());
                 append_rust(
                     &mut bytes,
-                    restore.chunk_revision_set.len().to_string().as_bytes(),
+                    restore.section_revision_set.len().to_string().as_bytes(),
                 );
-                for (id, revision) in &restore.chunk_revision_set {
+                for (id, revision) in &restore.section_revision_set {
                     append_rust(&mut bytes, id.as_bytes());
                     append_rust(&mut bytes, revision.to_string().as_bytes());
                 }
@@ -4600,9 +4615,9 @@ fn observation_matches(a: &DifferentialObservation, b: &DifferentialObservation)
         && a.generation == b.generation
         && a.stamp_generation == b.stamp_generation
         && a.world_revision == b.world_revision
-        && a.chunk_presence == b.chunk_presence
-        && a.chunk_revision_set == b.chunk_revision_set
-        && chunks_match(&a.chunks, &b.chunks)
+        && a.section_presence == b.section_presence
+        && a.section_revision_set == b.section_revision_set
+        && sections_match(&a.sections, &b.sections)
         && a.published_root != [0; 32]
         && b.published_root != [0; 32]
         && a.contract_root == b.contract_root
@@ -4626,12 +4641,12 @@ fn observation_matches(a: &DifferentialObservation, b: &DifferentialObservation)
             .all(|(left, right)| probe_matches(left, right))
 }
 
-fn chunks_match(a: &[ChunkStateEvidence], b: &[ChunkStateEvidence]) -> bool {
+fn sections_match(a: &[SectionStateEvidence], b: &[SectionStateEvidence]) -> bool {
     a.len() == b.len()
         && a.iter().zip(b).all(|(left, right)| {
-            left.chunk_id == right.chunk_id
+            left.section_id == right.section_id
                 && left.presence == right.presence
-                && left.chunk_revision == right.chunk_revision
+                && left.section_revision == right.section_revision
                 && left.payload_digest == right.payload_digest
         })
 }
@@ -4645,7 +4660,7 @@ fn optional_capture_match(a: Option<&CaptureObservation>, b: Option<&CaptureObse
                 && left.context_id == right.context_id
                 && left.generation == right.generation
                 && left.world_revision == right.world_revision
-                && left.chunk_revision_set == right.chunk_revision_set
+                && left.section_revision_set == right.section_revision_set
                 && left.config_hash == right.config_hash
                 && left.artifact_hash != [0; 32]
                 && right.artifact_hash != [0; 32]
@@ -4687,7 +4702,7 @@ fn optional_ack_match(a: Option<&AckObservation>, b: Option<&AckObservation>) ->
                 && left.context_id == right.context_id
                 && left.generation == right.generation
                 && left.covered_world_revision == right.covered_world_revision
-                && left.covered_chunks == right.covered_chunks
+                && left.covered_sections == right.covered_sections
                 && left.coverage_len == right.coverage_len
                 && left.old_root != [0; 32]
                 && left.new_root != [0; 32]
@@ -4709,7 +4724,7 @@ fn optional_restore_match(a: Option<&RestoreObservation>, b: Option<&RestoreObse
                 && left.context_id == right.context_id
                 && left.generation == right.generation
                 && left.world_revision == right.world_revision
-                && left.chunk_revision_set == right.chunk_revision_set
+                && left.section_revision_set == right.section_revision_set
                 && left.config_hash == right.config_hash
                 && left.old_root != [0; 32]
                 && left.new_root != [0; 32]
@@ -4725,7 +4740,7 @@ fn probe_matches(a: &ProbeObservation, b: &ProbeObservation) -> bool {
     a.label == b.label
         && a.ok == b.ok
         && a.error_id == b.error_id
-        && a.returned_chunks == b.returned_chunks
+        && a.returned_sections == b.returned_sections
         && state_matches_for_contract(&a.state, &b.state)
         && optional_capture_match(a.capture.as_ref(), b.capture.as_ref())
         && optional_receipt_match(a.receipt.as_ref(), b.receipt.as_ref())
@@ -4741,8 +4756,8 @@ fn state_matches_for_contract(a: &StateEvidence, b: &StateEvidence) -> bool {
         && a.lifecycle_machine == b.lifecycle_machine
         && a.lifecycle == b.lifecycle
         && a.world_revision == b.world_revision
-        && a.chunk_revision_set == b.chunk_revision_set
-        && chunks_match(&a.chunks, &b.chunks)
+        && a.section_revision_set == b.section_revision_set
+        && sections_match(&a.sections, &b.sections)
         && a.published_root != [0; 32]
         && b.published_root != [0; 32]
         && a.contract_root == b.contract_root
@@ -4926,12 +4941,12 @@ fn observation_complete(observation: &DifferentialObservation) -> bool {
             .gate_source_hashes
             .iter()
             .all(|(_, value)| value != "differential" && !value.is_empty())
-        && observation.chunk_revision_set.len() >= READY_CHUNKS.len()
-        && observation.chunks.len() == KNOWN_CHUNKS.len()
-        && observation.dirty_frontier.len() == KNOWN_CHUNKS.len()
-        && chunk_projection_complete(
-            &observation.chunk_revision_set,
-            &observation.chunks,
+        && observation.section_revision_set.len() >= READY_SECTIONS.len()
+        && observation.sections.len() == KNOWN_SECTIONS.len()
+        && observation.dirty_frontier.len() == KNOWN_SECTIONS.len()
+        && section_projection_complete(
+            &observation.section_revision_set,
+            &observation.sections,
             &observation.dirty_frontier,
         )
         && observation.published_root != [0; 32]
@@ -4940,11 +4955,11 @@ fn observation_complete(observation: &DifferentialObservation) -> bool {
         && observation.directory_digest != [0; 32]
         && observation.dirty_digest != [0; 32]
         && observation.state_semantic_digest != [0; 32]
-        && observation.chunks.iter().all(|chunk| {
-            if chunk.presence.as_deref() == Some("Ready") {
-                chunk.payload_digest.is_some()
+        && observation.sections.iter().all(|section| {
+            if section.presence.as_deref() == Some("Ready") {
+                section.payload_digest.is_some()
             } else {
-                chunk.payload_digest.is_none()
+                section.payload_digest.is_none()
             }
         })
         && observation
@@ -4967,12 +4982,12 @@ fn state_complete(state: &StateEvidence) -> bool {
             .gate_source_hashes
             .iter()
             .all(|(_, value)| value != "differential" && !value.is_empty())
-        && state.chunk_revision_set.len() >= READY_CHUNKS.len()
-        && state.chunks.len() == KNOWN_CHUNKS.len()
-        && state.dirty_frontier.len() == KNOWN_CHUNKS.len()
-        && chunk_projection_complete(
-            &state.chunk_revision_set,
-            &state.chunks,
+        && state.section_revision_set.len() >= READY_SECTIONS.len()
+        && state.sections.len() == KNOWN_SECTIONS.len()
+        && state.dirty_frontier.len() == KNOWN_SECTIONS.len()
+        && section_projection_complete(
+            &state.section_revision_set,
+            &state.sections,
             &state.dirty_frontier,
         )
         && state.published_root != [0; 32]
@@ -4981,40 +4996,40 @@ fn state_complete(state: &StateEvidence) -> bool {
         && state.directory_digest != [0; 32]
         && state.dirty_digest != [0; 32]
         && state.semantic_digest != [0; 32]
-        && state.chunks.iter().all(|chunk| {
-            if chunk.presence.as_deref() == Some("Ready") {
-                chunk.payload_digest.is_some()
+        && state.sections.iter().all(|section| {
+            if section.presence.as_deref() == Some("Ready") {
+                section.payload_digest.is_some()
             } else {
-                chunk.payload_digest.is_none()
+                section.payload_digest.is_none()
             }
         })
 }
 
-fn chunk_projection_complete(
+fn section_projection_complete(
     revisions: &[(String, u64)],
-    chunks: &[ChunkStateEvidence],
+    sections: &[SectionStateEvidence],
     dirty: &[DirtyStateEvidence],
 ) -> bool {
     let revision_ids = revisions
         .iter()
         .map(|(id, _)| id.as_str())
         .collect::<BTreeSet<_>>();
-    let expected_revisions = READY_CHUNKS.iter().copied().collect::<BTreeSet<_>>();
-    let chunk_ids = chunks
+    let expected_revisions = READY_SECTIONS.iter().copied().collect::<BTreeSet<_>>();
+    let section_ids = sections
         .iter()
-        .map(|chunk| chunk.chunk_id.as_str())
+        .map(|section| section.section_id.as_str())
         .collect::<Vec<_>>();
     let dirty_ids = dirty
         .iter()
-        .map(|entry| entry.chunk_id.as_str())
+        .map(|entry| entry.section_id.as_str())
         .collect::<Vec<_>>();
     revision_ids == expected_revisions
-        && chunk_ids == KNOWN_CHUNKS
-        && dirty_ids == KNOWN_CHUNKS
-        && chunks.iter().all(|chunk| {
-            chunk.presence.as_deref() == Some("Ready")
-                || chunk.presence.as_deref() == Some("NotLoaded")
-                || chunk.presence.is_none()
+        && section_ids == KNOWN_SECTIONS
+        && dirty_ids == KNOWN_SECTIONS
+        && sections.iter().all(|section| {
+            section.presence.as_deref() == Some("Ready")
+                || section.presence.as_deref() == Some("Unchanged")
+                || section.presence.is_none()
         })
 }
 
@@ -5051,17 +5066,17 @@ fn create_differential_world() -> Result<VoxelWorld, String> {
     .map_err(|e| e.error_id().to_string())
 }
 
-fn seed_differential_ready_chunks(world: &mut VoxelWorld) -> Result<(), String> {
+fn seed_differential_ready_sections(world: &mut VoxelWorld) -> Result<(), String> {
     let view = world.publication_authority().capture();
     let next = view
         .stamp()
         .world_revision
         .checked_add(1)
         .ok_or_else(|| "seed overflow".to_string())?;
-    let mut directory = ChunkDirectoryBuilder::new();
-    for id in READY_CHUNKS {
+    let mut directory = SectionDirectoryBuilder::new();
+    for id in READY_SECTIONS {
         let bytes = format!("seed:{id}").into_bytes();
-        let payload = ChunkPayload::from_pages([ChunkPage::new(
+        let payload = SectionPayload::from_pages([SectionPage::new(
             "Dense",
             "None",
             bytes.clone(),
@@ -5069,11 +5084,11 @@ fn seed_differential_ready_chunks(world: &mut VoxelWorld) -> Result<(), String> 
         )])
         .map_err(|e| e.error_id().to_string())?;
         directory
-            .insert(id, ChunkSlot::ready(payload))
+            .insert(id, SectionSlot::ready(payload))
             .map_err(|e| e.error_id().to_string())?;
     }
     let mut revisions = BTreeMap::new();
-    for id in READY_CHUNKS {
+    for id in READY_SECTIONS {
         revisions.insert((*id).into(), next);
     }
     let stamp = GeneratedRevisionStamp {
@@ -5082,12 +5097,12 @@ fn seed_differential_ready_chunks(world: &mut VoxelWorld) -> Result<(), String> 
         context_id: view.stamp().context_id.clone(),
         generation: view.stamp().generation,
         world_revision: next,
-        chunk_revision_set: revisions,
+        section_revision_set: revisions,
     };
     let dirty = DirtyFrontier::new(WORLD_ID, view.stamp().generation)
         .map_err(|e| e.error_id().to_string())?;
     let root = PublishedStateRoot::new(stamp, directory.freeze(), dirty);
-    let replacement = ChunkDeltaBuilder::new(view.directory())
+    let replacement = SectionDeltaBuilder::new(view.directory())
         .freeze()
         .map_err(|e| e.error_id().to_string())?;
     let mut prepared = world
@@ -5258,7 +5273,7 @@ fn rust_stale_replay_probe(
         label: "stale-replay".into(),
         ok,
         error_id: error,
-        returned_chunks: Vec::new(),
+        returned_sections: Vec::new(),
         state: rust_state(run),
         capture: None,
         receipt: None,

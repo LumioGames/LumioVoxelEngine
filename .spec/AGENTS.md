@@ -7,7 +7,7 @@
 
 ## 项目是什么
 
-`LumioVoxelEngine` 是可复用的 Rust VoxelWorld 领域实现，拥有 Chunk 数据域、Revision、Mutation、Snapshot、Streaming 与空间数据源。
+`LumioVoxelEngine` 是可复用的 Rust VoxelWorld 领域实现，拥有 Section 数据域、Revision、Mutation、Snapshot、Streaming 与空间数据源。
 
 - 当前架构基线是 `LGE-V1.4-2026-08-27`；公共架构与契约的唯一来源是 `LumioGameEngineArchitecture`，本仓只保存只读镜像 [`docs/architecture/LumioGameEngine_Architecture_v1.4.md`](../docs/architecture/LumioGameEngine_Architecture_v1.4.md)。
 - 实现边界见仓内 [0001](decisions/0001-snapshotcut-vs-capture-ref.md)–[0007](decisions/0007-v1.4-implementation-baseline.md) 与 [`docs/plans/lve-v1.4-implementation-blueprint.md`](../docs/plans/lve-v1.4-implementation-blueprint.md)。

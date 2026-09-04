@@ -1,8 +1,12 @@
-//! Request admission and canonical `voxelChunkId` (`c:x:y:z`) checks.
+//! Request admission and canonical Section id (`s:<x>:<y>:<z>`) checks.
+//!
+//! 键的语法与定义域只有一份实现:`lumio_voxel_domain::key::SectionId`。这里不再复写
+//! 一份解析器——两份解析器必然漂移,而键语法是契约面。
 
 #![forbid(unsafe_code)]
 
 use super::QueryError;
+use lumio_voxel_domain::key::SectionId;
 use lumio_voxel_domain::revision::GeneratedRevisionStamp;
 use std::collections::BTreeSet;
 
@@ -15,73 +19,10 @@ pub struct GeneratedVoxelQueryRequest {
     pub world_id: String,
     /// Generated field `context`.
     pub context: String,
-    /// Generated chunk-id list (`voxelChunkId`).
-    pub chunk_ids: Vec<String>,
+    /// Generated section-id list (`voxelSectionId`).
+    pub section_ids: Vec<String>,
     /// Optional cancel-before-plan flag.
     pub cancel: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct CanonicalChunkId {
-    x: i32,
-    y: i32,
-    z: i32,
-}
-
-impl CanonicalChunkId {
-    fn parse(raw: &str) -> Result<Self, QueryError> {
-        let mut parts = raw.split(':');
-        let prefix = parts
-            .next()
-            .ok_or_else(QueryError::coordinate_out_of_bounds)?;
-        if prefix != "c" {
-            return Err(QueryError::coordinate_out_of_bounds());
-        }
-        let x = parse_coord(
-            parts
-                .next()
-                .ok_or_else(QueryError::coordinate_out_of_bounds)?,
-        )?;
-        let y = parse_coord(
-            parts
-                .next()
-                .ok_or_else(QueryError::coordinate_out_of_bounds)?,
-        )?;
-        let z = parse_coord(
-            parts
-                .next()
-                .ok_or_else(QueryError::coordinate_out_of_bounds)?,
-        )?;
-        if parts.next().is_some() {
-            return Err(QueryError::coordinate_out_of_bounds());
-        }
-        Ok(Self { x, y, z })
-    }
-
-    fn canonical(self) -> String {
-        format!("c:{}:{}:{}", self.x, self.y, self.z)
-    }
-}
-
-fn parse_coord(raw: &str) -> Result<i32, QueryError> {
-    if raw.is_empty() {
-        return Err(QueryError::coordinate_out_of_bounds());
-    }
-    let digits = match raw.strip_prefix('-') {
-        Some(rest) => rest,
-        None => raw,
-    };
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(QueryError::coordinate_out_of_bounds());
-    }
-    if digits.len() > 1 && digits.as_bytes()[0] == b'0' {
-        return Err(QueryError::coordinate_out_of_bounds());
-    }
-    if raw.starts_with('-') && digits == "0" {
-        return Err(QueryError::coordinate_out_of_bounds());
-    }
-    raw.parse::<i32>()
-        .map_err(|_| QueryError::coordinate_out_of_bounds())
 }
 
 pub(super) fn validate_request(
@@ -100,10 +41,10 @@ pub(super) fn validate_request(
     Ok(())
 }
 
-pub(super) fn canonicalize_chunks(ids: &[String]) -> Result<Vec<String>, QueryError> {
+pub(super) fn canonicalize_sections(ids: &[String]) -> Result<Vec<String>, QueryError> {
     let mut set = BTreeSet::new();
     for raw in ids {
-        set.insert(CanonicalChunkId::parse(raw)?);
+        set.insert(SectionId::parse(raw).map_err(QueryError::from_key)?);
     }
-    Ok(set.into_iter().map(CanonicalChunkId::canonical).collect())
+    Ok(set.into_iter().map(|id| id.key()).collect())
 }

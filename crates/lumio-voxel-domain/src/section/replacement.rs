@@ -2,23 +2,23 @@
 
 #![forbid(unsafe_code)]
 
-use super::slot::ChunkSlot;
-use super::{ChunkError, ChunkId};
+use super::slot::SectionSlot;
+use super::{SectionError, SectionId};
 use lumio_voxel_contracts::sha256;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplacementSet {
-    entries: BTreeMap<ChunkId, ChunkSlot>,
+    entries: BTreeMap<SectionId, SectionSlot>,
 }
 
 impl ReplacementSet {
-    pub(super) fn from_entries(entries: BTreeMap<ChunkId, ChunkSlot>) -> Self {
+    pub(super) fn from_entries(entries: BTreeMap<SectionId, SectionSlot>) -> Self {
         Self { entries }
     }
 
-    pub fn get(&self, chunk_id: &str) -> Result<Option<&ChunkSlot>, ChunkError> {
-        let id = ChunkId::parse(chunk_id)?;
+    pub fn get(&self, section_id: &str) -> Result<Option<&SectionSlot>, SectionError> {
+        let id = SectionId::parse(section_id)?;
         Ok(self.entries.get(&id))
     }
 
@@ -32,12 +32,12 @@ impl ReplacementSet {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ChunkReplacement {
+pub struct SectionReplacement {
     set: ReplacementSet,
     digest: [u8; 32],
 }
 
-impl ChunkReplacement {
+impl SectionReplacement {
     pub(super) fn from_slots(set: ReplacementSet) -> Self {
         let digest = digest_slots(&set.entries);
         Self { set, digest }
@@ -52,10 +52,10 @@ impl ChunkReplacement {
     }
 }
 
-fn digest_slots(entries: &BTreeMap<ChunkId, ChunkSlot>) -> [u8; 32] {
+fn digest_slots(entries: &BTreeMap<SectionId, SectionSlot>) -> [u8; 32] {
     let mut buf = Vec::new();
     for (id, slot) in entries {
-        buf.extend_from_slice(format!("c:{}:{}:{}", id.x, id.y, id.z).as_bytes());
+        buf.extend_from_slice(id.key().as_bytes());
         buf.push(0);
         buf.extend_from_slice(slot.presence().as_bytes());
         buf.push(0);

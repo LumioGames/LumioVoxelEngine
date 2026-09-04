@@ -1,10 +1,6 @@
 //! R-00137: DurabilityAck is the only Dirty-clear path (coverage-checked root swap).
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkReplacement, ChunkSlot,
-    CoveredChunkAck, DirtyFrontier, DurabilityAckContext,
-};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -12,6 +8,10 @@ use lumio_voxel_domain::config_snapshot::{
 use lumio_voxel_domain::publication::PublishedStateRoot;
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
+};
+use lumio_voxel_domain::section::{
+    CoveredSectionAck, DirtyFrontier, DurabilityAckContext, SectionDeltaBuilder,
+    SectionDirectoryBuilder, SectionPage, SectionPayload, SectionReplacement, SectionSlot,
 };
 use lumio_voxel_ops::async_support::OriginToken;
 use lumio_voxel_ops::mutation::MutationRequest;
@@ -151,8 +151,8 @@ fn world_rev(n: u64) -> WorldRevision {
     reserved.finalize().unwrap()
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -161,8 +161,10 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
     .expect("valid dense uncompressed page")
 }
 
-fn empty_replacement(base: &lumio_voxel_domain::chunk::ChunkDirectoryRoot) -> ChunkReplacement {
-    ChunkDeltaBuilder::new(base)
+fn empty_replacement(
+    base: &lumio_voxel_domain::section::SectionDirectoryRoot,
+) -> SectionReplacement {
+    SectionDeltaBuilder::new(base)
         .freeze()
         .expect("empty replacement")
 }
@@ -175,13 +177,13 @@ fn current_world_revision(world: &VoxelWorld) -> u64 {
         .world_revision
 }
 
-fn latest_dirty(world: &VoxelWorld, chunk_id: &str) -> Option<u64> {
+fn latest_dirty(world: &VoxelWorld, section_id: &str) -> Option<u64> {
     world
         .publication_authority()
         .capture()
         .dirty_frontier()
-        .latest_revision(chunk_id)
-        .expect("canonical chunk id")
+        .latest_revision(section_id)
+        .expect("canonical section id")
 }
 
 fn assert_lane_free(world: &mut VoxelWorld) {
@@ -191,22 +193,22 @@ fn assert_lane_free(world: &mut VoxelWorld) {
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
-fn seed_ready(world: &VoxelWorld, chunks: &[&str]) {
+fn seed_ready(world: &VoxelWorld, sections: &[&str]) {
     let view = world.state_view();
     let before = world.publication_authority().capture();
     let next = before.stamp().world_revision + 1;
-    let mut builder = ChunkDirectoryBuilder::new();
-    let mut chunk_revision_set = BTreeMap::new();
-    for id in chunks {
+    let mut builder = SectionDirectoryBuilder::new();
+    let mut section_revision_set = BTreeMap::new();
+    for id in sections {
         builder
-            .insert(id, ChunkSlot::ready(payload(id.as_bytes())))
-            .expect("canonical chunk id");
-        chunk_revision_set.insert((*id).to_string(), next);
+            .insert(id, SectionSlot::ready(payload(id.as_bytes())))
+            .expect("canonical section id");
+        section_revision_set.insert((*id).to_string(), next);
     }
     let stamp = GeneratedRevisionStamp {
         schema_id: REVISION_STAMP_SCHEMA,
@@ -214,7 +216,7 @@ fn seed_ready(world: &VoxelWorld, chunks: &[&str]) {
         context_id: view.world_context_id().to_string(),
         generation: view.instance_generation(),
         world_revision: next,
-        chunk_revision_set,
+        section_revision_set,
     };
     let dirty = DirtyFrontier::new(view.world_id(), view.instance_generation()).expect("world id");
     let later = PublishedStateRoot::new(stamp, builder.freeze(), dirty);
@@ -232,12 +234,12 @@ fn seed_ready(world: &VoxelWorld, chunks: &[&str]) {
         .expect("seed publish");
 }
 
-fn mutate(world: &mut VoxelWorld, txn_id: &str, chunks: &[(&str, &str)]) {
+fn mutate(world: &mut VoxelWorld, txn_id: &str, sections: &[(&str, &str)]) {
     let view = world.state_view();
     let world_revision = current_world_revision(world);
     let mut fields = BTreeMap::new();
     fields.insert("world_revision".to_string(), world_revision.to_string());
-    for (id, value) in chunks {
+    for (id, value) in sections {
         fields.insert((*id).to_string(), (*value).to_string());
     }
     let request = MutationRequest {
@@ -258,7 +260,7 @@ fn mutate(world: &mut VoxelWorld, txn_id: &str, chunks: &[(&str, &str)]) {
         .unwrap_or_else(|err| panic!("commit {txn_id}: {}", err.error_id()));
 }
 
-fn ack_for(world: &VoxelWorld, chunks: &[(&str, u64)]) -> AckEvidence {
+fn ack_for(world: &VoxelWorld, sections: &[(&str, u64)]) -> AckEvidence {
     let view = world.state_view();
     AckEvidence {
         kind: "DurabilityAck".to_string(),
@@ -268,17 +270,17 @@ fn ack_for(world: &VoxelWorld, chunks: &[(&str, u64)]) -> AckEvidence {
             generation: view.instance_generation(),
         },
         covered_world_revision: current_world_revision(world),
-        covered_chunks: chunks
+        covered_sections: sections
             .iter()
-            .map(|(id, rev)| CoveredChunkAck {
-                chunk_id: (*id).to_string(),
-                up_to_chunk_revision: *rev,
+            .map(|(id, rev)| CoveredSectionAck {
+                section_id: (*id).to_string(),
+                up_to_section_revision: *rev,
             })
             .collect(),
     }
 }
 
-fn running_world_with_dirty(label: &str, chunks: &[&str]) -> VoxelWorld {
+fn running_world_with_dirty(label: &str, sections: &[&str]) -> VoxelWorld {
     let mut world = create_named(
         "Authority",
         &format!("ctx-{label}"),
@@ -286,10 +288,10 @@ fn running_world_with_dirty(label: &str, chunks: &[&str]) -> VoxelWorld {
         label,
     );
     drive_to_running(&mut world);
-    seed_ready(&world, chunks);
-    let edits: Vec<(&str, &str)> = chunks.iter().map(|id| (*id, "edit")).collect();
+    seed_ready(&world, sections);
+    let edits: Vec<(&str, &str)> = sections.iter().map(|id| (*id, "edit")).collect();
     mutate(&mut world, "txn-dirty", &edits);
-    for id in chunks {
+    for id in sections {
         assert!(
             latest_dirty(&world, id).is_some(),
             "{id} must be dirty after mutation commit"
@@ -328,119 +330,119 @@ fn walk_rs(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 }
 
 #[test]
-fn covering_ack_clears_only_that_chunk_and_changes_root() {
+fn covering_ack_clears_only_that_section_and_changes_root() {
     assert!(SCHEMA_IDS.contains(&"voxel-durability-ack"));
-    let mut world = running_world_with_dirty("r00137-happy", &["c:0:0:0", "c:1:0:0"]);
-    let covered = latest_dirty(&world, "c:0:0:0").expect("dirty after commit");
-    let other = latest_dirty(&world, "c:1:0:0").expect("other dirty after commit");
+    let mut world = running_world_with_dirty("r00137-happy", &["s:0:0:0", "s:1:0:0"]);
+    let covered = latest_dirty(&world, "s:0:0:0").expect("dirty after commit");
+    let other = latest_dirty(&world, "s:1:0:0").expect("other dirty after commit");
     let before = identity_of(&world);
-    let ack = ack_for(&world, &[("c:0:0:0", covered)]);
+    let ack = ack_for(&world, &[("s:0:0:0", covered)]);
     let receipt = apply_durability_ack(&mut world, ack).expect("covering ack");
     assert_eq!(receipt.coverage_len(), 1);
     assert_eq!(receipt.old_root(), before);
     assert_ne!(receipt.new_root(), before);
     assert_eq!(identity_of(&world), receipt.new_root());
-    assert_eq!(latest_dirty(&world, "c:0:0:0"), None);
-    assert_eq!(latest_dirty(&world, "c:1:0:0"), Some(other));
+    assert_eq!(latest_dirty(&world, "s:0:0:0"), None);
+    assert_eq!(latest_dirty(&world, "s:1:0:0"), Some(other));
     assert_lane_free(&mut world);
 }
 
 #[test]
 fn older_ack_does_not_clear_newer_dirty() {
-    let mut world = running_world_with_dirty("r00137-old", &["c:0:0:0"]);
-    let latest = latest_dirty(&world, "c:0:0:0").expect("dirty after commit");
+    let mut world = running_world_with_dirty("r00137-old", &["s:0:0:0"]);
+    let latest = latest_dirty(&world, "s:0:0:0").expect("dirty after commit");
     assert!(
         latest > 0,
-        "seeded chunk revision leaves room for an older cut"
+        "seeded section revision leaves room for an older cut"
     );
     let before = identity_of(&world);
-    let ack = ack_for(&world, &[("c:0:0:0", latest - 1)]);
+    let ack = ack_for(&world, &[("s:0:0:0", latest - 1)]);
     let receipt = apply_durability_ack(&mut world, ack).expect("old ack is idempotent");
     assert_eq!(receipt.coverage_len(), 0);
     assert_eq!(receipt.old_root(), before);
     assert_eq!(receipt.new_root(), before);
     assert_eq!(identity_of(&world), before);
-    assert_eq!(latest_dirty(&world, "c:0:0:0"), Some(latest));
+    assert_eq!(latest_dirty(&world, "s:0:0:0"), Some(latest));
     assert_lane_free(&mut world);
 }
 
 #[test]
 fn duplicate_ack_after_success_is_noop() {
-    let mut world = running_world_with_dirty("r00137-dup", &["c:0:0:0"]);
-    let covered = latest_dirty(&world, "c:0:0:0").expect("dirty after commit");
-    let ack = ack_for(&world, &[("c:0:0:0", covered)]);
+    let mut world = running_world_with_dirty("r00137-dup", &["s:0:0:0"]);
+    let covered = latest_dirty(&world, "s:0:0:0").expect("dirty after commit");
+    let ack = ack_for(&world, &[("s:0:0:0", covered)]);
     apply_durability_ack(&mut world, ack.clone()).expect("first covering ack");
     let after_first = identity_of(&world);
-    assert_eq!(latest_dirty(&world, "c:0:0:0"), None);
+    assert_eq!(latest_dirty(&world, "s:0:0:0"), None);
     let receipt = apply_durability_ack(&mut world, ack).expect("duplicate ack");
     assert_eq!(receipt.coverage_len(), 0);
     assert_eq!(receipt.old_root(), after_first);
     assert_eq!(receipt.new_root(), after_first);
     assert_eq!(identity_of(&world), after_first);
-    assert_eq!(latest_dirty(&world, "c:0:0:0"), None);
+    assert_eq!(latest_dirty(&world, "s:0:0:0"), None);
     assert_lane_free(&mut world);
 }
 
 #[test]
 fn wrong_world_id_or_generation_keeps_identity() {
-    let mut world = running_world_with_dirty("r00137-mismatch", &["c:0:0:0"]);
-    let covered = latest_dirty(&world, "c:0:0:0").expect("dirty after commit");
+    let mut world = running_world_with_dirty("r00137-mismatch", &["s:0:0:0"]);
+    let covered = latest_dirty(&world, "s:0:0:0").expect("dirty after commit");
     let before = identity_of(&world);
-    let dirty_before = latest_dirty(&world, "c:0:0:0");
+    let dirty_before = latest_dirty(&world, "s:0:0:0");
 
-    let mut wrong_world = ack_for(&world, &[("c:0:0:0", covered)]);
+    let mut wrong_world = ack_for(&world, &[("s:0:0:0", covered)]);
     wrong_world.world_id = "world-other".to_string();
     let err = apply_durability_ack(&mut world, wrong_world).expect_err("wrong world");
     assert_eq!(err.error_id(), "SessionMismatch");
     assert_stable_error(err.error_id());
     assert_eq!(identity_of(&world), before);
-    assert_eq!(latest_dirty(&world, "c:0:0:0"), dirty_before);
+    assert_eq!(latest_dirty(&world, "s:0:0:0"), dirty_before);
     assert_lane_free(&mut world);
 
-    let mut wrong_generation = ack_for(&world, &[("c:0:0:0", covered)]);
+    let mut wrong_generation = ack_for(&world, &[("s:0:0:0", covered)]);
     wrong_generation.context.generation = world.state_view().instance_generation() + 1;
     let err = apply_durability_ack(&mut world, wrong_generation).expect_err("stale generation");
     assert_eq!(err.error_id(), "StaleEpoch");
     assert_stable_error(err.error_id());
     assert_eq!(identity_of(&world), before);
-    assert_eq!(latest_dirty(&world, "c:0:0:0"), dirty_before);
+    assert_eq!(latest_dirty(&world, "s:0:0:0"), dirty_before);
     assert_lane_free(&mut world);
 }
 
 #[test]
 fn future_covered_world_revision_is_rejected_before_clear() {
-    let mut world = running_world_with_dirty("r00137-future", &["c:0:0:0"]);
-    let covered = latest_dirty(&world, "c:0:0:0").expect("dirty after commit");
+    let mut world = running_world_with_dirty("r00137-future", &["s:0:0:0"]);
+    let covered = latest_dirty(&world, "s:0:0:0").expect("dirty after commit");
     let before = identity_of(&world);
-    let mut ack = ack_for(&world, &[("c:0:0:0", covered)]);
+    let mut ack = ack_for(&world, &[("s:0:0:0", covered)]);
     ack.covered_world_revision = current_world_revision(&world) + 1;
     let err = apply_durability_ack(&mut world, ack).expect_err("future cut");
     assert_eq!(err.error_id(), "EvidenceDigestMismatch");
     assert_stable_error(err.error_id());
     assert_eq!(identity_of(&world), before);
-    assert!(latest_dirty(&world, "c:0:0:0").is_some());
+    assert!(latest_dirty(&world, "s:0:0:0").is_some());
     assert_lane_free(&mut world);
 }
 
 #[test]
-fn partial_coverage_clears_only_listed_chunk() {
-    let mut world = running_world_with_dirty("r00137-partial", &["c:0:0:0", "c:2:0:0"]);
-    let first = latest_dirty(&world, "c:0:0:0").expect("first dirty");
-    let second = latest_dirty(&world, "c:2:0:0").expect("second dirty");
+fn partial_coverage_clears_only_listed_section() {
+    let mut world = running_world_with_dirty("r00137-partial", &["s:0:0:0", "s:2:0:0"]);
+    let first = latest_dirty(&world, "s:0:0:0").expect("first dirty");
+    let second = latest_dirty(&world, "s:2:0:0").expect("second dirty");
     let before = identity_of(&world);
-    let ack = ack_for(&world, &[("c:0:0:0", first)]);
+    let ack = ack_for(&world, &[("s:0:0:0", first)]);
     let receipt = apply_durability_ack(&mut world, ack).expect("partial ack");
     assert_eq!(receipt.coverage_len(), 1);
     assert_ne!(identity_of(&world), before);
-    assert_eq!(latest_dirty(&world, "c:0:0:0"), None);
-    assert_eq!(latest_dirty(&world, "c:2:0:0"), Some(second));
+    assert_eq!(latest_dirty(&world, "s:0:0:0"), None);
+    assert_eq!(latest_dirty(&world, "s:2:0:0"), Some(second));
     assert_lane_free(&mut world);
 }
 
 #[test]
 fn production_src_has_no_clear_dirty_identifier() {
-    let dirty = include_str!("../../lumio-voxel-domain/src/chunk/dirty.rs");
-    let delta = include_str!("../../lumio-voxel-domain/src/chunk/delta.rs");
+    let dirty = include_str!("../../lumio-voxel-domain/src/section/dirty.rs");
+    let delta = include_str!("../../lumio-voxel-domain/src/section/delta.rs");
     for src in [dirty, delta] {
         let code = strip_line_comments(src);
         assert!(

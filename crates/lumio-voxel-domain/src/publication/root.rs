@@ -2,8 +2,8 @@
 
 #![forbid(unsafe_code)]
 
-use crate::chunk::{ChunkDirectoryRoot, ChunkReplacement, DirtyFrontier};
 use crate::revision::{GeneratedRevisionStamp, REVISION_STAMP_SCHEMA};
+use crate::section::{DirtyFrontier, SectionDirectoryRoot, SectionReplacement};
 use lumio_voxel_contracts::{SCHEMA_IDS, sha256};
 
 /// Optional auxiliary indexes. This card ships the empty cut only.
@@ -24,7 +24,7 @@ impl AuxiliaryIndexes {
 #[derive(Clone, Debug)]
 pub struct PublishedStateRoot {
     stamp: GeneratedRevisionStamp,
-    directory: ChunkDirectoryRoot,
+    directory: SectionDirectoryRoot,
     dirty_frontier: DirtyFrontier,
     indexes: AuxiliaryIndexes,
     identity: [u8; 32],
@@ -33,7 +33,7 @@ pub struct PublishedStateRoot {
 impl PublishedStateRoot {
     pub fn new(
         stamp: GeneratedRevisionStamp,
-        directory: ChunkDirectoryRoot,
+        directory: SectionDirectoryRoot,
         dirty_frontier: DirtyFrontier,
     ) -> Self {
         let _ = revision_schema();
@@ -52,7 +52,7 @@ impl PublishedStateRoot {
         &self.stamp
     }
 
-    pub fn directory(&self) -> &ChunkDirectoryRoot {
+    pub fn directory(&self) -> &SectionDirectoryRoot {
         &self.directory
     }
 
@@ -68,7 +68,7 @@ impl PublishedStateRoot {
         self.identity
     }
 
-    pub(crate) fn incorporate_replacement(&mut self, replacement: &ChunkReplacement) {
+    pub(crate) fn incorporate_replacement(&mut self, replacement: &SectionReplacement) {
         self.identity = fingerprint(
             &self.stamp,
             &self.directory,
@@ -89,7 +89,7 @@ fn revision_schema() -> &'static str {
 
 fn fingerprint(
     stamp: &GeneratedRevisionStamp,
-    directory: &ChunkDirectoryRoot,
+    directory: &SectionDirectoryRoot,
     frontier: &DirtyFrontier,
     indexes: &AuxiliaryIndexes,
     replacement_digest: Option<[u8; 32]>,
@@ -103,8 +103,8 @@ fn fingerprint(
     buf.push(0);
     buf.extend_from_slice(&stamp.generation.to_le_bytes());
     buf.extend_from_slice(&stamp.world_revision.to_le_bytes());
-    for (chunk_id, rev) in &stamp.chunk_revision_set {
-        buf.extend_from_slice(chunk_id.as_bytes());
+    for (section_id, rev) in &stamp.section_revision_set {
+        buf.extend_from_slice(section_id.as_bytes());
         buf.push(0);
         buf.extend_from_slice(&rev.to_le_bytes());
     }

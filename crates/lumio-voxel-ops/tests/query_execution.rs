@@ -1,11 +1,7 @@
 //! R-00081: single-cut query execute; no mixed stamp, no implicit Load.
 
-use lumio_voxel_contracts::{
-    BASELINE_ID, CHUNK_PRESENCE, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256,
-};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkSlot, DirtyFrontier,
-};
+use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -16,9 +12,13 @@ use lumio_voxel_domain::publication::{
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
 };
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionPage, SectionPayload,
+    SectionSlot,
+};
 use lumio_voxel_ops::query::{
-    ChunkAccessResult, GeneratedVoxelQueryOutcome, GeneratedVoxelQueryRequest, QUERY_SCHEMA,
-    QueryEvidence, QueryExecutor, QueryPlanner,
+    GeneratedVoxelQueryOutcome, GeneratedVoxelQueryRequest, QUERY_SCHEMA, QueryEvidence,
+    QueryExecutor, QueryPlanner, SectionAccessResult,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -97,12 +97,12 @@ fn stamp(
         context_id: context.to_string(),
         generation,
         world_revision,
-        chunk_revision_set: BTreeMap::new(),
+        section_revision_set: BTreeMap::new(),
     }
 }
 
-fn dummy_payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn dummy_payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -118,9 +118,9 @@ fn dummy_root(
     world_revision: u64,
     payload_bytes: &[u8],
 ) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", ChunkSlot::ready(dummy_payload(payload_bytes)))
+        .insert("s:0:0:0", SectionSlot::ready(dummy_payload(payload_bytes)))
         .expect("canonical dummy id");
     PublishedStateRoot::new(
         stamp(world_id, context, generation, world_revision),
@@ -146,20 +146,20 @@ fn authority(
         .expect("initial root matches authority")
 }
 
-fn request(chunks: &[&str], cancel: bool) -> GeneratedVoxelQueryRequest {
+fn request(sections: &[&str], cancel: bool) -> GeneratedVoxelQueryRequest {
     GeneratedVoxelQueryRequest {
         query_id: "q-1".to_string(),
         world_id: "world-a".to_string(),
         context: "ctx-1".to_string(),
-        chunk_ids: chunks.iter().map(|c| (*c).to_string()).collect(),
+        section_ids: sections.iter().map(|c| (*c).to_string()).collect(),
         cancel,
     }
 }
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -194,7 +194,7 @@ fn concurrent_commit_execute_keeps_old_cut_and_rejects_new_view() {
     );
     let view_a = auth.capture();
     let plan = planner
-        .plan(&request(&["c:0:0:0"], false), &view_a, snap.as_ref())
+        .plan(&request(&["s:0:0:0"], false), &view_a, snap.as_ref())
         .expect("plan against A");
     let captured = plan.read_stamp().clone();
     let dir_a = directory_hash(&view_a);
@@ -205,7 +205,7 @@ fn concurrent_commit_execute_keeps_old_cut_and_rejects_new_view() {
         .prepare(
             world_rev(1),
             later,
-            ChunkDeltaBuilder::new(view_a.directory())
+            SectionDeltaBuilder::new(view_a.directory())
                 .freeze()
                 .expect("empty replacement"),
         )
@@ -230,7 +230,7 @@ fn concurrent_commit_execute_keeps_old_cut_and_rejects_new_view() {
     assert_eq!(evidence.plan_hash(), plan.plan_hash());
     assert_eq!(directory_hash(&view_a), dir_a);
     assert_eq!(outcome.items().len(), 1);
-    assert_eq!(outcome.items()[0].chunk_id(), "c:0:0:0");
+    assert_eq!(outcome.items()[0].section_id(), "s:0:0:0");
     assert_eq!(outcome.items()[0].presence(), "Ready");
 
     let err = QueryExecutor::execute(&plan, &view_b).expect_err("new view stamp mismatch");
@@ -258,13 +258,13 @@ fn budget_exhaust_second_walk_is_budget_exceeded() {
     let root_before = view.root().identity();
     let plan = planner
         .plan(
-            &request(&["c:0:0:0", "c:1:0:0"], false),
+            &request(&["s:0:0:0", "s:1:0:0"], false),
             &view,
             snap.as_ref(),
         )
         .expect("plan of N");
     assert_eq!(plan.budget(), n);
-    assert_eq!(plan.canonical_chunks().len(), n);
+    assert_eq!(plan.canonical_sections().len(), n);
 
     let outcome = QueryExecutor::execute(&plan, &view).expect("first walk within budget");
     assert_eq!(outcome.evidence().budget_used(), n);
@@ -297,7 +297,7 @@ fn cancel_or_invalid_handle_leaves_capture_unchanged() {
     let dir_before = directory_hash(&view);
     let root_before = view.root().identity();
     let plan = planner
-        .plan(&request(&["c:0:0:0"], false), &view, snap.as_ref())
+        .plan(&request(&["s:0:0:0"], false), &view, snap.as_ref())
         .expect("plan");
 
     let cancelled = QueryExecutor::execute_cancelled(&plan, &view).expect_err("cancelled");
@@ -335,7 +335,7 @@ fn outcome_items_expose_presence_and_schema_id_only() {
     let view = auth.capture();
     let plan = planner
         .plan(
-            &request(&["c:0:0:0", "c:1:0:0"], false),
+            &request(&["s:0:0:0", "s:1:0:0"], false),
             &view,
             snap.as_ref(),
         )
@@ -343,24 +343,24 @@ fn outcome_items_expose_presence_and_schema_id_only() {
     let outcome = QueryExecutor::execute(&plan, &view).expect("execute");
     assert_eq!(outcome.items().len(), 2);
 
-    let ready: &ChunkAccessResult = &outcome.items()[0];
-    assert_eq!(ready.chunk_id(), "c:0:0:0");
+    let ready: &SectionAccessResult = &outcome.items()[0];
+    assert_eq!(ready.section_id(), "s:0:0:0");
     assert_eq!(ready.presence(), "Ready");
-    assert!(CHUNK_PRESENCE.contains(&ready.presence()));
+    assert!(SECTION_PRESENCE.contains(&ready.presence()));
     let schema = ready.schema_id().expect("Ready carries schema_id");
     assert!(SCHEMA_IDS.contains(&schema));
     let debug = format!("{ready:?}");
-    assert!(!debug.contains("ChunkPayload"));
-    assert!(!debug.contains("ChunkPage"));
+    assert!(!debug.contains("SectionPayload"));
+    assert!(!debug.contains("SectionPage"));
     assert!(!debug.contains("must-not-read"));
     assert!(!debug.contains("Arc"));
 
-    let missing: &ChunkAccessResult = &outcome.items()[1];
-    assert_eq!(missing.chunk_id(), "c:1:0:0");
-    assert_eq!(missing.presence(), "NotLoaded");
-    assert!(CHUNK_PRESENCE.contains(&missing.presence()));
+    let missing: &SectionAccessResult = &outcome.items()[1];
+    assert_eq!(missing.section_id(), "s:1:0:0");
+    assert_eq!(missing.presence(), "Unchanged");
+    assert!(SECTION_PRESENCE.contains(&missing.presence()));
     assert_eq!(missing.schema_id(), None);
     let missing_debug = format!("{missing:?}");
-    assert!(!missing_debug.contains("ChunkPayload"));
+    assert!(!missing_debug.contains("SectionPayload"));
     assert!(!missing_debug.contains("0x"));
 }

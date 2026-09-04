@@ -1,6 +1,6 @@
 ---
 name: repository-architecture
-description: 仓库边界与架构契约——VoxelWorld 所有权、跨仓依赖和 Architecture Gate;改 Chunk、Revision 或公共契约前查
+description: 仓库边界与架构契约——VoxelWorld 所有权、跨仓依赖和 Architecture Gate;改 Section、Revision 或公共契约前查
 metadata:
   type: doc
   status: 已交付
@@ -17,7 +17,8 @@ metadata:
 
 ## 所有权边界
 
-- 本仓拥有 VoxelWorld、Chunk、Block、坐标、Revision、Query、Mutation、Voxel Snapshot/Diff payload、Streaming 与 Voxel 空间数据源。
+- 本仓拥有 VoxelWorld、Section、Block、坐标、Revision、Query、Mutation、Voxel Snapshot/Diff payload、Streaming 与 Voxel 空间数据源。
+- **命名以 `lumio.voxel-world.v1` 为准**:16×16×16 的数据单元叫 **Section**,Chunk 是 16 个 Section 摞成的列容器、不携带数据。本页与根 `README.md` 里其余仍写 `Chunk` 的段落指的是那个数据单元,是待改的历史措辞;分层与键的现状见 [`features/voxel-section-chunk.md`](../features/voxel-section-chunk.md) 与 [0013](../../decisions/0013-voxel-world-contract-and-section-rename.md)。
 - Host 只创建/销毁实例；Runtime 拥有跨域 `SnapshotCut`，只能经版本化 `IVoxelWorldPort` 发起查询、Prepare、Commit、Capture 和取消，不拥有 Voxel 状态机。
 - Voxel 只接收不可变 Cut 并持有 `VoxelCaptureRef`；Chunk 数据与 Revision 必须经 `mutation` 的 CommitBatch 原子发布；源码只依赖 `LumioNativeCore`，不编译依赖 `LumioCoreEngine`。
 - 本仓不实现 Gameplay、Ability、权限、经济、ECS Entity/Component、Session、网络、Release Pool 或进程治理。

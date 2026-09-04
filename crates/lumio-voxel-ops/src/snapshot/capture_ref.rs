@@ -79,7 +79,7 @@ pub trait CaptureReadPort {
     fn world_id(&self) -> &str;
     fn context_id(&self) -> &str;
     fn instance_generation(&self) -> u64;
-    fn chunk_revision_set(&self) -> &BTreeMap<String, u64>;
+    fn section_revision_set(&self) -> &BTreeMap<String, u64>;
     fn config_hash(&self) -> &str;
 }
 
@@ -127,8 +127,8 @@ impl VoxelCaptureRef {
         self.root.stamp().generation
     }
 
-    pub fn chunk_revision_set(&self) -> &BTreeMap<String, u64> {
-        &self.root.stamp().chunk_revision_set
+    pub fn section_revision_set(&self) -> &BTreeMap<String, u64> {
+        &self.root.stamp().section_revision_set
     }
 
     pub fn config_hash(&self) -> &str {
@@ -165,8 +165,8 @@ impl CaptureReadPort for VoxelCaptureRef {
         VoxelCaptureRef::instance_generation(self)
     }
 
-    fn chunk_revision_set(&self) -> &BTreeMap<String, u64> {
-        VoxelCaptureRef::chunk_revision_set(self)
+    fn section_revision_set(&self) -> &BTreeMap<String, u64> {
+        VoxelCaptureRef::section_revision_set(self)
     }
 
     fn config_hash(&self) -> &str {

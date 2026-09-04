@@ -1,4 +1,4 @@
-//! B0 matrix: drive shipped Artifact / DAG / Revision / Chunk / Publication / Port APIs.
+//! B0 matrix: drive shipped Artifact / DAG / Revision / Section / Publication / Port APIs.
 
 #![forbid(unsafe_code)]
 
@@ -7,13 +7,12 @@ use crate::deterministic_executor::{DeterministicExecutor, Schedule};
 use crate::generated_clean;
 use crate::reference_harness::GeneratedVoxelOperation;
 use crate::workspace_root_from_manifest;
+use lumio_voxel_contracts::legacy_baseline;
+use lumio_voxel_contracts::voxel_world as vw;
+use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
 use lumio_voxel_contracts::{
-    BASELINE_ID, BINDINGS, CHUNK_PRESENCE, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256,
+    BASELINE_ID, BINDINGS, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, is_stable_error_id, sha256,
     verify_artifact_hashes,
-};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkSlot, CoveredChunkAck,
-    DirtyFrontier, DurabilityAckContext, DurabilityAckEvidence,
 };
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
@@ -25,6 +24,10 @@ use lumio_voxel_domain::publication::{
 use lumio_voxel_domain::revision::{
     PinRegistry, REVISION_STAMP_SCHEMA, RetentionFrontier, RevisionAllocator, WorldRevision,
     to_generated_stamp,
+};
+use lumio_voxel_domain::section::{
+    CoveredSectionAck, DirtyFrontier, DurabilityAckContext, DurabilityAckEvidence,
+    SectionDeltaBuilder, SectionDirectoryBuilder, SectionPage, SectionPayload, SectionSlot,
 };
 use lumio_voxel_ops::SNAPSHOT_FEATURE;
 use lumio_voxel_world::port::GeneratedVoxelWorldPortAdapter;
@@ -72,7 +75,7 @@ pub fn run_b0_matrix() -> B0VerificationReport {
         case_seven_crate_dag(),
         case_revision_monotonic(),
         case_pin_reclaim(),
-        case_chunk_four_state(),
+        case_section_four_state(),
         case_dirty_frontier_pure(),
         case_publication_old_or_new(),
         case_dual_voxel_world(),
@@ -106,8 +109,12 @@ pub fn case_pin_reclaim() -> B0CaseResult {
     wrap("4", "pin / reclaim", pin_reclaim)
 }
 
-pub fn case_chunk_four_state() -> B0CaseResult {
-    wrap("5", "chunk four-state + illegal convert", chunk_four_state)
+pub fn case_section_four_state() -> B0CaseResult {
+    wrap(
+        "5",
+        "section four-state + illegal convert",
+        section_four_state,
+    )
 }
 
 pub fn case_dirty_frontier_pure() -> B0CaseResult {
@@ -176,10 +183,10 @@ fn artifact_hash_lock() -> Result<String, String> {
         return Err(format!("schemaEpoch {SCHEMA_EPOCH}"));
     }
     require_schema("voxel-world-port")?;
-    require_schema("voxel-chunk-page")?;
+    require_schema(legacy_baseline::SECTION_PAGE_SCHEMA_ID)?;
     require_schema(REVISION_STAMP_SCHEMA)?;
-    if CHUNK_PRESENCE.len() != 4 {
-        return Err(format!("CHUNK_PRESENCE len {}", CHUNK_PRESENCE.len()));
+    if SECTION_PRESENCE.len() != 4 {
+        return Err(format!("SECTION_PRESENCE len {}", SECTION_PRESENCE.len()));
     }
     if STABLE_ERROR_IDS.is_empty() || BINDINGS.is_empty() {
         return Err("STABLE_ERROR_IDS / BINDINGS empty".into());
@@ -271,15 +278,15 @@ fn revision_monotonic() -> Result<String, String> {
         return Err(format!("double finalize {}", double.error_id()));
     }
     let mut c0 = alloc
-        .reserve_chunk()
-        .map_err(|err| format!("reserve_chunk: {}", err.error_id()))?;
+        .reserve_section()
+        .map_err(|err| format!("reserve_section: {}", err.error_id()))?;
     let fc0 = c0
         .finalize()
-        .map_err(|err| format!("finalize chunk: {}", err.error_id()))?;
+        .map_err(|err| format!("finalize section: {}", err.error_id()))?;
     if fc0.value() != 0 {
-        return Err("chunk domain must start at 0".into());
+        return Err("section domain must start at 0".into());
     }
-    Ok("world 0 then hole 1 then 2; chunk domain independent".into())
+    Ok("world 0 then hole 1 then 2; section domain independent".into())
 }
 
 fn pin_reclaim() -> Result<String, String> {
@@ -288,7 +295,7 @@ fn pin_reclaim() -> Result<String, String> {
     if registry.config_hash() != snap.config_hash() {
         return Err("pin registry config_hash != snapshot".into());
     }
-    let stamp = stamp_at("world-b0-pin", "ctx-b0-pin", 4, 0, &[("c:0:0:0", 0)]);
+    let stamp = stamp_at("world-b0-pin", "ctx-b0-pin", 4, 0, &[("s:0:0:0", 0)]);
     let held = registry
         .try_pin(stamp.clone())
         .map_err(|err| format!("try_pin: {}", err.error_id()))?;
@@ -328,27 +335,30 @@ fn pin_reclaim() -> Result<String, String> {
     Ok("from_approved_snapshot; last drop reclaims slot".into())
 }
 
-fn chunk_four_state() -> Result<String, String> {
-    if CHUNK_PRESENCE != ["Ready", "NotLoaded", "Pending", "Unavailable"] {
-        return Err(format!("CHUNK_PRESENCE {CHUNK_PRESENCE:?}"));
+fn section_four_state() -> Result<String, String> {
+    if SECTION_PRESENCE != ["Ready", "Unchanged", "Pending", "Unavailable"] {
+        return Err(format!("SECTION_PRESENCE {SECTION_PRESENCE:?}"));
     }
-    let ready = ChunkSlot::ready(payload(b"b0-ready"));
-    let not_loaded = ChunkSlot::not_loaded();
-    let pending = ChunkSlot::pending();
-    let unavailable = ChunkSlot::unavailable();
+    let ready = SectionSlot::ready(payload(b"b0-ready"));
+    let unchanged = SectionSlot::unchanged();
+    let pending = SectionSlot::pending();
+    let unavailable = SectionSlot::unavailable();
     let names = [
         ready.presence(),
-        not_loaded.presence(),
+        unchanged.presence(),
         pending.presence(),
         unavailable.presence(),
     ];
-    if names.as_slice() != CHUNK_PRESENCE {
+    if names.as_slice() != SECTION_PRESENCE {
         return Err(format!("slot presence {names:?}"));
     }
     for name in names {
         intern_presence(name)?;
-        if !CHUNK_PRESENCE.iter().any(|item| std::ptr::eq(*item, name)) {
-            return Err(format!("{name} is not interned from CHUNK_PRESENCE"));
+        if !SECTION_PRESENCE
+            .iter()
+            .any(|item| std::ptr::eq(*item, name))
+        {
+            return Err(format!("{name} is not interned from SECTION_PRESENCE"));
         }
     }
     let before = unavailable.clone();
@@ -357,32 +367,32 @@ fn chunk_four_state() -> Result<String, String> {
         .err()
         .ok_or_else(|| "Unavailable -> Ready succeeded".to_string())?;
     require_stable(err.error_id())?;
-    if err.error_id() != "ChunkUnavailable" {
+    if err.error_id() != vw::SECTION_UNAVAILABLE {
         return Err(format!("illegal convert {}", err.error_id()));
     }
     if unavailable != before || unavailable.presence() != "Unavailable" {
         return Err("illegal convert mutated the source slot".into());
     }
-    let mut builder = ChunkDirectoryBuilder::new();
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", unavailable.clone())
+        .insert("s:0:0:0", unavailable.clone())
         .map_err(|err| format!("insert: {}", err.error_id()))?;
     let frozen = builder.freeze();
     let convert_err = builder
-        .convert("c:0:0:0", "Ready", None)
+        .convert("s:0:0:0", "Ready", None)
         .err()
         .ok_or_else(|| "directory convert succeeded".to_string())?;
-    if convert_err.error_id() != "ChunkUnavailable" {
+    if convert_err.error_id() != vw::SECTION_UNAVAILABLE {
         return Err(format!("directory convert {}", convert_err.error_id()));
     }
     let looked = frozen
-        .lookup("c:0:0:0")
+        .lookup("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
         .ok_or_else(|| "frozen slot missing".to_string())?;
     if looked.presence() != "Unavailable" {
         return Err("frozen root mutated by failed convert".into());
     }
-    Ok("four CHUNK_PRESENCE names interned; illegal convert leaves slot".into())
+    Ok("four SECTION_PRESENCE names interned; illegal convert leaves slot".into())
 }
 
 fn dirty_frontier_pure() -> Result<String, String> {
@@ -390,10 +400,10 @@ fn dirty_frontier_pure() -> Result<String, String> {
     let frontier = DirtyFrontier::new("world-b0-dirty", 7)
         .map_err(|err| format!("new frontier: {}", err.error_id()))?;
     let dirty = frontier
-        .record("c:0:0:0", 5, "AuthoritativeWrite")
+        .record("s:0:0:0", 5, "AuthoritativeWrite")
         .map_err(|err| format!("record: {}", err.error_id()))?;
     if frontier
-        .latest_revision("c:0:0:0")
+        .latest_revision("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
         .is_some()
     {
@@ -407,22 +417,22 @@ fn dirty_frontier_pure() -> Result<String, String> {
             generation: 7,
         },
         covered_world_revision: 8,
-        covered_chunks: vec![CoveredChunkAck {
-            chunk_id: "c:0:0:0".to_string(),
-            up_to_chunk_revision: 5,
+        covered_sections: vec![CoveredSectionAck {
+            section_id: "s:0:0:0".to_string(),
+            up_to_section_revision: 5,
         }],
     };
     let covered = dirty
         .covered_by(&ack)
         .map_err(|err| format!("covered_by: {}", err.error_id()))?;
     if !covered
-        .contains("c:0:0:0")
+        .contains("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
     {
         return Err("ack did not cover c:0:0:0".into());
     }
     if dirty
-        .latest_revision("c:0:0:0")
+        .latest_revision("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
         != Some(5)
     {
@@ -430,14 +440,14 @@ fn dirty_frontier_pure() -> Result<String, String> {
     }
     let cleared = dirty.except_covered(&covered);
     if cleared
-        .latest_revision("c:0:0:0")
+        .latest_revision("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
         .is_some()
     {
         return Err("except_covered did not drop covered entry".into());
     }
     if dirty
-        .latest_revision("c:0:0:0")
+        .latest_revision("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
         != Some(5)
     {
@@ -452,7 +462,7 @@ fn publication_old_or_new() -> Result<String, String> {
         "ctx-b0-pub",
         1,
         0,
-        ChunkSlot::not_loaded(),
+        SectionSlot::unchanged(),
         None,
     );
     let auth = Arc::new(authority(
@@ -463,7 +473,7 @@ fn publication_old_or_new() -> Result<String, String> {
         initial,
     )?);
     let before = auth.capture();
-    assert_cut(&before, 0, "NotLoaded")?;
+    assert_cut(&before, 0, "Unchanged")?;
     let hash0 = before.root().identity();
 
     let start = Arc::new(Barrier::new(5));
@@ -495,7 +505,7 @@ fn publication_old_or_new() -> Result<String, String> {
                         "ctx-b0-pub",
                         1,
                         1,
-                        ChunkSlot::ready(payload(b"b0-pub-1")),
+                        SectionSlot::ready(payload(b"b0-pub-1")),
                         Some("mutation"),
                     ),
                     empty_replacement(auth.capture().directory()),
@@ -514,7 +524,7 @@ fn publication_old_or_new() -> Result<String, String> {
     if hash1 == hash0 {
         return Err("publish did not change identity".into());
     }
-    assert_cut(&before, 0, "NotLoaded")?;
+    assert_cut(&before, 0, "Unchanged")?;
     if before.root().identity() != hash0 {
         return Err("pre-publish capture mixed with the new cut".into());
     }
@@ -577,7 +587,7 @@ fn dual_voxel_world() -> Result<String, String> {
                 view.world_context_id(),
                 view.instance_generation(),
                 1,
-                ChunkSlot::ready(payload(b"b0-auth-cut")),
+                SectionSlot::ready(payload(b"b0-auth-cut")),
                 Some("mutation"),
             ),
             empty_replacement(before.directory()),
@@ -754,23 +764,23 @@ fn stamp_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    chunks: &[(&str, u64)],
+    sections: &[(&str, u64)],
 ) -> lumio_voxel_domain::revision::GeneratedRevisionStamp {
     let world = world_rev(world_rev_n);
     let mut pairs = Vec::new();
-    for (id, rev) in chunks {
-        let mut chunk_alloc = RevisionAllocator::new();
+    for (id, rev) in sections {
+        let mut section_alloc = RevisionAllocator::new();
         for _ in 0..*rev {
-            chunk_alloc.reserve_chunk().unwrap().abandon();
+            section_alloc.reserve_section().unwrap().abandon();
         }
-        let mut reserved = chunk_alloc.reserve_chunk().unwrap();
+        let mut reserved = section_alloc.reserve_section().unwrap();
         pairs.push((id.to_string(), reserved.finalize().unwrap()));
     }
     to_generated_stamp(world_id, context_id, generation, world, &pairs)
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -780,9 +790,9 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
 }
 
 fn empty_replacement(
-    base: &lumio_voxel_domain::chunk::ChunkDirectoryRoot,
-) -> lumio_voxel_domain::chunk::ChunkReplacement {
-    ChunkDeltaBuilder::new(base)
+    base: &lumio_voxel_domain::section::SectionDirectoryRoot,
+) -> lumio_voxel_domain::section::SectionReplacement {
+    SectionDeltaBuilder::new(base)
         .freeze()
         .expect("empty replacement")
 }
@@ -792,23 +802,25 @@ fn root_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    slot: ChunkSlot,
+    slot: SectionSlot,
     dirty_reason: Option<&str>,
 ) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
-    builder.insert("c:0:0:0", slot).expect("canonical chunk id");
+    let mut builder = SectionDirectoryBuilder::new();
+    builder
+        .insert("s:0:0:0", slot)
+        .expect("canonical section id");
     let directory = builder.freeze();
     let stamp = stamp_at(
         world_id,
         context_id,
         generation,
         world_rev_n,
-        &[("c:0:0:0", world_rev_n)],
+        &[("s:0:0:0", world_rev_n)],
     );
     let dirty = match dirty_reason {
         Some(reason) => DirtyFrontier::new(world_id, generation)
             .expect("world id")
-            .record("c:0:0:0", world_rev_n, reason)
+            .record("s:0:0:0", world_rev_n, reason)
             .expect("record dirty"),
         None => DirtyFrontier::new(world_id, generation).expect("world id"),
     };
@@ -825,7 +837,7 @@ fn assert_cut(view: &PublishedReadView, world_revision: u64, presence: &str) -> 
     }
     let got = view
         .directory()
-        .lookup("c:0:0:0")
+        .lookup("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
         .ok_or_else(|| "published slot missing".to_string())?
         .presence();
@@ -848,12 +860,12 @@ fn cut_identity(view: &PublishedReadView) -> Result<(), String> {
     }
     let presence = view
         .directory()
-        .lookup("c:0:0:0")
+        .lookup("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
         .ok_or_else(|| "published slot missing".to_string())?
         .presence();
     match view.stamp().world_revision {
-        0 if presence == "NotLoaded" => Ok(()),
+        0 if presence == "Unchanged" => Ok(()),
         1 if presence == "Ready" => Ok(()),
         other => Err(format!(
             "mixed stamp/dir: revision {other} presence {presence}"
@@ -870,11 +882,11 @@ fn intern_schema(id: &str) -> Result<&'static str, String> {
 }
 
 fn intern_presence(name: &str) -> Result<&'static str, String> {
-    CHUNK_PRESENCE
+    SECTION_PRESENCE
         .iter()
         .copied()
         .find(|item| *item == name)
-        .ok_or_else(|| format!("{name} missing from CHUNK_PRESENCE"))
+        .ok_or_else(|| format!("{name} missing from SECTION_PRESENCE"))
 }
 
 fn require_schema(id: &str) -> Result<(), String> {
@@ -882,10 +894,12 @@ fn require_schema(id: &str) -> Result<(), String> {
 }
 
 fn require_stable(id: &str) -> Result<(), String> {
-    if STABLE_ERROR_IDS.contains(&id) {
+    if is_stable_error_id(id) {
         Ok(())
     } else {
-        Err(format!("{id} is not in STABLE_ERROR_IDS"))
+        Err(format!(
+            "{id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
+        ))
     }
 }
 

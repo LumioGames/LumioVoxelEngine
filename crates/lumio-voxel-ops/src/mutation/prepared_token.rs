@@ -4,7 +4,7 @@
 
 use super::fingerprint::{MutationRequest, RequestFingerprint};
 use super::reservation::MutationReservation;
-use lumio_voxel_domain::chunk::{ChunkReplacement, DirtyFrontier};
+use lumio_voxel_domain::section::{DirtyFrontier, SectionReplacement};
 
 /// Sealed prepare token. Not `Clone`; commit consumes it by value.
 pub struct PreparedMutation {
@@ -17,7 +17,7 @@ pub struct PreparedMutation {
     #[allow(dead_code)]
     request: MutationRequest,
     #[allow(dead_code)]
-    replacement: ChunkReplacement,
+    replacement: SectionReplacement,
     #[allow(dead_code)]
     dirty: DirtyFrontier,
     #[allow(dead_code)]
@@ -33,7 +33,7 @@ impl PreparedMutation {
         generation: u64,
         config_hash: String,
         reservation: MutationReservation,
-        replacement: ChunkReplacement,
+        replacement: SectionReplacement,
         dirty: DirtyFrontier,
         target_world_revision: u64,
     ) -> Self {
@@ -81,7 +81,7 @@ impl PreparedMutation {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn replacement(&self) -> &ChunkReplacement {
+    pub(crate) fn replacement(&self) -> &SectionReplacement {
         &self.replacement
     }
 

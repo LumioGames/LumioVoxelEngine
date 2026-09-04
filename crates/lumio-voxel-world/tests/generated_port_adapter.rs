@@ -1,13 +1,14 @@
 //! R-00142: generated voxel-world-port total adapter.
 
 use lumio_voxel_contracts::{
-    BASELINE_ID, BINDINGS, BoundedBuffer, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256,
+    BASELINE_ID, BINDINGS, BoundedBuffer, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS,
+    is_stable_error_id, sha256,
 };
-use lumio_voxel_domain::chunk::DurabilityAckContext;
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
 };
+use lumio_voxel_domain::section::DurabilityAckContext;
 use lumio_voxel_ops::async_support::{OriginEnvelope, OriginToken};
 use lumio_voxel_ops::mutation::MutationRequest;
 use lumio_voxel_ops::query::GeneratedVoxelQueryRequest;
@@ -170,7 +171,7 @@ fn query_envelope(
             query_id: query_id.to_string(),
             world_id: view.world_id().to_string(),
             context: view.world_context_id().to_string(),
-            chunk_ids: vec!["c:0:0:0".to_string()],
+            section_ids: vec!["s:0:0:0".to_string()],
             cancel: false,
         },
     }
@@ -211,7 +212,7 @@ fn empty_ack(world: &VoxelWorld) -> AckEvidence {
             .capture()
             .stamp()
             .world_revision,
-        covered_chunks: Vec::new(),
+        covered_sections: Vec::new(),
     }
 }
 
@@ -224,8 +225,8 @@ fn workspace_root() -> PathBuf {
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 

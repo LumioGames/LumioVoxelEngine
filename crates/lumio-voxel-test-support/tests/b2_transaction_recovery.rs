@@ -1,6 +1,7 @@
 //! R-00145: B2 matrix against shipped Query / Mutation / World / Restore APIs.
 
-use lumio_voxel_contracts::{BASELINE_ID, CHUNK_PRESENCE, STABLE_ERROR_IDS};
+use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
+use lumio_voxel_contracts::{BASELINE_ID, STABLE_ERROR_IDS};
 use lumio_voxel_test_support::b2_harness::{
     MATRIX_ROWS, case_capture_encode_outside_barrier, case_commit_atomic_duplicate,
     case_dual_world_fault_isolation, case_durability_ack_covers_latest,
@@ -41,10 +42,10 @@ fn query_single_cut_plan_hash_and_stamp_mismatch() {
 }
 
 #[test]
-fn query_four_state_maps_absent_to_not_loaded() {
+fn query_four_state_maps_absent_to_unchanged() {
     assert_eq!(
-        CHUNK_PRESENCE,
-        &["Ready", "NotLoaded", "Pending", "Unavailable"]
+        SECTION_PRESENCE,
+        &["Ready", "Unchanged", "Pending", "Unavailable"]
     );
     assert_case_ok(case_query_four_state());
 }

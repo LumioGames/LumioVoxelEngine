@@ -1,3 +1,4 @@
+use lumio_voxel_contracts::voxel_world as vw;
 use lumio_voxel_test_support::reference_harness::{
     ReferenceRustDifferentialReport, run_reference_rust_differential,
 };
@@ -53,8 +54,14 @@ const EXPECTED_CONFIG_HASH: &str =
 
 // Fixed golden over the independently specified, generation-normalized trace
 // frame. It is intentionally not generated from either leg at runtime.
+//
+// Moved from 5a77a11d… by the chunk→section rename (ADR 0013): the trace frame carries
+// Section ids, whose canonical text went from `c:x:y:z` to `s:x:y:z`. The two legs are
+// separate implementations of the same contract and both landed on the value below,
+// which is the only reason it is trustworthy — a golden that only one leg produced
+// would prove nothing.
 const GOLDEN_TRACE_SHA256: &str =
-    "5a77a11db5441961de355fd246b8f71889cbf0a8d453c33e6624e818173a6c2c";
+    "4acbb1e431a770a184eb5139137716e174b7411c39ede322b3cdeebe1cde297b";
 
 #[test]
 fn reference_and_rust_execute_shared_canonical_vectors() {
@@ -106,8 +113,8 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
             assert_ne!(state.dirty_digest, [0; 32]);
             assert_eq!(state.lifecycle_machine, "SimulationSession");
             assert_eq!(state.config_hash, EXPECTED_CONFIG_HASH);
-            assert!(state.chunks.iter().all(|chunk| {
-                (chunk.presence.as_deref() == Some("Ready")) == chunk.payload_digest.is_some()
+            assert!(state.sections.iter().all(|section| {
+                (section.presence.as_deref() == Some("Ready")) == section.payload_digest.is_some()
             }));
         }
         assert_eq!(reference.contract_root, rust.contract_root);
@@ -124,20 +131,20 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
         Some("InvalidHandle")
     );
     assert_eq!(
-        observations[3].chunk_presence,
+        observations[3].section_presence,
         vec![
-            ("c:-10:0:0".into(), "Ready".into()),
-            ("c:-1:0:0".into(), "Ready".into()),
-            ("c:0:0:0".into(), "Ready".into()),
-            ("c:1:0:0".into(), "Ready".into()),
-            ("c:9:0:0".into(), "NotLoaded".into()),
+            ("s:-10:0:0".into(), "Ready".into()),
+            ("s:-1:0:0".into(), "Ready".into()),
+            ("s:0:0:0".into(), "Ready".into()),
+            ("s:1:0:0".into(), "Ready".into()),
+            ("s:9:0:0".into(), "Unchanged".into()),
         ]
     );
     assert!(
         observations[3]
-            .chunks
+            .sections
             .iter()
-            .all(|chunk| chunk.chunk_revision.is_some() || chunk.presence.is_none())
+            .all(|section| section.section_revision.is_some() || section.presence.is_none())
     );
     for observation in observations {
         assert_eq!(observation.baseline_id, "LGE-V1.4-2026-08-27");
@@ -210,7 +217,7 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
             "stale-generation",
             "abort",
             "wrong-config",
-            "malformed-chunk"
+            "malformed-section"
         ]
     );
     assert!(observations[5].probes[3].ok);
@@ -218,9 +225,10 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
         observations[5].probes[4].error_id.as_deref(),
         Some("SessionMismatch")
     );
+    // "malformed-section" 送的是 s:01:0:0——前导零不是规范写法(契约 key.canonical)。
     assert_eq!(
         observations[5].probes[5].error_id.as_deref(),
-        Some("CoordinateOutOfBounds")
+        Some(vw::UNKNOWN_SECTION_KEY)
     );
     assert_eq!(
         observations[7].probes[0]
@@ -276,13 +284,19 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
             ("stale-generation", Some("StaleEpoch"))
         ]
     );
+    // probes[1] = s:-0:0:0,probes[2] = s:01:0:0:两者都是写法非规范,不是坐标越界。
     assert_eq!(
         observations[4].probes[1].error_id.as_deref(),
-        Some("CoordinateOutOfBounds")
+        Some(vw::UNKNOWN_SECTION_KEY)
     );
     assert_eq!(
         observations[4].probes[2].error_id.as_deref(),
-        Some("CoordinateOutOfBounds")
+        Some(vw::UNKNOWN_SECTION_KEY)
+    );
+    // probes[3] = s:2147483648:0:0:这一条才是真的越出 int32。
+    assert_eq!(
+        observations[4].probes[3].error_id.as_deref(),
+        Some(vw::COORDINATE_OUT_OF_BOUNDS)
     );
     assert_eq!(
         observations[9]
@@ -300,8 +314,8 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
             "wrong-context",
             "stale-generation",
             "future-cut",
-            "duplicate-chunk",
-            "malformed-chunk",
+            "duplicate-section",
+            "malformed-section",
             "wrong-kind"
         ]
     );
@@ -353,9 +367,10 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
         observations[9].probes[9].error_id.as_deref(),
         Some("InvalidHandle")
     );
+    // 落盘回执里的 s:-0:0:0 同样是写法非规范。
     assert_eq!(
         observations[9].probes[10].error_id.as_deref(),
-        Some("CoordinateOutOfBounds")
+        Some(vw::UNKNOWN_SECTION_KEY)
     );
     assert_eq!(
         observations[9].probes[11].error_id.as_deref(),
@@ -366,7 +381,7 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
             .state
             .dirty_frontier
             .iter()
-            .find(|entry| entry.chunk_id == "c:0:0:0")
+            .find(|entry| entry.section_id == "s:0:0:0")
             .is_some_and(|entry| entry.latest_revision == Some(2))
     );
     assert!(

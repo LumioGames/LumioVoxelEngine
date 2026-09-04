@@ -1,4 +1,4 @@
-//! Txn receipt ledger. Does not publish chunks and does not hold a directory root.
+//! Txn receipt ledger. Does not publish sections and does not hold a directory root.
 
 use super::fingerprint::{MUTATION_RECEIPT_SCHEMA, MutationRequest, canonical_fingerprint};
 use super::reservation::MutationReservation;

@@ -1,9 +1,15 @@
-//! Map World / Query / Mutation error ids onto interned `STABLE_ERROR_IDS`.
+//! Map World / Query / Mutation error ids onto interned stable identifiers.
+//!
+//! Two id namespaces reach this seam. Voxel world-data semantics report the live
+//! contract's codes (`voxel_world::VOXEL_WORLD_ERROR_CODES`), which pass through
+//! unchanged; engine-generic failures the voxel contract does not define still report
+//! the frozen mirror's `STABLE_ERROR_IDS`.
 
 #![forbid(unsafe_code)]
 
 use crate::world::{WorldError, intern_stable};
-use lumio_voxel_contracts::STABLE_ERROR_IDS;
+use lumio_voxel_contracts::is_stable_error_id;
+use lumio_voxel_contracts::voxel_world as vw;
 use lumio_voxel_ops::mutation::MutationError;
 use lumio_voxel_ops::query::QueryError;
 use std::borrow::Cow;
@@ -22,7 +28,7 @@ impl PortError {
     }
 
     pub fn is_registered(&self) -> bool {
-        STABLE_ERROR_IDS.contains(&self.error_id())
+        is_stable_error_id(self.error_id())
     }
 }
 
@@ -44,6 +50,12 @@ impl From<WorldError> for PortError {
 /// the Port boundary so callers cannot confuse a new producer error with
 /// `InvalidHandle`.
 pub fn map_internal_error(error_id: &str) -> PortError {
+    // 契约错误码原样透传,只做 interning——它们已经是公共语义的稳定标识。
+    if let Some(code) = vw::intern_error_code(error_id) {
+        return PortError {
+            error_id: Cow::Borrowed(code),
+        };
+    }
     let mapped = match error_id {
         "RevisionConflict" => "RevisionConflict",
         "MaintenanceKick" => "MaintenanceKick",
@@ -77,12 +89,10 @@ pub fn map_internal_error(error_id: &str) -> PortError {
         "HandleDoubleRelease" => "HandleDoubleRelease",
         "MessagePermissionDenied" => "MessagePermissionDenied",
         "StaleConnectionGeneration" => "StaleConnectionGeneration",
-        "ChunkUnavailable" => "ChunkUnavailable",
         "TargetRevisionUnavailable" => "TargetRevisionUnavailable",
         "BudgetExceeded" => "BudgetExceeded",
         "QueueFull" => "QueueFull",
         "CoordinateOutOfBounds" => "CoordinateOutOfBounds",
-        "DirtyChunkNotDurable" => "DirtyChunkNotDurable",
         "SnapshotBaseMismatch" => "SnapshotBaseMismatch",
         "SessionMismatch" => "SessionMismatch",
         "RoleMismatch" => "RoleMismatch",

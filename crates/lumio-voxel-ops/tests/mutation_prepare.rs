@@ -1,9 +1,7 @@
 //! R-00096: Prepare has no visible side effects.
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDirectoryBuilder, ChunkDirectoryRoot, ChunkPage, ChunkPayload, ChunkSlot, DirtyFrontier,
-};
+use lumio_voxel_contracts::voxel_world as vw;
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -14,6 +12,10 @@ use lumio_voxel_domain::publication::{
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
     to_generated_stamp,
+};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage, SectionPayload,
+    SectionSlot,
 };
 use lumio_voxel_ops::mutation::{
     LookupOutcome, MutationRequest, PreparedMutation, ReceiptLedger, canonical_fingerprint, prepare,
@@ -87,23 +89,23 @@ fn stamp_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    chunks: &[(&str, u64)],
+    sections: &[(&str, u64)],
 ) -> GeneratedRevisionStamp {
     let world = world_rev(world_rev_n);
     let mut pairs = Vec::new();
-    for (id, rev) in chunks {
-        let mut chunk_alloc = RevisionAllocator::new();
+    for (id, rev) in sections {
+        let mut section_alloc = RevisionAllocator::new();
         for _ in 0..*rev {
-            chunk_alloc.reserve_chunk().unwrap().abandon();
+            section_alloc.reserve_section().unwrap().abandon();
         }
-        let mut c = chunk_alloc.reserve_chunk().unwrap();
+        let mut c = section_alloc.reserve_section().unwrap();
         pairs.push((id.to_string(), c.finalize().unwrap()));
     }
     to_generated_stamp(world_id, context_id, generation, world, &pairs)
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -112,20 +114,20 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
     .expect("valid dense uncompressed page")
 }
 
-fn directory_ready() -> ChunkDirectoryRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
+fn directory_ready() -> SectionDirectoryRoot {
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", ChunkSlot::ready(payload(b"base-ready")))
-        .expect("canonical chunk id");
+        .insert("s:0:0:0", SectionSlot::ready(payload(b"base-ready")))
+        .expect("canonical section id");
     builder
-        .insert("c:1:0:0", ChunkSlot::not_loaded())
-        .expect("canonical chunk id");
+        .insert("s:1:0:0", SectionSlot::unchanged())
+        .expect("canonical section id");
     builder
-        .insert("c:2:0:0", ChunkSlot::pending())
-        .expect("canonical chunk id");
+        .insert("s:2:0:0", SectionSlot::pending())
+        .expect("canonical section id");
     builder
-        .insert("c:3:0:0", ChunkSlot::unavailable())
-        .expect("canonical chunk id");
+        .insert("s:3:0:0", SectionSlot::unavailable())
+        .expect("canonical section id");
     builder.freeze()
 }
 
@@ -140,10 +142,10 @@ fn published_world(
         generation,
         0,
         &[
-            ("c:0:0:0", 0),
-            ("c:1:0:0", 0),
-            ("c:2:0:0", 0),
-            ("c:3:0:0", 0),
+            ("s:0:0:0", 0),
+            ("s:1:0:0", 0),
+            ("s:2:0:0", 0),
+            ("s:3:0:0", 0),
         ],
     );
     let root = PublishedStateRoot::new(
@@ -179,8 +181,8 @@ fn request(
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -195,7 +197,7 @@ fn failed_precondition_wrong_world_leaves_ledger_vacant_and_root_unchanged() {
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
     let view = auth.capture();
     let (hash_before, dirty_before) = visible_cut(&view);
-    let req = request("txn-1", "world-b", 1, 0, &[("c:0:0:0", "edit")]);
+    let req = request("txn-1", "world-b", 1, 0, &[("s:0:0:0", "edit")]);
 
     let err = prepare(&req, &view, &mut ledger).unwrap_err();
     assert_eq!(err.error_id(), "SessionMismatch");
@@ -215,7 +217,7 @@ fn successful_prepare_is_move_only_and_does_not_publish() {
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
     let view = auth.capture();
     let (hash_before, dirty_before) = visible_cut(&view);
-    let req = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit")]);
+    let req = request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
     let expected_fp = canonical_fingerprint(&req).expect("no duplicate member");
     let config_hash = ledger.config_hash().to_string();
 
@@ -246,7 +248,7 @@ fn conflict_fingerprint_leaves_first_reservation_receipt_unchanged() {
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
     let view = auth.capture();
     let (hash_before, dirty_before) = visible_cut(&view);
-    let first = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit-a")]);
+    let first = request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit-a")]);
     let token = prepare(&first, &view, &mut ledger).expect("first prepare");
     let receipt = b"receipt-first".to_vec();
     ledger
@@ -254,7 +256,7 @@ fn conflict_fingerprint_leaves_first_reservation_receipt_unchanged() {
         .expect("test harness may finalize via public ledger API");
     drop(token);
 
-    let conflict = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit-b")]);
+    let conflict = request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit-b")]);
     let err = prepare(&conflict, &view, &mut ledger).unwrap_err();
     assert_eq!(err.error_id(), "RevisionConflict");
     assert_stable_error(err.error_id());
@@ -273,15 +275,16 @@ fn conflict_fingerprint_leaves_first_reservation_receipt_unchanged() {
 }
 
 #[test]
-fn failed_stage_invalid_chunk_id_aborts_without_publish() {
+fn failed_stage_invalid_section_id_aborts_without_publish() {
     let (auth, snap) = published_world("world-a", 1);
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
     let view = auth.capture();
     let (hash_before, dirty_before) = visible_cut(&view);
-    let req = request("txn-1", "world-a", 1, 0, &[("c:01:0:0", "edit")]);
+    let req = request("txn-1", "world-a", 1, 0, &[("s:01:0:0", "edit")]);
 
     let err = prepare(&req, &view, &mut ledger).unwrap_err();
-    assert_eq!(err.error_id(), "CoordinateOutOfBounds");
+    // 前导零不是规范写法:契约 key.canonical → unknown_section_key。
+    assert_eq!(err.error_id(), vw::UNKNOWN_SECTION_KEY);
     assert_stable_error(err.error_id());
     assert_eq!(ledger.lookup(&req).unwrap(), LookupOutcome::Vacant);
 

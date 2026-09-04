@@ -6,12 +6,12 @@ use super::WorldError;
 use super::admission::WorldEndpoint;
 use super::state::{WorldState, simulation_session_machine};
 use lumio_voxel_contracts::{SCHEMA_IDS, VOXEL_WORLD_ROLES};
-use lumio_voxel_domain::chunk::{ChunkDirectoryBuilder, DirtyFrontier};
 use lumio_voxel_domain::config_snapshot::{
     CapabilityView, GeneratedHostCapability, VoxelConfigSnapshot,
 };
 use lumio_voxel_domain::publication::{PublicationAuthority, PublishedStateRoot};
 use lumio_voxel_domain::revision::{GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA};
+use lumio_voxel_domain::section::{DirtyFrontier, SectionDirectoryBuilder};
 use lumio_voxel_ops::async_support::OriginToken;
 use lumio_voxel_ops::mutation::ReceiptLedger;
 use lumio_voxel_ops::query::{QueryExecutor, QueryPlanner};
@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 const PIN_CAPACITY: usize = 16;
 const LEDGER_CAPACITY: usize = 16;
-const QUERY_CHUNK_CAPACITY: usize = 16;
+const QUERY_SECTION_CAPACITY: usize = 16;
 
 static NEXT_INSTANCE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -280,7 +280,7 @@ fn validate_capabilities(
 }
 
 fn bind_query_planner(snapshot: Arc<VoxelConfigSnapshot>) -> Result<QueryPlanner, WorldError> {
-    let planner = QueryPlanner::from_approved_snapshot(snapshot, QUERY_CHUNK_CAPACITY)
+    let planner = QueryPlanner::from_approved_snapshot(snapshot, QUERY_SECTION_CAPACITY)
         .map_err(|err| WorldError::mapped(err.error_id()))?;
     let _: QueryExecutor = QueryExecutor;
     Ok(planner)
@@ -297,9 +297,9 @@ fn initial_root(
         context_id: context_id.to_string(),
         generation,
         world_revision: 0,
-        chunk_revision_set: BTreeMap::new(),
+        section_revision_set: BTreeMap::new(),
     };
-    let directory = ChunkDirectoryBuilder::new().freeze();
+    let directory = SectionDirectoryBuilder::new().freeze();
     let dirty = DirtyFrontier::new(world_id, generation)
         .map_err(|err| WorldError::mapped(err.error_id()))?;
     Ok(PublishedStateRoot::new(stamp, directory, dirty))

@@ -2,7 +2,9 @@
 
 #![forbid(unsafe_code)]
 
-use super::{ChunkError, ChunkId};
+use super::SectionId;
+use crate::key::KeyRejection;
+use lumio_voxel_contracts::voxel_world as vw;
 use lumio_voxel_contracts::{SCHEMA_IDS, STABLE_ERROR_IDS};
 use std::collections::BTreeMap;
 
@@ -29,13 +31,13 @@ pub struct DurabilityAckContext {
     pub generation: u64,
 }
 
-/// Generated `coveredChunks[]` element.
+/// Generated `coveredSections[]` element.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CoveredChunkAck {
-    /// Schema field `chunkId`.
-    pub chunk_id: String,
-    /// Schema field `upToChunkRevision`.
-    pub up_to_chunk_revision: u64,
+pub struct CoveredSectionAck {
+    /// Schema field `sectionId`.
+    pub section_id: String,
+    /// Schema field `upToSectionRevision`.
+    pub up_to_section_revision: u64,
 }
 
 /// Evidence shape for schema `voxel-durability-ack`. Kind is `DurabilityAck`.
@@ -49,18 +51,18 @@ pub struct DurabilityAckEvidence {
     pub context: DurabilityAckContext,
     /// Schema field `coveredWorldRevision`.
     pub covered_world_revision: u64,
-    /// Schema field `coveredChunks`.
-    pub covered_chunks: Vec<CoveredChunkAck>,
+    /// Schema field `coveredSections`.
+    pub covered_sections: Vec<CoveredSectionAck>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirtyCoverage {
-    covered: BTreeMap<ChunkId, SchemaRevision>,
+    covered: BTreeMap<SectionId, SchemaRevision>,
 }
 
 impl DirtyCoverage {
-    pub fn contains(&self, chunk_id: &str) -> Result<bool, DirtyError> {
-        let id = parse_chunk(chunk_id)?;
+    pub fn contains(&self, section_id: &str) -> Result<bool, DirtyError> {
+        let id = parse_section(section_id)?;
         Ok(self.covered.contains_key(&id))
     }
 
@@ -75,10 +77,35 @@ impl DirtyCoverage {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DirtyError {
-    InvalidHandle { error_id: &'static str },
-    SessionMismatch { error_id: &'static str },
-    StaleEpoch { error_id: &'static str },
-    CoordinateOutOfBounds { error_id: &'static str },
+    /// 引擎通用:活契约不定义,沿用废弃镜像的稳定 id。
+    InvalidHandle {
+        error_id: &'static str,
+    },
+    /// 引擎通用。
+    SessionMismatch {
+        error_id: &'static str,
+    },
+    /// 引擎通用。
+    StaleEpoch {
+        error_id: &'static str,
+    },
+    UnknownSectionKey {
+        error_id: &'static str,
+    },
+    SectionYOutOfRange {
+        error_id: &'static str,
+    },
+    CoordinateOutOfBounds {
+        error_id: &'static str,
+    },
+    /// 回执覆盖上界不足以清除该 Section 的脏标记。
+    StaleSectionRevision {
+        error_id: &'static str,
+    },
+    /// 未被回执覆盖的脏 Section 被要求卸载。
+    DirtySectionNotDurable {
+        error_id: &'static str,
+    },
 }
 
 impl DirtyError {
@@ -87,7 +114,11 @@ impl DirtyError {
             Self::InvalidHandle { error_id }
             | Self::SessionMismatch { error_id }
             | Self::StaleEpoch { error_id }
-            | Self::CoordinateOutOfBounds { error_id } => error_id,
+            | Self::UnknownSectionKey { error_id }
+            | Self::SectionYOutOfRange { error_id }
+            | Self::CoordinateOutOfBounds { error_id }
+            | Self::StaleSectionRevision { error_id }
+            | Self::DirtySectionNotDurable { error_id } => error_id,
         }
     }
 
@@ -109,9 +140,35 @@ impl DirtyError {
         }
     }
 
+    fn unknown_section_key() -> Self {
+        Self::UnknownSectionKey {
+            error_id: contract(vw::UNKNOWN_SECTION_KEY),
+        }
+    }
+
+    fn section_y_out_of_range() -> Self {
+        Self::SectionYOutOfRange {
+            error_id: contract(vw::SECTION_Y_OUT_OF_RANGE),
+        }
+    }
+
     fn coordinate_out_of_bounds() -> Self {
         Self::CoordinateOutOfBounds {
-            error_id: stable("CoordinateOutOfBounds"),
+            error_id: contract(vw::COORDINATE_OUT_OF_BOUNDS),
+        }
+    }
+
+    /// 回执只清除 revision 不超过其声明上界的脏标记(契约 `residency.ack-covers-declared-bound`)。
+    pub fn stale_section_revision() -> Self {
+        Self::StaleSectionRevision {
+            error_id: contract(vw::STALE_SECTION_REVISION),
+        }
+    }
+
+    /// 未被回执覆盖的脏 Section 不得卸载(契约 `residency.dirty-needs-ack`)。
+    pub fn dirty_section_not_durable() -> Self {
+        Self::DirtySectionNotDurable {
+            error_id: contract(vw::DIRTY_SECTION_NOT_DURABLE),
         }
     }
 }
@@ -129,13 +186,18 @@ fn stable(id: &'static str) -> &'static str {
         .iter()
         .copied()
         .find(|candidate| *candidate == id)
-        .expect("mapped error id must exist in generated STABLE_ERROR_IDS")
+        .expect("mapped error id must exist in the frozen mirror's STABLE_ERROR_IDS")
 }
 
-fn parse_chunk(raw: &str) -> Result<ChunkId, DirtyError> {
-    ChunkId::parse(raw).map_err(|err| match err {
-        ChunkError::CoordinateOutOfBounds { .. } => DirtyError::coordinate_out_of_bounds(),
-        _ => DirtyError::invalid_handle(),
+fn contract(id: &'static str) -> &'static str {
+    vw::intern_error_code(id).expect("mapped error id must exist in the contract errorCodes")
+}
+
+fn parse_section(raw: &str) -> Result<SectionId, DirtyError> {
+    SectionId::parse(raw).map_err(|err| match err.rejection() {
+        KeyRejection::CoordinateOutOfBounds => DirtyError::coordinate_out_of_bounds(),
+        KeyRejection::SectionYOutOfRange => DirtyError::section_y_out_of_range(),
+        _ => DirtyError::unknown_section_key(),
     })
 }
 
@@ -151,7 +213,7 @@ fn ack_schema_id() -> &'static str {
 pub struct DirtyFrontier {
     world_id: String,
     generation: u64,
-    entries: BTreeMap<ChunkId, DirtyEntry>,
+    entries: BTreeMap<SectionId, DirtyEntry>,
 }
 
 impl DirtyFrontier {
@@ -169,11 +231,16 @@ impl DirtyFrontier {
     }
 
     /// Returns a new frontier. `self` is unchanged.
-    pub fn record(&self, chunk_id: &str, revision: u64, reason: &str) -> Result<Self, DirtyError> {
+    pub fn record(
+        &self,
+        section_id: &str,
+        revision: u64,
+        reason: &str,
+    ) -> Result<Self, DirtyError> {
         if reason.is_empty() {
             return Err(DirtyError::invalid_handle());
         }
-        let id = parse_chunk(chunk_id)?;
+        let id = parse_section(section_id)?;
         let rev = SchemaRevision(revision);
         let mut next = self.clone();
         match next.entries.get(&id) {
@@ -203,18 +270,18 @@ impl DirtyFrontier {
         Ok(next)
     }
 
-    pub fn first_revision(&self, chunk_id: &str) -> Result<Option<u64>, DirtyError> {
-        let id = parse_chunk(chunk_id)?;
+    pub fn first_revision(&self, section_id: &str) -> Result<Option<u64>, DirtyError> {
+        let id = parse_section(section_id)?;
         Ok(self.entries.get(&id).map(|e| e.first.0))
     }
 
-    pub fn latest_revision(&self, chunk_id: &str) -> Result<Option<u64>, DirtyError> {
-        let id = parse_chunk(chunk_id)?;
+    pub fn latest_revision(&self, section_id: &str) -> Result<Option<u64>, DirtyError> {
+        let id = parse_section(section_id)?;
         Ok(self.entries.get(&id).map(|e| e.latest.0))
     }
 
-    pub fn reason(&self, chunk_id: &str) -> Result<Option<&str>, DirtyError> {
-        let id = parse_chunk(chunk_id)?;
+    pub fn reason(&self, section_id: &str) -> Result<Option<&str>, DirtyError> {
+        let id = parse_section(section_id)?;
         Ok(self.entries.get(&id).map(|e| e.reason.as_str()))
     }
 
@@ -233,10 +300,10 @@ impl DirtyFrontier {
         let _cut = SchemaRevision(ack.covered_world_revision);
 
         let mut up_to = BTreeMap::new();
-        for chunk in &ack.covered_chunks {
-            let id = parse_chunk(&chunk.chunk_id)?;
+        for section in &ack.covered_sections {
+            let id = parse_section(&section.section_id)?;
             if up_to
-                .insert(id, SchemaRevision(chunk.up_to_chunk_revision))
+                .insert(id, SchemaRevision(section.up_to_section_revision))
                 .is_some()
             {
                 return Err(DirtyError::invalid_handle());

@@ -2,7 +2,7 @@
 
 #![forbid(unsafe_code)]
 
-use super::chunk_access::ChunkAccessResult;
+use super::section_access::SectionAccessResult;
 use lumio_voxel_contracts::Hash256;
 use lumio_voxel_domain::revision::GeneratedRevisionStamp;
 
@@ -10,7 +10,7 @@ use lumio_voxel_domain::revision::GeneratedRevisionStamp;
 pub struct QueryEvidence {
     read_stamp: GeneratedRevisionStamp,
     budget_used: usize,
-    missing_states: Vec<ChunkAccessResult>,
+    missing_states: Vec<SectionAccessResult>,
     plan_hash: Hash256,
 }
 
@@ -23,7 +23,7 @@ impl QueryEvidence {
         self.budget_used
     }
 
-    pub fn missing_states(&self) -> &[ChunkAccessResult] {
+    pub fn missing_states(&self) -> &[SectionAccessResult] {
         &self.missing_states
     }
 
@@ -34,12 +34,12 @@ impl QueryEvidence {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GeneratedVoxelQueryOutcome {
-    items: Vec<ChunkAccessResult>,
+    items: Vec<SectionAccessResult>,
     evidence: QueryEvidence,
 }
 
 impl GeneratedVoxelQueryOutcome {
-    pub fn items(&self) -> &[ChunkAccessResult] {
+    pub fn items(&self) -> &[SectionAccessResult] {
         &self.items
     }
 
@@ -49,7 +49,7 @@ impl GeneratedVoxelQueryOutcome {
 }
 
 pub(super) fn assemble(
-    items: Vec<ChunkAccessResult>,
+    items: Vec<SectionAccessResult>,
     read_stamp: GeneratedRevisionStamp,
     budget_used: usize,
     plan_hash: Hash256,

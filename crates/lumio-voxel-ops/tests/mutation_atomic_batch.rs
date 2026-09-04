@@ -1,9 +1,6 @@
 //! R-00104: a PreparedMutation batch is one visible cut, or no swap.
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, STABLE_ERROR_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDirectoryBuilder, ChunkDirectoryRoot, ChunkPage, ChunkPayload, ChunkSlot, DirtyFrontier,
-};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -13,6 +10,10 @@ use lumio_voxel_domain::publication::{
 };
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, RevisionAllocator, WorldRevision, to_generated_stamp,
+};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage, SectionPayload,
+    SectionSlot,
 };
 use lumio_voxel_ops::mutation::{LookupOutcome, MutationRequest, ReceiptLedger, commit, prepare};
 use std::collections::BTreeMap;
@@ -84,23 +85,23 @@ fn stamp_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    chunks: &[(&str, u64)],
+    sections: &[(&str, u64)],
 ) -> GeneratedRevisionStamp {
     let world = world_rev(world_rev_n);
     let mut pairs = Vec::new();
-    for (id, rev) in chunks {
-        let mut chunk_alloc = RevisionAllocator::new();
+    for (id, rev) in sections {
+        let mut section_alloc = RevisionAllocator::new();
         for _ in 0..*rev {
-            chunk_alloc.reserve_chunk().unwrap().abandon();
+            section_alloc.reserve_section().unwrap().abandon();
         }
-        let mut c = chunk_alloc.reserve_chunk().unwrap();
+        let mut c = section_alloc.reserve_section().unwrap();
         pairs.push((id.to_string(), c.finalize().unwrap()));
     }
     to_generated_stamp(world_id, context_id, generation, world, &pairs)
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -109,14 +110,14 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
     .expect("valid dense uncompressed page")
 }
 
-fn directory_two_ready() -> ChunkDirectoryRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
+fn directory_two_ready() -> SectionDirectoryRoot {
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", ChunkSlot::ready(payload(b"base-a")))
-        .expect("canonical chunk id");
+        .insert("s:0:0:0", SectionSlot::ready(payload(b"base-a")))
+        .expect("canonical section id");
     builder
-        .insert("c:4:0:0", ChunkSlot::ready(payload(b"base-b")))
-        .expect("canonical chunk id");
+        .insert("s:4:0:0", SectionSlot::ready(payload(b"base-b")))
+        .expect("canonical section id");
     builder.freeze()
 }
 
@@ -131,7 +132,7 @@ fn published_world(
         "ctx-1",
         generation,
         0,
-        &[("c:0:0:0", 0), ("c:4:0:0", 0)],
+        &[("s:0:0:0", 0), ("s:4:0:0", 0)],
     );
     let root = PublishedStateRoot::new(
         stamp,
@@ -166,8 +167,8 @@ fn request(
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -177,16 +178,16 @@ fn assert_consistent_cut(view: &PublishedReadView) {
     assert_eq!(view.dirty_frontier(), view.root().dirty_frontier());
 }
 
-fn presence(view: &PublishedReadView, chunk_id: &str) -> &'static str {
+fn presence(view: &PublishedReadView, section_id: &str) -> &'static str {
     view.directory()
-        .lookup(chunk_id)
+        .lookup(section_id)
         .expect("canonical id")
         .expect("slot present")
         .presence()
 }
 
 #[test]
-fn batch_chunks_visible_together_old_capture_unchanged() {
+fn batch_sections_visible_together_old_capture_unchanged() {
     let (auth, snap) = published_world("world-a", 1, "r00104-batch");
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
     let before = auth.capture();
@@ -196,7 +197,7 @@ fn batch_chunks_visible_together_old_capture_unchanged() {
         "world-a",
         1,
         0,
-        &[("c:0:0:0", "edit-a"), ("c:4:0:0", "edit-b")],
+        &[("s:0:0:0", "edit-a"), ("s:4:0:0", "edit-b")],
     );
 
     let prepared = prepare(&req, &before, &mut ledger).expect("prepare batch");
@@ -207,24 +208,24 @@ fn batch_chunks_visible_together_old_capture_unchanged() {
     assert_consistent_cut(&after);
     assert_eq!(before.root().identity(), hash_before);
     assert_ne!(after.root().identity(), hash_before);
-    assert_eq!(presence(&after, "c:0:0:0"), "Ready");
-    assert_eq!(presence(&after, "c:4:0:0"), "Ready");
+    assert_eq!(presence(&after, "s:0:0:0"), "Ready");
+    assert_eq!(presence(&after, "s:4:0:0"), "Ready");
     assert_ne!(
-        format!("{:?}", before.directory().lookup("c:0:0:0")),
-        format!("{:?}", after.directory().lookup("c:0:0:0"))
+        format!("{:?}", before.directory().lookup("s:0:0:0")),
+        format!("{:?}", after.directory().lookup("s:0:0:0"))
     );
     assert_ne!(
-        format!("{:?}", before.directory().lookup("c:4:0:0")),
-        format!("{:?}", after.directory().lookup("c:4:0:0"))
+        format!("{:?}", before.directory().lookup("s:4:0:0")),
+        format!("{:?}", after.directory().lookup("s:4:0:0"))
     );
     assert_eq!(after.stamp().world_revision, 1);
     assert_eq!(before.stamp().world_revision, 0);
     assert_eq!(
-        after.dirty_frontier().reason("c:0:0:0").unwrap(),
+        after.dirty_frontier().reason("s:0:0:0").unwrap(),
         Some("mutation")
     );
     assert_eq!(
-        after.dirty_frontier().reason("c:4:0:0").unwrap(),
+        after.dirty_frontier().reason("s:4:0:0").unwrap(),
         Some("mutation")
     );
 }
@@ -241,7 +242,7 @@ fn failure_before_swap_leaves_ledger_dirty_and_root_unchanged() {
         "world-a",
         1,
         0,
-        &[("c:0:0:0", "edit-a"), ("c:4:0:0", "edit-b")],
+        &[("s:0:0:0", "edit-a"), ("s:4:0:0", "edit-b")],
     );
     let prepared_world = prepare(&req, &view_a, &mut ledger).expect("prepare against world-a");
 
@@ -270,7 +271,7 @@ fn failure_before_swap_leaves_ledger_dirty_and_root_unchanged() {
         "world-a",
         1,
         0,
-        &[("c:0:0:0", "edit-a"), ("c:4:0:0", "edit-b")],
+        &[("s:0:0:0", "edit-a"), ("s:4:0:0", "edit-b")],
     );
     let prepared = prepare(&req_stale, &view_gen1, &mut ledger_gen1).expect("prepare gen 1");
     let err = commit(prepared, &auth_stale, &mut ledger_gen1).unwrap_err();

@@ -1,6 +1,6 @@
 //! R-00066: immutable VoxelConfigSnapshot and CapabilityView.
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     CapabilityView, DecisionEvidence, GateSourceHashes, GeneratedHostCapability,
     GeneratedVoxelConfig, P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -108,8 +108,8 @@ fn p0_start_config(hash_label: &str, digests: BTreeMap<String, String>) -> Gener
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -227,7 +227,7 @@ fn snapshot_is_immutable_and_distinct_hashes_are_independent() {
         !src.contains("fn set_"),
         "VoxelConfigSnapshot must not expose setters"
     );
-    for needle in ["chunk_size", "page_size", "batch_limit", "lease_ms"] {
+    for needle in ["section_size", "page_size", "batch_limit", "lease_ms"] {
         assert!(
             !src.contains(needle),
             "must not invent VOX-D numeric default field {needle}"

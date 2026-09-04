@@ -1,14 +1,16 @@
-//! R-00143: B0 matrix against shipped Artifact / Revision / Chunk / Publication / Port APIs.
+//! R-00143: B0 matrix against shipped Artifact / Revision / Section / Publication / Port APIs.
 
+use lumio_voxel_contracts::voxel_world as vw;
+use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
 use lumio_voxel_contracts::{
-    BASELINE_ID, BINDINGS, CHUNK_PRESENCE, SCHEMA_IDS, STABLE_ERROR_IDS, verify_artifact_hashes,
+    BASELINE_ID, BINDINGS, SCHEMA_IDS, STABLE_ERROR_IDS, is_stable_error_id, verify_artifact_hashes,
 };
-use lumio_voxel_domain::chunk::ChunkSlot;
 use lumio_voxel_domain::revision::RevisionAllocator;
+use lumio_voxel_domain::section::SectionSlot;
 use lumio_voxel_test_support::b0_harness::{
-    MATRIX_ROWS, case_artifact_hash_lock, case_chunk_four_state, case_deterministic_executor,
-    case_dirty_frontier_pure, case_dual_voxel_world, case_pin_reclaim, case_port_schema_intern,
-    case_publication_old_or_new, case_revision_monotonic, case_seven_crate_dag, run_b0_matrix,
+    MATRIX_ROWS, case_artifact_hash_lock, case_deterministic_executor, case_dirty_frontier_pure,
+    case_dual_voxel_world, case_pin_reclaim, case_port_schema_intern, case_publication_old_or_new,
+    case_revision_monotonic, case_section_four_state, case_seven_crate_dag, run_b0_matrix,
 };
 use lumio_voxel_test_support::crate_dag::{self, SEVEN_CRATES};
 use lumio_voxel_test_support::deterministic_executor::{DeterministicExecutor, Schedule};
@@ -77,26 +79,26 @@ fn revision_allocator_is_monotonic_with_abandon_hole() {
 }
 
 #[test]
-fn chunk_presence_is_interned_and_illegal_convert_fails() {
+fn section_presence_is_interned_and_illegal_convert_fails() {
     assert_eq!(
-        CHUNK_PRESENCE,
-        &["Ready", "NotLoaded", "Pending", "Unavailable"]
+        SECTION_PRESENCE,
+        &["Ready", "Unchanged", "Pending", "Unavailable"]
     );
-    let slot = ChunkSlot::unavailable();
+    let slot = SectionSlot::unavailable();
     let before = slot.clone();
     let err = slot
         .try_convert("Ready", None)
         .expect_err("illegal convert");
-    assert_eq!(err.error_id(), "ChunkUnavailable");
-    assert!(STABLE_ERROR_IDS.contains(&err.error_id()));
+    assert_eq!(err.error_id(), vw::SECTION_UNAVAILABLE);
+    assert!(is_stable_error_id(err.error_id()));
     assert_eq!(slot, before);
     let interned = slot.presence();
     assert!(
-        CHUNK_PRESENCE
+        SECTION_PRESENCE
             .iter()
             .any(|item| std::ptr::eq(*item, interned))
     );
-    assert_case_ok(case_chunk_four_state());
+    assert_case_ok(case_section_four_state());
 }
 
 #[test]

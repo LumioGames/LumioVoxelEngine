@@ -9,13 +9,16 @@ use super::preconditions::MutationError;
 use super::prepared_token::PreparedMutation;
 use super::receipt_ledger::{LookupOutcome, ReceiptLedger};
 use crate::canonical::CanonicalObject;
-use lumio_voxel_contracts::{CHUNK_PRESENCE, SCHEMA_IDS, sha256};
-use lumio_voxel_domain::chunk::{ChunkDirectoryBuilder, ChunkDirectoryRoot, ChunkReplacement};
+use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
+use lumio_voxel_contracts::{SCHEMA_IDS, sha256};
 use lumio_voxel_domain::publication::{
     PublicationAuthority, PublishedReadView, PublishedStateRoot,
 };
 use lumio_voxel_domain::revision::{
-    ChunkRevision, GeneratedRevisionStamp, RevisionAllocator, WorldRevision, to_generated_stamp,
+    GeneratedRevisionStamp, RevisionAllocator, SectionRevision, WorldRevision, to_generated_stamp,
+};
+use lumio_voxel_domain::section::{
+    SectionDirectoryBuilder, SectionDirectoryRoot, SectionError, SectionReplacement,
 };
 use std::collections::BTreeSet;
 
@@ -58,7 +61,7 @@ pub fn commit(
 
     let plan = MutationPlanner::build(prepared.request())?;
     let replacement = prepared.replacement().clone();
-    let overlay_ids = overlay_ids(view.stamp().chunk_revision_set.keys(), plan.chunk_ids());
+    let overlay_ids = overlay_ids(view.stamp().section_revision_set.keys(), plan.section_ids());
     let new_dir = overlay_directory(&view, &replacement, &overlay_ids)?;
     let new_stamp = build_stamp(&prepared, &view, &replacement, &overlay_ids)?;
     let new_root = PublishedStateRoot::new(new_stamp, new_dir, prepared.dirty().clone());
@@ -159,22 +162,22 @@ fn overlay_ids<'a>(
 
 fn overlay_directory(
     view: &PublishedReadView,
-    replacement: &ChunkReplacement,
+    replacement: &SectionReplacement,
     overlay_ids: &BTreeSet<String>,
-) -> Result<ChunkDirectoryRoot, MutationError> {
-    let mut builder = ChunkDirectoryBuilder::new();
+) -> Result<SectionDirectoryRoot, MutationError> {
+    let mut builder = SectionDirectoryBuilder::new();
     for id in overlay_ids {
         let slot = match replacement
             .set()
             .get(id)
-            .map_err(MutationError::from_chunk)?
+            .map_err(MutationError::from_section)?
             .cloned()
         {
             Some(slot) => slot,
             None => match view
                 .directory()
                 .lookup(id)
-                .map_err(MutationError::from_chunk)?
+                .map_err(MutationError::from_section)?
                 .cloned()
             {
                 Some(slot) => slot,
@@ -183,7 +186,7 @@ fn overlay_directory(
         };
         builder
             .insert(id, slot)
-            .map_err(MutationError::from_chunk)?;
+            .map_err(MutationError::from_section)?;
     }
     Ok(builder.freeze())
 }
@@ -191,21 +194,21 @@ fn overlay_directory(
 fn build_stamp(
     prepared: &PreparedMutation,
     view: &PublishedReadView,
-    replacement: &ChunkReplacement,
+    replacement: &SectionReplacement,
     overlay_ids: &BTreeSet<String>,
 ) -> Result<GeneratedRevisionStamp, MutationError> {
     let stamp = view.stamp();
     let mut pairs = Vec::new();
     for id in overlay_ids {
         let old = stamp
-            .chunk_revision_set
+            .section_revision_set
             .get(id)
             .copied()
             .unwrap_or(stamp.world_revision);
         let replaced = replacement
             .set()
             .get(id)
-            .map_err(MutationError::from_chunk)?
+            .map_err(MutationError::from_section)?
             .is_some();
         let rev_n = if replaced {
             old.checked_add(1)
@@ -213,7 +216,7 @@ fn build_stamp(
         } else {
             old
         };
-        pairs.push((id.clone(), chunk_revision(rev_n)?));
+        pairs.push((id.clone(), section_revision(rev_n)?));
     }
     Ok(to_generated_stamp(
         stamp.world_id.clone(),
@@ -239,16 +242,16 @@ fn world_revision(n: u64) -> Result<WorldRevision, MutationError> {
         .map_err(|_| MutationError::invalid_handle())
 }
 
-fn chunk_revision(n: u64) -> Result<ChunkRevision, MutationError> {
+fn section_revision(n: u64) -> Result<SectionRevision, MutationError> {
     let mut alloc = RevisionAllocator::new();
     for _ in 0..n {
         alloc
-            .reserve_chunk()
+            .reserve_section()
             .map_err(|_| MutationError::invalid_handle())?
             .abandon();
     }
     alloc
-        .reserve_chunk()
+        .reserve_section()
         .map_err(|_| MutationError::invalid_handle())?
         .finalize()
         .map_err(|_| MutationError::invalid_handle())
@@ -299,22 +302,23 @@ fn recheck_presence(
     if plan.expected_world_revision() != stamp.world_revision {
         return Err(MutationError::revision_conflict());
     }
-    for chunk_id in plan.chunk_ids() {
-        match view.directory().lookup(chunk_id) {
+    for section_id in plan.section_ids() {
+        match view.directory().lookup(section_id) {
             Ok(Some(slot)) => match slot.presence() {
                 "Ready" => {}
-                "NotLoaded" | "Pending" | "Unavailable" => {
-                    debug_assert!(CHUNK_PRESENCE.contains(&slot.presence()));
-                    return Err(MutationError::chunk_unavailable());
+                "Unchanged" | "Pending" | "Unavailable" => {
+                    debug_assert!(SECTION_PRESENCE.contains(&slot.presence()));
+                    return Err(MutationError::section_unavailable());
                 }
                 other => {
-                    let _ = CHUNK_PRESENCE.contains(&other);
+                    let _ = SECTION_PRESENCE.contains(&other);
                     return Err(MutationError::invalid_handle());
                 }
             },
-            Ok(None) => return Err(MutationError::chunk_unavailable()),
-            Err(err) if err.error_id() == "CoordinateOutOfBounds" => continue,
-            Err(err) => return Err(MutationError::from_chunk(err)),
+            Ok(None) => return Err(MutationError::section_unavailable()),
+            // 占位/单元格 key 不是 Section 键,跳过;它们在私有 stage 路径上失败。
+            Err(SectionError::Key(_)) => continue,
+            Err(err) => return Err(MutationError::from_section(err)),
         }
     }
     Ok(())

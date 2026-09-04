@@ -7,7 +7,7 @@
 //! decoder cannot come back unnoticed.
 //!
 //! Run: `cargo run --release -p lumio-voxel-test-support --example bench-canonical-decode`
-//! Optional args: chunk counts, e.g. `... -- 1000 4000 16000`.
+//! Optional args: section counts, e.g. `... -- 1000 4000 16000`.
 
 use lumio_voxel_ops::canonical::{CanonicalObject, CanonicalValue};
 use lumio_voxel_ops::snapshot::decode_canonical_object;
@@ -15,8 +15,8 @@ use std::env;
 use std::time::Instant;
 
 /// The snapshot manifest shape `ManifestAdapter::object` builds: the fixed header
-/// members plus one `chunkRevision.<id>` per chunk.
-fn manifest(chunks: usize) -> CanonicalObject {
+/// members plus one `sectionRevision.<id>` per section.
+fn manifest(sections: usize) -> CanonicalObject {
     let mut object = CanonicalObject::new();
     let members: Vec<(String, CanonicalValue)> = vec![
         (
@@ -39,10 +39,13 @@ fn manifest(chunks: usize) -> CanonicalObject {
     for (key, value) in members {
         object.insert(key, value).expect("distinct header members");
     }
-    for i in 0..chunks {
+    for i in 0..sections {
         object
-            .insert(format!("chunkRevision.c:{i}:0:0"), CanonicalValue::Uint(1))
-            .expect("distinct chunk members");
+            .insert(
+                format!("sectionRevision.c:{i}:0:0"),
+                CanonicalValue::Uint(1),
+            )
+            .expect("distinct section members");
     }
     object
 }
@@ -68,21 +71,21 @@ fn main() {
         vec![1_000, 4_000, 16_000]
     } else {
         args.iter()
-            .map(|a| a.parse().expect("chunk count must be a number"))
+            .map(|a| a.parse().expect("section count must be a number"))
             .collect()
     };
 
     println!(
         "{:>8}  {:>12}  {:>14}  {:>8}",
-        "chunks", "bytes", "decode µs", "µs/KB"
+        "sections", "bytes", "decode µs", "µs/KB"
     );
     let mut first: Option<(f64, f64)> = None;
-    for chunks in counts {
-        let bytes = manifest(chunks).encode_bytes();
+    for sections in counts {
+        let bytes = manifest(sections).encode_bytes();
         let micros = best_micros(&bytes, 3);
         let kb = bytes.len() as f64 / 1024.0;
         println!(
-            "{chunks:>8}  {:>12}  {micros:>14}  {:>8.1}",
+            "{sections:>8}  {:>12}  {micros:>14}  {:>8.1}",
             bytes.len(),
             micros as f64 / kb
         );

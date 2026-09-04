@@ -3,7 +3,7 @@
 //! This is deliberately **not** an implementation of the published `CanonicalJsonV1`
 //! form and must not be described as one. That form's member-name grammar
 //! (`^[A-Za-z][A-Za-z0-9]*$`) excludes every name used here — `txn_id`, `c:0:0:0`,
-//! `chunkRevision.c:0:0:0`. What this module guarantees is narrower and local:
+//! `sectionRevision.c:0:0:0`. What this module guarantees is narrower and local:
 //! distinct member sets encode to distinct bytes.
 //!
 //! Injectivity does not rest on callers passing well-formed pieces. A caller hands

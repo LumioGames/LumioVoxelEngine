@@ -1,15 +1,17 @@
+use lumio_voxel_contracts::legacy_baseline;
+use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
 use lumio_voxel_contracts::{
-    ACTIVE_PERMISSION_FIELDS, BINDINGS, BoundedBuffer, CHUNK_PRESENCE, Hash256, MAPPING_ROLES,
-    SCHEMA_IDS, SNAPSHOT_MAGIC, STABLE_ERROR_IDS, VOXEL_WORLD_ROLES, checksum_domain_doc,
-    hash_chain_append, hash_chain_verify, is_active_field, machine_ids, sha256,
-    state_transition_table,
+    ACTIVE_PERMISSION_FIELDS, BINDINGS, BoundedBuffer, Hash256, MAPPING_ROLES, SCHEMA_IDS,
+    SNAPSHOT_MAGIC, STABLE_ERROR_IDS, VOXEL_WORLD_ROLES, checksum_domain_doc, hash_chain_append,
+    hash_chain_verify, is_active_field, machine_ids, sha256, state_transition_table,
 };
 
 #[test]
 fn voxel_schema_ids_come_from_generated_artifact() {
     for id in [
         "voxel-world-port",
-        "voxel-chunk-page",
+        // 死基线把 Section 叫 chunk;这个 id 是冻结产物的拼写,不是分层语义。
+        legacy_baseline::SECTION_PAGE_SCHEMA_ID,
         "voxel-revision-stamp",
         "voxel-query",
         "voxel-mutation-receipt",
@@ -28,7 +30,7 @@ fn twelve_state_machines_include_voxel() {
     let machines: Vec<_> = machine_ids().collect();
     assert_eq!(machines.len(), 12, "{machines:?}");
     assert!(machines.contains(&"VoxelSnapshotCapture"));
-    assert!(machines.contains(&"VoxelChunkResidency"));
+    assert!(machines.contains(&legacy_baseline::SECTION_RESIDENCY_MACHINE_ID));
 }
 
 #[test]
@@ -60,8 +62,8 @@ fn canonical_and_runtime_come_from_generated_artifacts() {
     assert!(checksum_domain_doc().contains("canonical JSON"));
     assert_eq!(VOXEL_WORLD_ROLES, &["Authority", "Replica"]);
     assert_eq!(
-        CHUNK_PRESENCE,
-        &["Ready", "NotLoaded", "Pending", "Unavailable"]
+        SECTION_PRESENCE,
+        &["Ready", "Unchanged", "Pending", "Unavailable"]
     );
     assert!(MAPPING_ROLES.contains(&"ServerToClient"));
     assert!(ACTIVE_PERMISSION_FIELDS.contains(&"verdict"));
@@ -83,7 +85,7 @@ fn canonical_and_runtime_come_from_generated_artifacts() {
 fn no_handwritten_schema_dto_in_contracts_lib() {
     let src = include_str!("../src/lib.rs");
     for needle in [
-        "struct Chunk ",
+        "struct Section ",
         "struct World ",
         "enum ErrorCode",
         "struct SnapshotHeader",

@@ -1,9 +1,7 @@
 //! R-00080: deterministic query planner and adapter-internal budget admission.
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkPage, ChunkPayload, ChunkSlot, DirtyFrontier,
-};
+use lumio_voxel_contracts::voxel_world as vw;
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -13,6 +11,10 @@ use lumio_voxel_domain::publication::{
 };
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
+};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionPage, SectionPayload,
+    SectionSlot,
 };
 use lumio_voxel_ops::query::{GeneratedVoxelQueryRequest, QUERY_SCHEMA, QueryPlanner};
 use std::collections::BTreeMap;
@@ -94,12 +96,12 @@ fn stamp(
         context_id: context.to_string(),
         generation,
         world_revision,
-        chunk_revision_set: BTreeMap::new(),
+        section_revision_set: BTreeMap::new(),
     }
 }
 
-fn dummy_payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn dummy_payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -115,10 +117,13 @@ fn dummy_root(
     world_revision: u64,
     with_payload: bool,
 ) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
+    let mut builder = SectionDirectoryBuilder::new();
     if with_payload {
         builder
-            .insert("c:0:0:0", ChunkSlot::ready(dummy_payload(b"must-not-read")))
+            .insert(
+                "s:0:0:0",
+                SectionSlot::ready(dummy_payload(b"must-not-read")),
+            )
             .expect("canonical dummy id");
     }
     PublishedStateRoot::new(
@@ -145,20 +150,20 @@ fn authority(
         .expect("initial root matches authority")
 }
 
-fn request(chunks: &[&str], cancel: bool) -> GeneratedVoxelQueryRequest {
+fn request(sections: &[&str], cancel: bool) -> GeneratedVoxelQueryRequest {
     GeneratedVoxelQueryRequest {
         query_id: "q-1".to_string(),
         world_id: "world-a".to_string(),
         context: "ctx-1".to_string(),
-        chunk_ids: chunks.iter().map(|c| (*c).to_string()).collect(),
+        section_ids: sections.iter().map(|c| (*c).to_string()).collect(),
         cancel,
     }
 }
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -184,14 +189,14 @@ fn permutation_independent_plan_hash_and_captured_identities() {
 
     let a = planner
         .plan(
-            &request(&["c:1:0:0", "c:0:0:0", "c:-1:0:0"], false),
+            &request(&["s:1:0:0", "s:0:0:0", "s:-1:0:0"], false),
             &view,
             snap.as_ref(),
         )
         .expect("plan a");
     let b = planner
         .plan(
-            &request(&["c:-1:0:0", "c:1:0:0", "c:0:0:0"], false),
+            &request(&["s:-1:0:0", "s:1:0:0", "s:0:0:0"], false),
             &view,
             snap.as_ref(),
         )
@@ -203,20 +208,20 @@ fn permutation_independent_plan_hash_and_captured_identities() {
     assert_eq!(a.config_hash(), b.config_hash());
     assert_eq!(a.config_hash(), snap.config_hash());
     assert_eq!(
-        a.canonical_chunks(),
+        a.canonical_sections(),
         &[
-            "c:-1:0:0".to_string(),
-            "c:0:0:0".to_string(),
-            "c:1:0:0".to_string()
+            "s:-1:0:0".to_string(),
+            "s:0:0:0".to_string(),
+            "s:1:0:0".to_string()
         ]
     );
-    assert_eq!(a.canonical_chunks(), b.canonical_chunks());
+    assert_eq!(a.canonical_sections(), b.canonical_sections());
     assert_eq!(a.budget(), 8);
     assert_eq!(a.cancel_token(), "q-1");
 }
 
 #[test]
-fn over_max_chunks_is_budget_exceeded_without_touching_dummy_root() {
+fn over_max_sections_is_budget_exceeded_without_touching_dummy_root() {
     let snap = approved_snapshot("r00080-budget", &["Native", "ReferenceVoxel"]);
     let planner = QueryPlanner::from_approved_snapshot(snap.clone(), 1).expect("planner");
     let auth = authority(
@@ -233,11 +238,11 @@ fn over_max_chunks_is_budget_exceeded_without_touching_dummy_root() {
 
     let err = planner
         .plan(
-            &request(&["c:0:0:0", "c:1:0:0"], false),
+            &request(&["s:0:0:0", "s:1:0:0"], false),
             &view,
             snap.as_ref(),
         )
-        .expect_err("over max_chunks");
+        .expect_err("over max_sections");
     assert_eq!(err.error_id(), "BudgetExceeded");
     assert_stable_error(err.error_id());
 
@@ -260,7 +265,7 @@ fn plan_binds_stamp_identity_independent_of_later_root() {
     let auth = authority("r00080-bind-view", "world-a", "ctx-1", 1, initial);
     let view = auth.capture();
     let plan = planner
-        .plan(&request(&["c:0:0:0"], false), &view, snap_a.as_ref())
+        .plan(&request(&["s:0:0:0"], false), &view, snap_a.as_ref())
         .expect("first plan");
     let captured = plan.read_stamp().clone();
     let captured_hash = plan.config_hash().to_string();
@@ -273,7 +278,7 @@ fn plan_binds_stamp_identity_independent_of_later_root() {
         .prepare(
             world_rev(1),
             later,
-            ChunkDeltaBuilder::new(view.directory())
+            SectionDeltaBuilder::new(view.directory())
                 .freeze()
                 .expect("empty replacement"),
         )
@@ -288,7 +293,7 @@ fn plan_binds_stamp_identity_independent_of_later_root() {
     assert_eq!(plan.plan_hash(), captured_plan_hash);
 
     let later_plan = planner
-        .plan(&request(&["c:0:0:0"], false), &published, snap_b.as_ref())
+        .plan(&request(&["s:0:0:0"], false), &published, snap_b.as_ref())
         .expect("later plan uses new stamp/config");
     assert_ne!(later_plan.read_stamp(), plan.read_stamp());
     assert_ne!(later_plan.config_hash(), plan.config_hash());
@@ -335,7 +340,7 @@ fn cancel_before_plan_is_generated_error_without_io() {
     let view = auth.capture();
     let stamp_before = stamp_debug_hash(&view);
     let err = planner
-        .plan(&request(&["c:0:0:0"], true), &view, snap.as_ref())
+        .plan(&request(&["s:0:0:0"], true), &view, snap.as_ref())
         .expect_err("cancel-before-plan");
     assert_eq!(err.error_id(), "InvalidHandle");
     assert_stable_error(err.error_id());
@@ -343,7 +348,7 @@ fn cancel_before_plan_is_generated_error_without_io() {
 }
 
 #[test]
-fn illegal_chunk_id_is_coordinate_out_of_bounds() {
+fn illegal_section_id_is_coordinate_out_of_bounds() {
     let snap = approved_snapshot("r00080-coord", &["Native", "ReferenceVoxel"]);
     let planner = QueryPlanner::from_approved_snapshot(snap.clone(), 8).expect("planner");
     let auth = authority(
@@ -356,19 +361,31 @@ fn illegal_chunk_id_is_coordinate_out_of_bounds() {
     let view = auth.capture();
     for bad in [
         "0:0:0",
-        "c:0:0",
-        "c:0:0:0:1",
-        "c:01:0:0",
-        "c:+1:0:0",
-        "c:-0:0:0",
-        "c:x:y:z",
+        "s:0:0",
+        "s:0:0:0:1",
+        "s:01:0:0",
+        "s:+1:0:0",
+        "s:-0:0:0",
+        "s:x:y:z",
         "C:0:0:0",
         "",
     ] {
         let err = planner
             .plan(&request(&[bad], false), &view, snap.as_ref())
             .expect_err(bad);
-        assert_eq!(err.error_id(), "CoordinateOutOfBounds", "id {bad}");
+        assert_eq!(err.error_id(), vw::UNKNOWN_SECTION_KEY, "id {bad}");
+        assert_stable_error(err.error_id());
+    }
+    // 旧式三坐标 c: 键与越界坐标各有各的契约错误码。
+    for (bad, expected) in [
+        ("c:0:0:0", vw::UNKNOWN_SECTION_KEY),
+        ("s:2147483648:0:0", vw::COORDINATE_OUT_OF_BOUNDS),
+        ("s:0:16:0", vw::SECTION_Y_OUT_OF_RANGE),
+    ] {
+        let err = planner
+            .plan(&request(&[bad], false), &view, snap.as_ref())
+            .expect_err(bad);
+        assert_eq!(err.error_id(), expected, "id {bad}");
         assert_stable_error(err.error_id());
     }
 }
@@ -386,7 +403,7 @@ fn disabled_capability_is_claim_not_granted() {
     );
     let view = auth.capture();
     let err = planner
-        .plan(&request(&["c:0:0:0"], false), &view, snap.as_ref())
+        .plan(&request(&["s:0:0:0"], false), &view, snap.as_ref())
         .expect_err("disabled capability");
     assert_eq!(err.error_id(), "ClaimNotGranted");
     assert_stable_error(err.error_id());

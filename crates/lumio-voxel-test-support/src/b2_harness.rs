@@ -4,14 +4,8 @@
 
 use crate::fault_injection::{FaultInjector, FaultPoint};
 use crate::workspace_root_from_manifest;
-use lumio_voxel_contracts::{
-    BASELINE_ID, CHUNK_PRESENCE, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256,
-};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkDirectoryRoot, ChunkPage, ChunkPayload,
-    ChunkReplacement, ChunkSlot, CoveredChunkAck, DirtyFrontier, DurabilityAckContext,
-    DurabilityAckEvidence,
-};
+use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -22,6 +16,11 @@ use lumio_voxel_domain::publication::{
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
     to_generated_stamp,
+};
+use lumio_voxel_domain::section::{
+    CoveredSectionAck, DirtyFrontier, DurabilityAckContext, DurabilityAckEvidence,
+    SectionDeltaBuilder, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage,
+    SectionPayload, SectionReplacement, SectionSlot,
 };
 use lumio_voxel_ops::SNAPSHOT_FEATURE;
 use lumio_voxel_ops::async_support::{OriginEnvelope, OriginToken};
@@ -101,7 +100,7 @@ pub fn case_query_single_cut_plan_hash() -> B2CaseResult {
 pub fn case_query_four_state() -> B2CaseResult {
     wrap(
         "2",
-        "query four-state / NotLoaded mapping",
+        "query four-state / Unchanged mapping",
         query_four_state,
     )
 }
@@ -215,14 +214,14 @@ fn query_single_cut_plan_hash() -> Result<String, String> {
     let hash0 = view_a.root().identity();
     let plan_a = planner
         .plan(
-            &query_request(&["c:1:0:0", "c:0:0:0", "c:-1:0:0"], false),
+            &query_request(&["s:1:0:0", "s:0:0:0", "s:-1:0:0"], false),
             &view_a,
             snap.as_ref(),
         )
         .map_err(|err| format!("plan a: {}", err.error_id()))?;
     let plan_b = planner
         .plan(
-            &query_request(&["c:-1:0:0", "c:1:0:0", "c:0:0:0"], false),
+            &query_request(&["s:-1:0:0", "s:1:0:0", "s:0:0:0"], false),
             &view_a,
             snap.as_ref(),
         )
@@ -233,14 +232,14 @@ fn query_single_cut_plan_hash() -> Result<String, String> {
     if plan_a.read_stamp() != view_a.stamp() || plan_a.read_stamp() != plan_b.read_stamp() {
         return Err("plan did not bind the captured stamp".into());
     }
-    if plan_a.canonical_chunks()
+    if plan_a.canonical_sections()
         != [
-            "c:-1:0:0".to_string(),
-            "c:0:0:0".to_string(),
-            "c:1:0:0".to_string(),
+            "s:-1:0:0".to_string(),
+            "s:0:0:0".to_string(),
+            "s:1:0:0".to_string(),
         ]
     {
-        return Err(format!("canonical order {:?}", plan_a.canonical_chunks()));
+        return Err(format!("canonical order {:?}", plan_a.canonical_sections()));
     }
 
     let outcome = QueryExecutor::execute(&plan_a, &view_a)
@@ -280,8 +279,8 @@ fn query_single_cut_plan_hash() -> Result<String, String> {
 }
 
 fn query_four_state() -> Result<String, String> {
-    if CHUNK_PRESENCE != ["Ready", "NotLoaded", "Pending", "Unavailable"] {
-        return Err(format!("CHUNK_PRESENCE {CHUNK_PRESENCE:?}"));
+    if SECTION_PRESENCE != ["Ready", "Unchanged", "Pending", "Unavailable"] {
+        return Err(format!("SECTION_PRESENCE {SECTION_PRESENCE:?}"));
     }
     let snap = approved_snapshot("b2-query-four");
     let planner = QueryPlanner::from_approved_snapshot(Arc::clone(&snap), 8)
@@ -298,7 +297,7 @@ fn query_four_state() -> Result<String, String> {
     let plan = planner
         .plan(
             &query_request(
-                &["c:4:0:0", "c:3:0:0", "c:2:0:0", "c:1:0:0", "c:0:0:0"],
+                &["s:4:0:0", "s:3:0:0", "s:2:0:0", "s:1:0:0", "s:0:0:0"],
                 false,
             ),
             &view,
@@ -308,26 +307,26 @@ fn query_four_state() -> Result<String, String> {
     let outcome = QueryExecutor::execute(&plan, &view)
         .map_err(|err| format!("execute four-state: {}", err.error_id()))?;
     let expected = [
-        ("c:0:0:0", "Ready", true),
-        ("c:1:0:0", "NotLoaded", false),
-        ("c:2:0:0", "Pending", false),
-        ("c:3:0:0", "Unavailable", false),
-        ("c:4:0:0", "NotLoaded", false),
+        ("s:0:0:0", "Ready", true),
+        ("s:1:0:0", "Unchanged", false),
+        ("s:2:0:0", "Pending", false),
+        ("s:3:0:0", "Unavailable", false),
+        ("s:4:0:0", "Unchanged", false),
     ];
     if outcome.items().len() != expected.len() {
         return Err(format!("item count {}", outcome.items().len()));
     }
     for (item, (id, presence, ready)) in outcome.items().iter().zip(expected) {
         intern_presence(item.presence())?;
-        if item.chunk_id() != id || item.presence() != presence {
+        if item.section_id() != id || item.presence() != presence {
             return Err(format!(
                 "{} mapped to {} not {presence}",
-                item.chunk_id(),
+                item.section_id(),
                 item.presence()
             ));
         }
         if (item.presence() == "Ready") != ready {
-            return Err(format!("{} ready flag", item.chunk_id()));
+            return Err(format!("{} ready flag", item.section_id()));
         }
         if ready {
             let schema = item
@@ -335,20 +334,20 @@ fn query_four_state() -> Result<String, String> {
                 .ok_or_else(|| "Ready missing schema_id".to_string())?;
             require_schema(schema)?;
         } else if item.schema_id().is_some() {
-            return Err(format!("{} leaked schema_id", item.chunk_id()));
+            return Err(format!("{} leaked schema_id", item.section_id()));
         }
     }
     let missing = outcome.evidence().missing_states();
     if missing.len() != 4
-        || missing[3].chunk_id() != "c:4:0:0"
-        || missing[3].presence() != "NotLoaded"
+        || missing[3].section_id() != "s:4:0:0"
+        || missing[3].presence() != "Unchanged"
     {
-        return Err("absent directory id is not NotLoaded".into());
+        return Err("absent directory id is not Unchanged".into());
     }
     if view.root().identity() != hash0 {
         return Err("four-state execute mutated the root identity".into());
     }
-    Ok("Ready/NotLoaded/Pending/Unavailable + absent NotLoaded; identity unchanged".into())
+    Ok("Ready/Unchanged/Pending/Unavailable + absent Unchanged; identity unchanged".into())
 }
 
 fn query_cancel_budget() -> Result<String, String> {
@@ -367,7 +366,7 @@ fn query_cancel_budget() -> Result<String, String> {
     let hash0 = view.root().identity();
     let plan = planner
         .plan(
-            &query_request(&["c:0:0:0", "c:1:0:0"], false),
+            &query_request(&["s:0:0:0", "s:1:0:0"], false),
             &view,
             snap.as_ref(),
         )
@@ -404,7 +403,7 @@ fn prepare_wrong_world() -> Result<String, String> {
     let view = auth.capture();
     let hash0 = view.root().identity();
     let dirty0 = view.dirty_frontier().clone();
-    let req = mutation_request("txn-1", "world-b", 1, 0, &[("c:0:0:0", "edit")]);
+    let req = mutation_request("txn-1", "world-b", 1, 0, &[("s:0:0:0", "edit")]);
     let err = prepare(&req, &view, &mut ledger)
         .err()
         .ok_or_else(|| "wrong-world prepare succeeded".to_string())?;
@@ -433,7 +432,7 @@ fn prepare_does_not_publish() -> Result<String, String> {
     let view = auth.capture();
     let hash0 = view.root().identity();
     let dirty0 = view.dirty_frontier().clone();
-    let req = mutation_request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit")]);
+    let req = mutation_request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
     let expected_fp = canonical_fingerprint(&req).map_err(|err| err.to_string())?;
     let token =
         prepare(&req, &view, &mut ledger).map_err(|err| format!("prepare: {}", err.error_id()))?;
@@ -464,7 +463,7 @@ fn commit_atomic_duplicate() -> Result<String, String> {
         .map_err(|err| format!("ledger: {}", err.error_id()))?;
     let before = auth.capture();
     let hash0 = before.root().identity();
-    let req = mutation_request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit")]);
+    let req = mutation_request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
     let prepared = prepare(&req, &before, &mut ledger)
         .map_err(|err| format!("prepare: {}", err.error_id()))?;
     let receipt = commit(prepared, &auth, &mut ledger)
@@ -490,7 +489,7 @@ fn commit_atomic_duplicate() -> Result<String, String> {
     }
     if after
         .dirty_frontier()
-        .reason("c:0:0:0")
+        .reason("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
         != Some("mutation")
     {
@@ -504,7 +503,7 @@ fn commit_atomic_duplicate() -> Result<String, String> {
         other => return Err(format!("commit lookup {other:?}")),
     }
 
-    let conflict = mutation_request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit-b")]);
+    let conflict = mutation_request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit-b")]);
     let conflict_err = prepare(&conflict, &auth.capture(), &mut ledger)
         .err()
         .ok_or_else(|| "conflict fingerprint prepare succeeded".to_string())?;
@@ -524,7 +523,7 @@ fn commit_atomic_duplicate() -> Result<String, String> {
         .map_err(|err| format!("ledger2: {}", err.error_id()))?;
     let view2 = auth2.capture();
     let hash2 = view2.root().identity();
-    let req2 = mutation_request("txn-dup", "world-a", 1, 0, &[("c:0:0:0", "edit-2")]);
+    let req2 = mutation_request("txn-dup", "world-a", 1, 0, &[("s:0:0:0", "edit-2")]);
     let prepared2 = prepare(&req2, &view2, &mut ledger2)
         .map_err(|err| format!("prepare dup: {}", err.error_id()))?;
     ledger2
@@ -718,9 +717,9 @@ fn durability_ack_covers_latest() -> Result<String, String> {
     require_schema("voxel-durability-ack")?;
     let mut world = create_world("Authority", "ctx-b2-ack", "world-b2-ack", "b2-ack")?;
     drive_to_running(&mut world)?;
-    seed_ready(&world, &["c:0:0:0"])?;
-    mutate(&mut world, "txn-dirty", &[("c:0:0:0", "edit")])?;
-    let latest = latest_dirty(&world, "c:0:0:0")?.ok_or_else(|| "chunk not dirty".to_string())?;
+    seed_ready(&world, &["s:0:0:0"])?;
+    mutate(&mut world, "txn-dirty", &[("s:0:0:0", "edit")])?;
+    let latest = latest_dirty(&world, "s:0:0:0")?.ok_or_else(|| "section not dirty".to_string())?;
     if latest == 0 {
         return Err("no older revision available for a stale ack".into());
     }
@@ -731,19 +730,19 @@ fn durability_ack_covers_latest() -> Result<String, String> {
         .dirty_frontier()
         .clone();
 
-    let old: DurabilityAckEvidence = ack_for(&world, &[("c:0:0:0", latest - 1)]);
+    let old: DurabilityAckEvidence = ack_for(&world, &[("s:0:0:0", latest - 1)]);
     let old_covered = frontier
         .covered_by(&old)
         .map_err(|err| format!("covered_by old: {}", err.error_id()))?;
     if old_covered
-        .contains("c:0:0:0")
+        .contains("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
     {
         return Err("old ack covered the newer dirty entry".into());
     }
     if frontier
         .except_covered(&old_covered)
-        .latest_revision("c:0:0:0")
+        .latest_revision("s:0:0:0")
         .map_err(|err| err.error_id().to_string())?
         != Some(latest)
     {
@@ -755,18 +754,18 @@ fn durability_ack_covers_latest() -> Result<String, String> {
         || old_receipt.old_root() != before
         || old_receipt.new_root() != before
         || identity_of(&world) != before
-        || latest_dirty(&world, "c:0:0:0")? != Some(latest)
+        || latest_dirty(&world, "s:0:0:0")? != Some(latest)
     {
         return Err("old ack cleared newer dirty".into());
     }
 
-    let covering: DurabilityAckEvidence = ack_for(&world, &[("c:0:0:0", latest)]);
+    let covering: DurabilityAckEvidence = ack_for(&world, &[("s:0:0:0", latest)]);
     let receipt = apply_durability_ack(&mut world, covering)
         .map_err(|err| format!("covering ack: {}", err.error_id()))?;
     if receipt.coverage_len() != 1 || receipt.old_root() != before || receipt.new_root() == before {
         return Err("covering ack did not publish a new identity".into());
     }
-    if identity_of(&world) != receipt.new_root() || latest_dirty(&world, "c:0:0:0")?.is_some() {
+    if identity_of(&world) != receipt.new_root() || latest_dirty(&world, "s:0:0:0")?.is_some() {
         return Err("covering ack left dirty in place".into());
     }
     let lease = WorldWriteLane::try_acquire(&mut world)
@@ -939,24 +938,24 @@ fn published_mutation_world(
         generation,
         0,
         &[
-            ("c:0:0:0", 0),
-            ("c:1:0:0", 0),
-            ("c:2:0:0", 0),
-            ("c:3:0:0", 0),
+            ("s:0:0:0", 0),
+            ("s:1:0:0", 0),
+            ("s:2:0:0", 0),
+            ("s:3:0:0", 0),
         ],
     );
-    let mut builder = ChunkDirectoryBuilder::new();
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", ChunkSlot::ready(payload(b"base-ready")))
+        .insert("s:0:0:0", SectionSlot::ready(payload(b"base-ready")))
         .map_err(|err| format!("insert ready: {}", err.error_id()))?;
     builder
-        .insert("c:1:0:0", ChunkSlot::not_loaded())
-        .map_err(|err| format!("insert not_loaded: {}", err.error_id()))?;
+        .insert("s:1:0:0", SectionSlot::unchanged())
+        .map_err(|err| format!("insert unchanged: {}", err.error_id()))?;
     builder
-        .insert("c:2:0:0", ChunkSlot::pending())
+        .insert("s:2:0:0", SectionSlot::pending())
         .map_err(|err| format!("insert pending: {}", err.error_id()))?;
     builder
-        .insert("c:3:0:0", ChunkSlot::unavailable())
+        .insert("s:3:0:0", SectionSlot::unavailable())
         .map_err(|err| format!("insert unavailable: {}", err.error_id()))?;
     let root = PublishedStateRoot::new(
         stamp,
@@ -1031,7 +1030,7 @@ fn query_cmd(world: &VoxelWorld, query_id: &str) -> Result<WorldCommand, String>
             query_id: query_id.to_string(),
             world_id: view.world_id().to_string(),
             context: view.world_context_id().to_string(),
-            chunk_ids: vec!["c:0:0:0".to_string()],
+            section_ids: vec!["s:0:0:0".to_string()],
             cancel: false,
         },
     })
@@ -1049,7 +1048,7 @@ fn query_envelope(
             query_id: query_id.to_string(),
             world_id: view.world_id().to_string(),
             context: view.world_context_id().to_string(),
-            chunk_ids: vec!["c:0:0:0".to_string()],
+            section_ids: vec!["s:0:0:0".to_string()],
             cancel: false,
         },
     })
@@ -1079,12 +1078,15 @@ fn mutation_envelope(
     })
 }
 
-fn query_request(chunks: &[&str], cancel: bool) -> GeneratedVoxelQueryRequest {
+fn query_request(sections: &[&str], cancel: bool) -> GeneratedVoxelQueryRequest {
     GeneratedVoxelQueryRequest {
         query_id: "q-1".to_string(),
         world_id: "world-a".to_string(),
         context: "ctx-1".to_string(),
-        chunk_ids: chunks.iter().map(|chunk| (*chunk).to_string()).collect(),
+        section_ids: sections
+            .iter()
+            .map(|section| (*section).to_string())
+            .collect(),
         cancel,
     }
 }
@@ -1123,23 +1125,23 @@ fn stamp_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    chunks: &[(&str, u64)],
+    sections: &[(&str, u64)],
 ) -> GeneratedRevisionStamp {
     let world = world_rev(world_rev_n);
     let mut pairs = Vec::new();
-    for (id, rev) in chunks {
-        let mut chunk_alloc = RevisionAllocator::new();
+    for (id, rev) in sections {
+        let mut section_alloc = RevisionAllocator::new();
         for _ in 0..*rev {
-            chunk_alloc.reserve_chunk().unwrap().abandon();
+            section_alloc.reserve_section().unwrap().abandon();
         }
-        let mut reserved = chunk_alloc.reserve_chunk().unwrap();
+        let mut reserved = section_alloc.reserve_section().unwrap();
         pairs.push((id.to_string(), reserved.finalize().unwrap()));
     }
     to_generated_stamp(world_id, context_id, generation, world, &pairs)
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -1148,8 +1150,8 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
     .expect("valid dense uncompressed page")
 }
 
-fn empty_replacement(base: &ChunkDirectoryRoot) -> ChunkReplacement {
-    ChunkDeltaBuilder::new(base)
+fn empty_replacement(base: &SectionDirectoryRoot) -> SectionReplacement {
+    SectionDeltaBuilder::new(base)
         .freeze()
         .expect("empty replacement")
 }
@@ -1161,9 +1163,9 @@ fn dummy_root(
     world_revision: u64,
     payload_bytes: &[u8],
 ) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", ChunkSlot::ready(payload(payload_bytes)))
+        .insert("s:0:0:0", SectionSlot::ready(payload(payload_bytes)))
         .expect("canonical dummy id");
     PublishedStateRoot::new(
         GeneratedRevisionStamp {
@@ -1172,7 +1174,7 @@ fn dummy_root(
             context_id: context.to_string(),
             generation,
             world_revision,
-            chunk_revision_set: BTreeMap::new(),
+            section_revision_set: BTreeMap::new(),
         },
         builder.freeze(),
         DirtyFrontier::new(world_id, generation).expect("world id"),
@@ -1180,18 +1182,18 @@ fn dummy_root(
 }
 
 fn four_state_root(world_id: &str, context: &str, generation: u64) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", ChunkSlot::ready(payload(b"ready-bytes")))
+        .insert("s:0:0:0", SectionSlot::ready(payload(b"ready-bytes")))
         .expect("Ready");
     builder
-        .insert("c:1:0:0", ChunkSlot::not_loaded())
-        .expect("NotLoaded");
+        .insert("s:1:0:0", SectionSlot::unchanged())
+        .expect("Unchanged");
     builder
-        .insert("c:2:0:0", ChunkSlot::pending())
+        .insert("s:2:0:0", SectionSlot::pending())
         .expect("Pending");
     builder
-        .insert("c:3:0:0", ChunkSlot::unavailable())
+        .insert("s:3:0:0", SectionSlot::unavailable())
         .expect("Unavailable");
     PublishedStateRoot::new(
         GeneratedRevisionStamp {
@@ -1200,7 +1202,7 @@ fn four_state_root(world_id: &str, context: &str, generation: u64) -> PublishedS
             context_id: context.to_string(),
             generation,
             world_revision: 0,
-            chunk_revision_set: BTreeMap::new(),
+            section_revision_set: BTreeMap::new(),
         },
         builder.freeze(),
         DirtyFrontier::new(world_id, generation).expect("world id"),
@@ -1220,7 +1222,7 @@ fn publish_cut(world: &VoxelWorld, label: &[u8]) -> Result<(), String> {
                 view.world_context_id(),
                 view.instance_generation(),
                 next,
-                ChunkSlot::ready(payload(label)),
+                SectionSlot::ready(payload(label)),
                 Some("mutation"),
             ),
             empty_replacement(before.directory()),
@@ -1242,11 +1244,13 @@ fn root_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    slot: ChunkSlot,
+    slot: SectionSlot,
     dirty_reason: Option<&str>,
 ) -> PublishedStateRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
-    builder.insert("c:0:0:0", slot).expect("canonical chunk id");
+    let mut builder = SectionDirectoryBuilder::new();
+    builder
+        .insert("s:0:0:0", slot)
+        .expect("canonical section id");
     let directory = builder.freeze();
     let stamp = GeneratedRevisionStamp {
         schema_id: REVISION_STAMP_SCHEMA,
@@ -1254,29 +1258,29 @@ fn root_at(
         context_id: context_id.to_string(),
         generation,
         world_revision: world_rev_n,
-        chunk_revision_set: BTreeMap::from([("c:0:0:0".to_string(), world_rev_n)]),
+        section_revision_set: BTreeMap::from([("s:0:0:0".to_string(), world_rev_n)]),
     };
     let dirty = match dirty_reason {
         Some(reason) => DirtyFrontier::new(world_id, generation)
             .expect("world id")
-            .record("c:0:0:0", world_rev_n, reason)
+            .record("s:0:0:0", world_rev_n, reason)
             .expect("record dirty"),
         None => DirtyFrontier::new(world_id, generation).expect("world id"),
     };
     PublishedStateRoot::new(stamp, directory, dirty)
 }
 
-fn seed_ready(world: &VoxelWorld, chunks: &[&str]) -> Result<(), String> {
+fn seed_ready(world: &VoxelWorld, sections: &[&str]) -> Result<(), String> {
     let view = world.state_view();
     let before = world.publication_authority().capture();
     let next = before.stamp().world_revision + 1;
-    let mut builder = ChunkDirectoryBuilder::new();
-    let mut chunk_revision_set = BTreeMap::new();
-    for id in chunks {
+    let mut builder = SectionDirectoryBuilder::new();
+    let mut section_revision_set = BTreeMap::new();
+    for id in sections {
         builder
-            .insert(id, ChunkSlot::ready(payload(id.as_bytes())))
+            .insert(id, SectionSlot::ready(payload(id.as_bytes())))
             .map_err(|err| format!("seed {id}: {}", err.error_id()))?;
-        chunk_revision_set.insert((*id).to_string(), next);
+        section_revision_set.insert((*id).to_string(), next);
     }
     let stamp = GeneratedRevisionStamp {
         schema_id: REVISION_STAMP_SCHEMA,
@@ -1284,7 +1288,7 @@ fn seed_ready(world: &VoxelWorld, chunks: &[&str]) -> Result<(), String> {
         context_id: view.world_context_id().to_string(),
         generation: view.instance_generation(),
         world_revision: next,
-        chunk_revision_set,
+        section_revision_set,
     };
     let dirty = DirtyFrontier::new(view.world_id(), view.instance_generation())
         .map_err(|err| err.error_id().to_string())?;
@@ -1308,7 +1312,7 @@ fn seed_ready(world: &VoxelWorld, chunks: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
-fn mutate(world: &mut VoxelWorld, txn_id: &str, chunks: &[(&str, &str)]) -> Result<(), String> {
+fn mutate(world: &mut VoxelWorld, txn_id: &str, sections: &[(&str, &str)]) -> Result<(), String> {
     let view = world.state_view();
     let world_revision = world
         .publication_authority()
@@ -1317,7 +1321,7 @@ fn mutate(world: &mut VoxelWorld, txn_id: &str, chunks: &[(&str, &str)]) -> Resu
         .world_revision;
     let mut fields = BTreeMap::new();
     fields.insert("world_revision".to_string(), world_revision.to_string());
-    for (id, value) in chunks {
+    for (id, value) in sections {
         fields.insert((*id).to_string(), (*value).to_string());
     }
     let request = MutationRequest {
@@ -1340,7 +1344,7 @@ fn mutate(world: &mut VoxelWorld, txn_id: &str, chunks: &[(&str, &str)]) -> Resu
     Ok(())
 }
 
-fn ack_for(world: &VoxelWorld, chunks: &[(&str, u64)]) -> DurabilityAckEvidence {
+fn ack_for(world: &VoxelWorld, sections: &[(&str, u64)]) -> DurabilityAckEvidence {
     let view = world.state_view();
     DurabilityAckEvidence {
         kind: "DurabilityAck".to_string(),
@@ -1354,22 +1358,22 @@ fn ack_for(world: &VoxelWorld, chunks: &[(&str, u64)]) -> DurabilityAckEvidence 
             .capture()
             .stamp()
             .world_revision,
-        covered_chunks: chunks
+        covered_sections: sections
             .iter()
-            .map(|(id, rev)| CoveredChunkAck {
-                chunk_id: (*id).to_string(),
-                up_to_chunk_revision: *rev,
+            .map(|(id, rev)| CoveredSectionAck {
+                section_id: (*id).to_string(),
+                up_to_section_revision: *rev,
             })
             .collect(),
     }
 }
 
-fn latest_dirty(world: &VoxelWorld, chunk_id: &str) -> Result<Option<u64>, String> {
+fn latest_dirty(world: &VoxelWorld, section_id: &str) -> Result<Option<u64>, String> {
     world
         .publication_authority()
         .capture()
         .dirty_frontier()
-        .latest_revision(chunk_id)
+        .latest_revision(section_id)
         .map_err(|err| err.error_id().to_string())
 }
 
@@ -1399,11 +1403,11 @@ fn intern_schema(id: &str) -> Result<&'static str, String> {
 }
 
 fn intern_presence(name: &str) -> Result<&'static str, String> {
-    CHUNK_PRESENCE
+    SECTION_PRESENCE
         .iter()
         .copied()
         .find(|item| *item == name)
-        .ok_or_else(|| format!("{name} missing from CHUNK_PRESENCE"))
+        .ok_or_else(|| format!("{name} missing from SECTION_PRESENCE"))
 }
 
 fn require_schema(id: &str) -> Result<(), String> {
@@ -1411,10 +1415,12 @@ fn require_schema(id: &str) -> Result<(), String> {
 }
 
 fn require_stable(id: &str) -> Result<(), String> {
-    if STABLE_ERROR_IDS.contains(&id) {
+    if is_stable_error_id(id) {
         Ok(())
     } else {
-        Err(format!("{id} is not in STABLE_ERROR_IDS"))
+        Err(format!(
+            "{id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
+        ))
     }
 }
 

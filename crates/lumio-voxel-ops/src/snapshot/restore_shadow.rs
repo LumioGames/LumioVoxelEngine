@@ -6,18 +6,18 @@ use super::hex32;
 use super::restore_preflight::{DecodedRestore, RestoreError};
 use crate::canonical::{CanonicalObject, CanonicalValue};
 use lumio_voxel_contracts::sha256;
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkReplacement, ChunkSlot, DirtyFrontier,
-};
 use lumio_voxel_domain::publication::PublishedStateRoot;
 use lumio_voxel_domain::revision::{
-    ChunkRevision, GeneratedRevisionStamp, RevisionAllocator, WorldRevision, to_generated_stamp,
+    GeneratedRevisionStamp, RevisionAllocator, SectionRevision, WorldRevision, to_generated_stamp,
+};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionReplacement, SectionSlot,
 };
 
 /// Move-only sealed unpublished restore root. Not `Clone`.
 pub struct SealedRestoreCandidate {
     root: PublishedStateRoot,
-    replacement: ChunkReplacement,
+    replacement: SectionReplacement,
     world_revision: WorldRevision,
     config_hash: String,
     candidate_hash: [u8; 32],
@@ -57,7 +57,7 @@ impl SealedRestoreCandidate {
             .is_ok_and(|hash| hash == self.candidate_hash)
     }
 
-    pub fn into_publication(self) -> (PublishedStateRoot, ChunkReplacement, WorldRevision) {
+    pub fn into_publication(self) -> (PublishedStateRoot, SectionReplacement, WorldRevision) {
         (self.root, self.replacement, self.world_revision)
     }
 }
@@ -72,18 +72,18 @@ impl std::fmt::Debug for SealedRestoreCandidate {
     }
 }
 
-/// Materialize NotLoaded directory slots and an empty dirty frontier.
+/// Materialize Unchanged directory slots and an empty dirty frontier.
 pub struct RestoreShadowBuilder;
 
 impl RestoreShadowBuilder {
     pub fn build(decoded: &DecodedRestore) -> Result<SealedRestoreCandidate, RestoreError> {
         let world = world_revision(decoded.world_revision())?;
-        let mut chunk_pairs = Vec::new();
-        let mut directory = ChunkDirectoryBuilder::new();
-        for (chunk_id, revision) in decoded.chunk_revision_set() {
-            chunk_pairs.push((chunk_id.clone(), chunk_revision(*revision)?));
+        let mut section_pairs = Vec::new();
+        let mut directory = SectionDirectoryBuilder::new();
+        for (section_id, revision) in decoded.section_revision_set() {
+            section_pairs.push((section_id.clone(), section_revision(*revision)?));
             directory
-                .insert(chunk_id, ChunkSlot::not_loaded())
+                .insert(section_id, SectionSlot::unchanged())
                 .map_err(|err| RestoreError::mapped(err.error_id()))?;
         }
         let stamp = to_generated_stamp(
@@ -91,12 +91,12 @@ impl RestoreShadowBuilder {
             decoded.context_id(),
             decoded.generation(),
             world,
-            &chunk_pairs,
+            &section_pairs,
         );
         let frozen = directory.freeze();
         let dirty = DirtyFrontier::new(decoded.world_id(), decoded.generation())
             .map_err(|err| RestoreError::mapped(err.error_id()))?;
-        let replacement = ChunkDeltaBuilder::new(&frozen)
+        let replacement = SectionDeltaBuilder::new(&frozen)
             .freeze()
             .map_err(|err| RestoreError::mapped(err.error_id()))?;
         let root = PublishedStateRoot::new(stamp, frozen, dirty);
@@ -113,7 +113,7 @@ impl RestoreShadowBuilder {
 
 fn fingerprint(
     root: &PublishedStateRoot,
-    replacement: &ChunkReplacement,
+    replacement: &SectionReplacement,
     config_hash: &str,
 ) -> Result<[u8; 32], RestoreError> {
     let stamp = root.stamp();
@@ -155,16 +155,16 @@ fn world_revision(n: u64) -> Result<WorldRevision, RestoreError> {
         .map_err(|err| RestoreError::mapped(err.error_id()))
 }
 
-fn chunk_revision(n: u64) -> Result<ChunkRevision, RestoreError> {
+fn section_revision(n: u64) -> Result<SectionRevision, RestoreError> {
     let mut alloc = RevisionAllocator::new();
     for _ in 0..n {
         alloc
-            .reserve_chunk()
+            .reserve_section()
             .map_err(|err| RestoreError::mapped(err.error_id()))?
             .abandon();
     }
     alloc
-        .reserve_chunk()
+        .reserve_section()
         .map_err(|err| RestoreError::mapped(err.error_id()))?
         .finalize()
         .map_err(|err| RestoreError::mapped(err.error_id()))

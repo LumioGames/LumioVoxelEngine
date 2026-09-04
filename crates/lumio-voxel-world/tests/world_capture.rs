@@ -1,11 +1,11 @@
 //! R-00135: Snapshot Cut validation and CaptureCut barrier.
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, STABLE_ERROR_IDS, sha256};
-use lumio_voxel_domain::chunk::DirtyFrontier;
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
 };
+use lumio_voxel_domain::section::DirtyFrontier;
 use lumio_voxel_ops::async_support::{OriginEnvelope, OriginToken};
 use lumio_voxel_ops::mutation::MutationRequest;
 use lumio_voxel_ops::snapshot::{MemoryCaptureWriter, encode_capture};
@@ -170,8 +170,8 @@ fn mutation_envelope(
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 

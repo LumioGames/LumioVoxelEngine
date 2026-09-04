@@ -5,9 +5,10 @@
 use super::fingerprint::MutationRequest;
 use super::plan::MutationPlanner;
 use super::receipt_ledger::{LedgerError, LookupOutcome, ReceiptLedger, ReplayDisposition};
-use lumio_voxel_contracts::{CHUNK_PRESENCE, STABLE_ERROR_IDS};
-use lumio_voxel_domain::chunk::{ChunkError, DirtyError};
+use lumio_voxel_contracts::STABLE_ERROR_IDS;
+use lumio_voxel_contracts::voxel_world::{self as vw, SECTION_PRESENCE};
 use lumio_voxel_domain::publication::{PublishError, PublishedReadView};
+use lumio_voxel_domain::section::{DirtyError, SectionError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MutationError {
@@ -52,9 +53,11 @@ impl MutationError {
         }
     }
 
-    pub(crate) fn chunk_unavailable() -> Self {
+    /// 契约 `presence.missing-is-not-air`:缺块永不等于空气。
+    pub(crate) fn section_unavailable() -> Self {
         Self {
-            error_id: stable("ChunkUnavailable"),
+            error_id: vw::intern_error_code(vw::SECTION_UNAVAILABLE)
+                .expect("section_unavailable is a contract error code"),
             disposition: None,
         }
     }
@@ -66,7 +69,7 @@ impl MutationError {
         }
     }
 
-    pub(crate) fn from_chunk(err: ChunkError) -> Self {
+    pub(crate) fn from_section(err: SectionError) -> Self {
         Self {
             error_id: err.error_id(),
             disposition: None,
@@ -138,23 +141,24 @@ impl MutationPreconditions {
             return Err(MutationError::revision_conflict());
         }
 
-        for chunk_id in plan.chunk_ids() {
-            match base.directory().lookup(chunk_id) {
+        for section_id in plan.section_ids() {
+            match base.directory().lookup(section_id) {
                 Ok(Some(slot)) => match slot.presence() {
                     "Ready" => {}
-                    "NotLoaded" | "Pending" | "Unavailable" => {
-                        debug_assert!(CHUNK_PRESENCE.contains(&slot.presence()));
-                        return Err(MutationError::chunk_unavailable());
+                    "Unchanged" | "Pending" | "Unavailable" => {
+                        debug_assert!(SECTION_PRESENCE.contains(&slot.presence()));
+                        return Err(MutationError::section_unavailable());
                     }
                     other => {
-                        let _ = CHUNK_PRESENCE.contains(&other);
+                        let _ = SECTION_PRESENCE.contains(&other);
                         return Err(MutationError::invalid_handle());
                     }
                 },
-                Ok(None) => return Err(MutationError::chunk_unavailable()),
+                Ok(None) => return Err(MutationError::section_unavailable()),
                 // Invalid occupancy keys fail in the private stage path, not here.
-                Err(err) if err.error_id() == "CoordinateOutOfBounds" => continue,
-                Err(err) => return Err(MutationError::from_chunk(err)),
+                // 占位/单元格 key 不是 Section 键,跳过;它们在私有 stage 路径上失败。
+                Err(SectionError::Key(_)) => continue,
+                Err(err) => return Err(MutationError::from_section(err)),
             }
         }
 

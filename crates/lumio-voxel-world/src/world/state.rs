@@ -1,4 +1,4 @@
-//! Interned `SimulationSession` mapping. Not `WorldSlotHost` or `VoxelChunkResidency`.
+//! Interned `SimulationSession` mapping. Not `WorldSlotHost` or the section residency machine.
 
 #![forbid(unsafe_code)]
 

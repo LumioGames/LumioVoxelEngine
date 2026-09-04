@@ -1,10 +1,6 @@
 //! R-00104: commit linearizes one PreparedMutation through publish_once.
 
-use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS, sha256};
-use lumio_voxel_domain::chunk::{
-    ChunkDeltaBuilder, ChunkDirectoryBuilder, ChunkDirectoryRoot, ChunkPage, ChunkPayload,
-    ChunkSlot, DirtyFrontier,
-};
+use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -15,6 +11,10 @@ use lumio_voxel_domain::publication::{
 use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, REVISION_STAMP_SCHEMA, RevisionAllocator, WorldRevision,
     to_generated_stamp,
+};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage,
+    SectionPayload, SectionSlot,
 };
 use lumio_voxel_ops::mutation::{
     LookupOutcome, MutationRequest, ReceiptLedger, canonical_fingerprint, commit, prepare,
@@ -88,23 +88,23 @@ fn stamp_at(
     context_id: &str,
     generation: u64,
     world_rev_n: u64,
-    chunks: &[(&str, u64)],
+    sections: &[(&str, u64)],
 ) -> GeneratedRevisionStamp {
     let world = world_rev(world_rev_n);
     let mut pairs = Vec::new();
-    for (id, rev) in chunks {
-        let mut chunk_alloc = RevisionAllocator::new();
+    for (id, rev) in sections {
+        let mut section_alloc = RevisionAllocator::new();
         for _ in 0..*rev {
-            chunk_alloc.reserve_chunk().unwrap().abandon();
+            section_alloc.reserve_section().unwrap().abandon();
         }
-        let mut c = chunk_alloc.reserve_chunk().unwrap();
+        let mut c = section_alloc.reserve_section().unwrap();
         pairs.push((id.to_string(), c.finalize().unwrap()));
     }
     to_generated_stamp(world_id, context_id, generation, world, &pairs)
 }
 
-fn payload(bytes: &[u8]) -> ChunkPayload {
-    ChunkPayload::from_pages([ChunkPage::new(
+fn payload(bytes: &[u8]) -> SectionPayload {
+    SectionPayload::from_pages([SectionPage::new(
         "Dense",
         "None",
         bytes.to_vec(),
@@ -113,20 +113,20 @@ fn payload(bytes: &[u8]) -> ChunkPayload {
     .expect("valid dense uncompressed page")
 }
 
-fn directory_ready() -> ChunkDirectoryRoot {
-    let mut builder = ChunkDirectoryBuilder::new();
+fn directory_ready() -> SectionDirectoryRoot {
+    let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("c:0:0:0", ChunkSlot::ready(payload(b"base-ready")))
-        .expect("canonical chunk id");
+        .insert("s:0:0:0", SectionSlot::ready(payload(b"base-ready")))
+        .expect("canonical section id");
     builder
-        .insert("c:1:0:0", ChunkSlot::not_loaded())
-        .expect("canonical chunk id");
+        .insert("s:1:0:0", SectionSlot::unchanged())
+        .expect("canonical section id");
     builder
-        .insert("c:2:0:0", ChunkSlot::pending())
-        .expect("canonical chunk id");
+        .insert("s:2:0:0", SectionSlot::pending())
+        .expect("canonical section id");
     builder
-        .insert("c:3:0:0", ChunkSlot::unavailable())
-        .expect("canonical chunk id");
+        .insert("s:3:0:0", SectionSlot::unavailable())
+        .expect("canonical section id");
     builder.freeze()
 }
 
@@ -141,10 +141,10 @@ fn published_world(
         generation,
         0,
         &[
-            ("c:0:0:0", 0),
-            ("c:1:0:0", 0),
-            ("c:2:0:0", 0),
-            ("c:3:0:0", 0),
+            ("s:0:0:0", 0),
+            ("s:1:0:0", 0),
+            ("s:2:0:0", 0),
+            ("s:3:0:0", 0),
         ],
     );
     let root = PublishedStateRoot::new(
@@ -180,8 +180,8 @@ fn request(
 
 fn assert_stable_error(id: &str) {
     assert!(
-        STABLE_ERROR_IDS.contains(&id),
-        "error id {id} is not a generated STABLE_ERROR_IDS member"
+        is_stable_error_id(id),
+        "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
 }
 
@@ -192,9 +192,9 @@ fn assert_consistent_cut(view: &PublishedReadView) {
 }
 
 fn empty_replacement(
-    directory: &ChunkDirectoryRoot,
-) -> lumio_voxel_domain::chunk::ChunkReplacement {
-    ChunkDeltaBuilder::new(directory)
+    directory: &SectionDirectoryRoot,
+) -> lumio_voxel_domain::section::SectionReplacement {
+    SectionDeltaBuilder::new(directory)
         .freeze()
         .expect("empty replacement")
 }
@@ -207,7 +207,7 @@ fn happy_path_prepare_then_commit_is_atomic_cut() {
     let before = auth.capture();
     let hash_before = before.root().identity();
     let dirty_before = before.dirty_frontier().clone();
-    let req = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit")]);
+    let req = request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
     let expected_fp = canonical_fingerprint(&req).expect("no duplicate member");
 
     let prepared = prepare(&req, &before, &mut ledger).expect("prepare succeeds");
@@ -229,7 +229,7 @@ fn happy_path_prepare_then_commit_is_atomic_cut() {
     assert_ne!(before.stamp(), after.stamp());
     assert_ne!(before.directory(), after.directory());
     assert_eq!(
-        after.dirty_frontier().reason("c:0:0:0").unwrap(),
+        after.dirty_frontier().reason("s:0:0:0").unwrap(),
         Some("mutation")
     );
     match ledger.lookup(&req).unwrap() {
@@ -243,7 +243,7 @@ fn duplicate_txn_returns_original_receipt_without_second_publish() {
     let (auth, snap) = published_world("world-a", 1);
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
     let view = auth.capture();
-    let req = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit")]);
+    let req = request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
     let prepared = prepare(&req, &view, &mut ledger).expect("prepare");
     let first = commit(prepared, &auth, &mut ledger).expect("first commit");
     let identity = auth.capture().root().identity();
@@ -256,7 +256,7 @@ fn duplicate_txn_returns_original_receipt_without_second_publish() {
     let mut ledger2 = ReceiptLedger::from_approved_snapshot(snap2, 4).unwrap();
     let view2 = auth2.capture();
     let hash2 = view2.root().identity();
-    let req2 = request("txn-dup", "world-a", 1, 0, &[("c:0:0:0", "edit-2")]);
+    let req2 = request("txn-dup", "world-a", 1, 0, &[("s:0:0:0", "edit-2")]);
     let prepared2 = prepare(&req2, &view2, &mut ledger2).expect("second prepare");
     ledger2
         .finalize(&req2, first.receipt.clone())
@@ -280,16 +280,16 @@ fn stale_base_fails_snapshot_base_mismatch_without_swap() {
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
     let view = auth.capture();
     let hash_before = view.root().identity();
-    let req = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit")]);
+    let req = request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
     let prepared = prepare(&req, &view, &mut ledger).expect("prepare");
 
     let injected = PublishedStateRoot::new(
-        stamp_at("world-a", "ctx-1", 1, 1, &[("c:0:0:0", 1)]),
+        stamp_at("world-a", "ctx-1", 1, 1, &[("s:0:0:0", 1)]),
         {
-            let mut builder = ChunkDirectoryBuilder::new();
+            let mut builder = SectionDirectoryBuilder::new();
             builder
-                .insert("c:0:0:0", ChunkSlot::ready(payload(b"injected")))
-                .expect("canonical chunk id");
+                .insert("s:0:0:0", SectionSlot::ready(payload(b"injected")))
+                .expect("canonical section id");
             builder.freeze()
         },
         DirtyFrontier::new("world-a", 1).expect("world id"),
@@ -322,12 +322,12 @@ fn conflict_fingerprint_same_txn_does_not_swap() {
     let (auth, snap) = published_world("world-a", 1);
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
     let view = auth.capture();
-    let first_req = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit-a")]);
+    let first_req = request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit-a")]);
     let prepared = prepare(&first_req, &view, &mut ledger).expect("first prepare");
     let first = commit(prepared, &auth, &mut ledger).expect("first commit");
     let identity = auth.capture().root().identity();
 
-    let conflict = request("txn-1", "world-a", 1, 0, &[("c:0:0:0", "edit-b")]);
+    let conflict = request("txn-1", "world-a", 1, 0, &[("s:0:0:0", "edit-b")]);
     let err = prepare(&conflict, &auth.capture(), &mut ledger).unwrap_err();
     assert_eq!(err.error_id(), "RevisionConflict");
     assert_stable_error(err.error_id());

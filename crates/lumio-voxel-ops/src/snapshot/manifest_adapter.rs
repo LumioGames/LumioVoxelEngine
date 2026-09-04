@@ -51,8 +51,8 @@ impl ManifestAdapter {
                 CanonicalValue::Uint(stamp.world_revision),
             ),
         ];
-        for (id, rev) in &stamp.chunk_revision_set {
-            members.push((format!("chunkRevision.{id}"), CanonicalValue::Uint(*rev)));
+        for (id, rev) in &stamp.section_revision_set {
+            members.push((format!("sectionRevision.{id}"), CanonicalValue::Uint(*rev)));
         }
         members.push((
             "configHash".into(),
