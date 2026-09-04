@@ -31,4 +31,5 @@ metadata:
 - 当前仓库尚未提交 Cargo 工程。首次引入代码时必须同时固定 Rust toolchain、`rustfmt`、`clippy`、依赖审计与可复现验证命令，并更新本文和 [`testing.md`](./testing.md)。
 - Rust 模块、文件、函数与局部变量使用 `snake_case`，类型与 trait 使用 `PascalCase`，常量使用 `SCREAMING_SNAKE_CASE`；已发布的 Schema/ABI/Manifest 标识符保持原拼写。
 - 规范正文使用中文，代码标识符、协议字段和命令保留原始英文；Markdown 与结构化文本保持 LF（见根 `.gitattributes`）。
-- Chunk/World Schema、ABI 元数据、Serializer、Binding 和 Manifest 等生成物只从架构源与领域源生成，记录 Compiler/Input/Output Hash，不手改生成结果。
+- Section/World Schema、ABI 元数据、Serializer、Binding 和 Manifest 等生成物只从架构源与领域源生成，记录 Compiler/Input/Output Hash，不手改生成结果。
+- 体素分层的名字以活契约 `lumio.voxel-world.v1` 为准：16×16×16 的数据单元写 `Section`（`SectionId` / `SectionRevision`），`Chunk` 只指 16 个 Section 摞成的列容器。死基线 `LGE-V1.4-2026-08-27` 的产物 id（`voxel-chunk-page`、`VoxelChunkResidency`）是冻结字符串，只经 `lumio_voxel_contracts::legacy_baseline` 出现，不得当分层语义复用（[0013](../../decisions/0013-voxel-world-contract-and-section-rename.md)）。

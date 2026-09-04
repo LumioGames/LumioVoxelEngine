@@ -1,6 +1,6 @@
 # migration 模块
 
-> Voxel Chunk/World Schema 转换节点、节点级校验与幂等执行；不拥有全图编排。
+> Voxel Section/World Schema 转换节点、节点级校验与幂等执行；不拥有全图编排。
 > 物理 crate：`lumio-voxel-migration`（[0006](../../.spec/decisions/0006-crate-map.md) / [0007](../../.spec/decisions/0007-v1.4-implementation-baseline.md)）；P2 Tool 路径，不得依赖 `lumio-voxel-world`。
 
 ## 模块定位与目标
@@ -10,8 +10,8 @@
 ## 负责什么
 
 - 声明 Voxel Migration 节点的输入/输出 Schema、版本 Epoch、依赖和幂等性。
-- 从 Host 提供的不可变 Snapshot 字节读取 Chunk/World 数据，产出节点局部目标 payload。
-- 执行 Chunk/Block/引用/资源上限/Hash/Checksum 校验，产出节点转换摘要和失败证据。
+- 从 Host 提供的不可变 Snapshot 字节读取 Section/World 数据，产出节点局部目标 payload。
+- 执行 Section/Block/引用/资源上限/Hash/Checksum 校验，产出节点转换摘要和失败证据。
 - 提供节点级重跑和验证接口；同一输入重复执行得到等价结果。
 - 向 Host 返回可激活的节点 Artifact 元数据；不直接覆盖旧 Active 指针。
 - 支持旧版本读取、明确的降级/拒绝和跨版本不可逆变换保护。
@@ -30,7 +30,7 @@
 - Migration 节点注册表、输入/输出 Schema、依赖和幂等标记。
 - 节点局部执行状态、校验摘要和失败原因。
 - 转换资源预算和重跑参数。
-- Voxel 领域转换器 Adapter（Chunk/Block/压缩页），不持有运行中 World 指针、Staging 路径或 Active 指针。
+- Voxel 领域转换器 Adapter（Section/Block/压缩页），不持有运行中 World 指针、Staging 路径或 Active 指针。
 
 ## 输入、输出与稳定接口
 
@@ -40,7 +40,7 @@
 
 ## 依赖（编译 / 控制流 / 事件与数据）
 
-- **编译依赖**：[snapshot](../snapshot/README.md)（Canonical decode 类型）、[chunk](../chunk/README.md)/[revision](../revision/README.md)（领域转换视图）、架构源 MigrationManifest/SnapshotHeader 与 Canonical Serializer。不依赖 world。
+- **编译依赖**：[snapshot](../snapshot/README.md)（Canonical decode 类型）、[section](../section/README.md)/[revision](../revision/README.md)（领域转换视图）、架构源 MigrationManifest/SnapshotHeader 与 Canonical Serializer。不依赖 world。
 - **被谁调用**：Host/维护编排。不从 Tick 热路径回调。
 - **发布/消费**：消费不可变 Snapshot Artifact；向 Host 交还节点 payload。不扫描 Staging，不合并全图结果。
 
@@ -67,7 +67,7 @@ Pending/Running -> Failed | Cancelled
 ## 正常数据流与失败路径
 
 - **正常**：Host 读取源 Snapshot 并校验 Manifest/DAG → 对本模块调用节点 → 节点校验引用/配额/Hash → 交还目标 payload → Host 负责 Staging 与原子激活。
-- **失败路径**：源 Schema 不支持、Chunk/引用错误、配额超限、Hash 失败、节点崩溃均终止该节点，Host 保留旧版本和证据。
+- **失败路径**：源 Schema 不支持、Section/引用错误、配额超限、Hash 失败、节点崩溃均终止该节点，Host 保留旧版本和证据。
 - **恢复**：本模块不扫描 Staging。Host 验证输入与工具 Hash 后，只重跑幂等且未完成的节点。
 
 ## 错误分类、恢复与降级
@@ -93,7 +93,7 @@ Pending/Running -> Failed | Cancelled
 ## 测试面、故障矩阵与性能指标
 
 - **测试面**：golden 升级、旧版本读取、幂等重跑、引用/配额校验、目标 Schema 校验、原子激活前后可见性。
-- **故障矩阵**：循环/缺依赖、Chunk 损坏、Hash/签名错误、节点崩溃、磁盘满、取消、Crash-at-node、旧 Active 保留。
+- **故障矩阵**：循环/缺依赖、Section 损坏、Hash/签名错误、节点崩溃、磁盘满、取消、Crash-at-node、旧 Active 保留。
 - **性能指标**：每节点吞吐、全图迁移时长、Staging 峰值磁盘/内存、重跑成本和恢复时间。
 
 ## 对应 ADR、Schema 与 Fixture

@@ -88,7 +88,7 @@ graph TD
 | 逻辑模块 | 层 | 物理 crate | 优先级 | 逻辑目录 |
 | --- | --- | --- | --- | --- |
 | world | L5 | `lumio-voxel-world` | P0 | `modules/world/` |
-| chunk | L1 | `lumio-voxel-domain` | P0 | `modules/chunk/` |
+| section | L1 | `lumio-voxel-domain` | P0 | `modules/section/` |
 | revision | L1 | `lumio-voxel-domain` | P0 | `modules/revision/` |
 | query | L3 | `lumio-voxel-ops` | P0 | `modules/query/` |
 | mutation | L3 | `lumio-voxel-ops` | P0 | `modules/mutation/` |
