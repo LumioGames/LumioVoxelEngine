@@ -5,7 +5,7 @@
 //! 成 Chunk 键,也不得被解读成 Section 键,且拒绝原因不能只是「当成别的键解析失败」。
 
 use lumio_voxel_contracts::voxel_world as vw;
-use lumio_voxel_domain::key::{ChunkId, KeyKind, KeyRejection, SectionId};
+use lumio_voxel_domain::key::{ChunkId, KeyKind, KeyRejection, SectionId, WorldY};
 
 // ------------------------------------------------------------------ 正向:规范键
 
@@ -49,10 +49,33 @@ fn int32_extremes_are_first_class() {
     }
 }
 
+#[test]
+fn world_y_splits_into_section_and_cell() {
+    let world_y = WorldY::new(200).expect("200 is inside the contract's world-y range");
+    assert_eq!(world_y.value(), 200);
+    assert_eq!(world_y.section_y(), 12);
+    assert_eq!(world_y.cell_y(), 8);
+
+    assert_eq!(WorldY::new(0).unwrap().section_y(), 0);
+    assert_eq!(WorldY::new(255).unwrap().section_y(), 15);
+    assert_eq!(WorldY::new(255).unwrap().cell_y(), 15);
+}
+
+#[test]
+fn negative_world_y() {
+    let err = WorldY::new(-3).expect_err("world y is unsigned in the contract");
+    assert_eq!(err.error_id(), vw::WORLD_Y_OUT_OF_RANGE);
+    assert!(std::ptr::eq(
+        vw::intern_error_code(err.error_id()).expect("interned"),
+        err.error_id()
+    ));
+    assert_eq!(WorldY::new(256).unwrap_err(), err);
+}
+
 // ------------------------------------------------------------------ 派生:s ↔ c
 
 #[test]
-fn section_to_chunk_derivation_drops_y() {
+fn section_to_chunk_derivation() {
     let section = SectionId::parse("s:12:9:-5").unwrap();
     assert_eq!(section.chunk(), ChunkId::parse("c:12:-5").unwrap());
     assert_eq!(section.chunk().key(), "c:12:-5");
@@ -88,7 +111,7 @@ fn legacy_three_coordinate_chunk_key_is_rejected_as_a_chunk_key() {
 }
 
 #[test]
-fn legacy_three_coordinate_chunk_key_is_rejected_as_a_section_key() {
+fn section_key_with_chunk_prefix() {
     let err = SectionId::parse("c:12:9:-5").expect_err("三坐标 c: 键不是 Section 键");
     assert_eq!(err.kind(), KeyKind::Section);
     assert_eq!(err.rejection(), KeyRejection::LegacyThreeCoordinateChunkKey);
@@ -130,9 +153,11 @@ fn legacy_rejection_is_distinct_from_a_plain_prefix_miss() {
 
 #[test]
 fn section_y_sixteen_is_out_of_range() {
-    let err = SectionId::parse("s:3:16:9").expect_err("层号只能是 0~15");
-    assert_eq!(err.rejection(), KeyRejection::SectionYOutOfRange);
-    assert_eq!(err.error_id(), vw::SECTION_Y_OUT_OF_RANGE);
+    for raw in ["s:3:16:9", "s:12:16:-5"] {
+        let err = SectionId::parse(raw).expect_err("层号只能是 0~15");
+        assert_eq!(err.rejection(), KeyRejection::SectionYOutOfRange, "{raw}");
+        assert_eq!(err.error_id(), vw::SECTION_Y_OUT_OF_RANGE, "{raw}");
+    }
     assert!(SectionId::new(3, 16, 9).is_err());
 }
 
@@ -143,27 +168,37 @@ fn section_y_negative_is_out_of_range() {
 }
 
 #[test]
-fn leading_zero_is_not_canonical() {
-    for raw in ["s:012:0:0", "s:0:00:0", "s:0:0:007", "c:012:0"] {
-        let rejection = match raw.as_bytes()[0] {
-            b's' => SectionId::parse(raw).expect_err(raw).rejection(),
-            _ => ChunkId::parse(raw).expect_err(raw).rejection(),
+fn section_key_leading_zero() {
+    for raw in ["s:012:7:0", "s:012:0:0", "s:0:00:0", "s:0:0:007", "c:012:0"] {
+        let error = match raw.as_bytes()[0] {
+            b's' => SectionId::parse(raw).expect_err(raw),
+            _ => ChunkId::parse(raw).expect_err(raw),
         };
-        assert_eq!(rejection, KeyRejection::NonCanonicalCoordinate, "{raw}");
+        assert_eq!(
+            error.rejection(),
+            KeyRejection::NonCanonicalCoordinate,
+            "{raw}"
+        );
+        let expected_error_id = if raw.starts_with('s') {
+            vw::UNKNOWN_SECTION_KEY
+        } else {
+            vw::UNKNOWN_CHUNK_KEY
+        };
+        assert_eq!(error.error_id(), expected_error_id, "{raw}");
     }
-    assert_eq!(
-        SectionId::parse("s:012:0:0")
-            .expect_err("leading zero")
-            .error_id(),
-        vw::UNKNOWN_SECTION_KEY
-    );
 }
 
 #[test]
-fn negative_zero_is_not_canonical() {
-    let err = SectionId::parse("s:-0:0:0").expect_err("不得出现 -0");
-    assert_eq!(err.rejection(), KeyRejection::NonCanonicalCoordinate);
-    assert_eq!(err.error_id(), vw::UNKNOWN_SECTION_KEY);
+fn section_key_negative_zero() {
+    for raw in ["s:-0:7:0", "s:-0:0:0"] {
+        let err = SectionId::parse(raw).expect_err("不得出现 -0");
+        assert_eq!(
+            err.rejection(),
+            KeyRejection::NonCanonicalCoordinate,
+            "{raw}"
+        );
+        assert_eq!(err.error_id(), vw::UNKNOWN_SECTION_KEY, "{raw}");
+    }
     assert_eq!(
         ChunkId::parse("c:0:-0")
             .expect_err("不得出现 -0")
@@ -173,8 +208,8 @@ fn negative_zero_is_not_canonical() {
 }
 
 #[test]
-fn coordinate_beyond_int32_is_out_of_bounds() {
-    for raw in ["s:2147483648:0:0", "s:0:0:-2147483649", "s:99999999999:0:0"] {
+fn section_x_beyond_int32() {
+    for raw in ["s:2147483648:0:0", "s:0:0:-2147483649"] {
         let err = SectionId::parse(raw).expect_err(raw);
         assert_eq!(
             err.rejection(),
@@ -189,6 +224,18 @@ fn coordinate_beyond_int32_is_out_of_bounds() {
             .error_id(),
         vw::COORDINATE_OUT_OF_BOUNDS
     );
+}
+
+#[test]
+fn coordinate_with_more_than_ten_digits_fails_the_syntax_guard() {
+    let section =
+        SectionId::parse("s:99999999999:0:0").expect_err("11 digits exceed the key pattern");
+    assert_eq!(section.rejection(), KeyRejection::NonCanonicalCoordinate);
+    assert_eq!(section.error_id(), vw::UNKNOWN_SECTION_KEY);
+
+    let chunk = ChunkId::parse("c:0:-99999999999").expect_err("11 digits exceed the key pattern");
+    assert_eq!(chunk.rejection(), KeyRejection::NonCanonicalCoordinate);
+    assert_eq!(chunk.error_id(), vw::UNKNOWN_CHUNK_KEY);
 }
 
 #[test]
