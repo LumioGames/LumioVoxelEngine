@@ -282,6 +282,27 @@ fn contract_identity_matches() {
 }
 
 #[test]
+fn contract_cell_offset_layout_matches() {
+    let c = contract();
+    let offset = c.get("identity").get("cellOffset");
+    let strides = offset.get("strides");
+    assert_eq!(
+        strides.get("y").as_int(),
+        i64::from(vw::CELL_OFFSET_Y_STRIDE)
+    );
+    assert_eq!(
+        strides.get("z").as_int(),
+        i64::from(vw::CELL_OFFSET_Z_STRIDE)
+    );
+    assert_eq!(
+        strides.get("x").as_int(),
+        i64::from(vw::CELL_OFFSET_X_STRIDE)
+    );
+    assert_eq!(vw::CELL_OFFSET_MIN, 0);
+    assert_eq!(vw::CELL_OFFSET_MAX, vw::SECTION_CELLS as u16 - 1);
+}
+
+#[test]
 fn contract_layering_matches() {
     let c = contract();
     let levels = c.get("layering").get("levels");
@@ -405,6 +426,37 @@ fn contract_block_id_bitfields_match() {
     assert_eq!(st.get("bits").as_int(), i64::from(vw::BLOCK_STATE_BITS));
     assert_eq!(st.get("shift").as_int(), i64::from(vw::BLOCK_STATE_SHIFT));
     assert_eq!(st.get("max").as_int(), i64::from(vw::BLOCK_STATE_MAX));
+
+    let resolution = block.get("resolution");
+    let builtins = resolution.get("builtInSentinels").get("types");
+    assert_eq!(
+        builtins.keys(),
+        ["0", "1", "2", "3"],
+        "the four built-in sentinel entries are ordered and exhaustive"
+    );
+    for (raw, name) in [
+        (vw::BLOCK_TYPE_AIR, "air"),
+        (vw::BLOCK_TYPE_ERROR, "error-block"),
+        (vw::BLOCK_TYPE_ECS_OCCUPANCY, "ecs-occupancy"),
+        (
+            vw::BLOCK_TYPE_STRUCTURE_PLACEHOLDER,
+            "structure-placeholder",
+        ),
+    ] {
+        assert_eq!(builtins.get(&raw.to_string()).as_str(), name);
+    }
+    assert_eq!(
+        resolution.get("reservedRange").get("min").as_int(),
+        i64::from(vw::RESERVED_BLOCK_TYPE_MIN)
+    );
+    assert_eq!(
+        resolution.get("reservedRange").get("max").as_int(),
+        i64::from(vw::SYSTEM_RESERVED_TYPE_MAX)
+    );
+    assert_eq!(
+        resolution.get("reservedRange").get("onAdmission").as_str(),
+        vw::UNREGISTERED_BLOCK_TYPE
+    );
 }
 
 #[test]
@@ -425,6 +477,14 @@ fn contract_presence_and_encodings_match() {
     assert_eq!(
         c.get("sectionPayload").get("encodings").keys(),
         vw::SECTION_PAYLOAD_ENCODINGS.to_vec()
+    );
+    assert_eq!(
+        c.get("sectionPayload")
+            .get("encodings")
+            .get("Delta")
+            .get("bytesPerEntry")
+            .as_int(),
+        i64::from(vw::DELTA_BYTES_PER_ENTRY)
     );
     assert_eq!(
         c.get("sectionPayload")
@@ -468,6 +528,18 @@ fn contract_error_codes_match() {
         vw::BLOCK_TYPE_SCOPE_VIOLATION,
         vw::ROOM_LOCAL_TYPE_WITHOUT_MAPPING,
         vw::WORLD_Y_OUT_OF_RANGE,
+        vw::UNKNOWN_MATERIAL_CLASS,
+        vw::MATERIAL_CLASS_NOT_A_CELL_LANE,
+        vw::LIQUID_AUTO_PROPAGATION_UNSUPPORTED,
+        vw::CROSS_MATERIAL_FACE_MERGE,
+        vw::SYSTEM_RESERVED_TYPE_MISUSE,
+        vw::PLAYER_TYPE_DECLARES_BEHAVIOR,
+        vw::BLOCK_CATALOG_NOT_DENSE,
+        vw::BLOCK_CATALOG_NAME_REUSED,
+        vw::BLOCK_CATALOG_ROW_INCOMPLETE,
+        vw::CELL_OFFSET_OUT_OF_RANGE,
+        vw::UNKNOWN_BEHAVIOR_TEMPLATE,
+        vw::UNREGISTERED_BLOCK_TYPE,
     ] {
         assert!(vw::is_error_code(extra));
     }
@@ -514,6 +586,10 @@ fn contract_rules_that_this_repo_enforces_are_present() {
         rules["presence.missing-is-not-air"],
         vw::SECTION_UNAVAILABLE
     );
+    assert_eq!(
+        rules["presence.short-ticket-is-zero-bytes"],
+        vw::SECTION_ENCODING_MISMATCH
+    );
     // 页语义改名 payload 后,本仓消费的两条规则改从新 id 取。
     assert_eq!(
         rules["payload.digest-before-interpretation"],
@@ -524,6 +600,10 @@ fn contract_rules_that_this_repo_enforces_are_present() {
         vw::SECTION_ENCODING_MISMATCH
     );
     assert_eq!(rules["payload.palette-cap"], vw::PALETTE_OVERFLOW);
+    assert_eq!(
+        rules["blockType.resolution-domain"],
+        vw::UNREGISTERED_BLOCK_TYPE
+    );
 }
 
 /// `blockId.scope`:作用域位是段归属的唯一权威,本仓的判定函数必须与之一致。
@@ -579,5 +659,44 @@ fn vendored_copy_matches_upstream_when_available() {
         hex32(sha256(&theirs)),
         "本仓 wire/voxel-world-v1.json 与架构仓 {} 不是同一份字节",
         upstream.display()
+    );
+}
+
+#[test]
+fn contract_dispatch_cases_are_the_cases_exercised_by_the_domain() {
+    let c = contract();
+    let positive: Vec<_> = c
+        .get("testCases")
+        .as_arr()
+        .iter()
+        .filter(|case| case.get("class").as_str() == "dispatch")
+        .map(|case| case.get("name").as_str())
+        .collect();
+    assert_eq!(positive, ["unchanged_section_is_zero_bytes"]);
+
+    let invalid: BTreeMap<_, _> = c
+        .get("invalidCases")
+        .as_arr()
+        .iter()
+        .filter(|case| case.get("class").as_str() == "dispatch")
+        .map(|case| {
+            (
+                case.get("name").as_str(),
+                case.get("expectedRejection").as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(invalid.len(), 3);
+    assert_eq!(
+        invalid["pending_section_rendered_as_air"],
+        vw::SECTION_UNAVAILABLE
+    );
+    assert_eq!(
+        invalid["unavailable_section_treated_as_deleted"],
+        vw::SECTION_UNAVAILABLE
+    );
+    assert_eq!(
+        invalid["unchanged_answered_with_full_payload"],
+        vw::SECTION_ENCODING_MISMATCH
     );
 }

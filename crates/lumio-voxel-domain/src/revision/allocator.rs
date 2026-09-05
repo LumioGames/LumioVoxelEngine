@@ -12,12 +12,24 @@ pub struct WorldRevision(u64);
 pub struct SectionRevision(u64);
 
 impl WorldRevision {
+    /// Rehydrate a revision received from a validated wire snapshot without
+    /// replaying every prior allocation.
+    pub const fn from_raw(value: u64) -> Self {
+        Self(value)
+    }
+
     pub fn value(self) -> u64 {
         self.0
     }
 }
 
 impl SectionRevision {
+    /// Rehydrate a revision received from a validated wire snapshot without
+    /// replaying every prior allocation.
+    pub const fn from_raw(value: u64) -> Self {
+        Self(value)
+    }
+
     pub fn value(self) -> u64 {
         self.0
     }

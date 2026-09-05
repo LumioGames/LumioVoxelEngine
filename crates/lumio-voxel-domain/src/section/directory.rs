@@ -15,6 +15,28 @@ impl SectionDirectoryRoot {
         let id = SectionId::parse(section_id)?;
         Ok(self.entries.get(&id))
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&SectionId, &SectionSlot)> {
+        self.entries.iter()
+    }
+
+    pub(crate) fn identity_bytes(&self) -> Vec<u8> {
+        let mut bytes = format!("{self:?}").into_bytes();
+        for (id, slot) in self.entries.iter() {
+            if let Some(digest) = slot
+                .payload()
+                .and_then(SectionPayload::storage_identity_digest)
+            {
+                bytes.push(0);
+                bytes.extend_from_slice(b"SectionStorageV1");
+                bytes.push(0);
+                bytes.extend_from_slice(id.key().as_bytes());
+                bytes.push(0);
+                bytes.extend_from_slice(&digest);
+            }
+        }
+        bytes
+    }
 }
 
 #[derive(Clone, Debug)]

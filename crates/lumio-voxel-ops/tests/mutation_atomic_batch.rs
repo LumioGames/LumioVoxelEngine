@@ -1,6 +1,8 @@
 //! R-00104: a PreparedMutation batch is one visible cut, or no swap.
 
+use lumio_voxel_contracts::voxel_world as vw;
 use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, is_stable_error_id, sha256};
+use lumio_voxel_domain::block::{BlockId, CellOffset};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -12,10 +14,13 @@ use lumio_voxel_domain::revision::{
     GeneratedRevisionStamp, PinRegistry, RevisionAllocator, WorldRevision, to_generated_stamp,
 };
 use lumio_voxel_domain::section::{
-    DirtyFrontier, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage, SectionPayload,
-    SectionSlot,
+    DirtyFrontier, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPayload, SectionSlot,
+    SectionStorage,
 };
-use lumio_voxel_ops::mutation::{LookupOutcome, MutationRequest, ReceiptLedger, commit, prepare};
+use lumio_voxel_ops::mutation::{
+    LookupOutcome, MAX_WRITE_BATCH_ENTRIES, MutationEntry, MutationRequest, ReceiptLedger, commit,
+    prepare,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -101,12 +106,10 @@ fn stamp_at(
 }
 
 fn payload(bytes: &[u8]) -> SectionPayload {
-    SectionPayload::from_pages([SectionPage::new(
-        "Dense",
-        "None",
-        bytes.to_vec(),
-        sha256(bytes),
-    )])
+    let digest = sha256(bytes);
+    SectionPayload::from_storage(SectionStorage::uniform(BlockId::from_raw(
+        u32::from_le_bytes(digest[..4].try_into().unwrap()),
+    )))
     .expect("valid dense uncompressed page")
 }
 
@@ -152,17 +155,29 @@ fn request(
     world_revision: u64,
     extra: &[(&str, &str)],
 ) -> MutationRequest {
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
-    for (k, v) in extra {
-        fields.insert((*k).to_string(), (*v).to_string());
-    }
+    let entries = extra
+        .iter()
+        .map(|(key, value)| {
+            let (section, cell) = key.split_once('/').unwrap_or((key, "0"));
+            MutationEntry::new(
+                section,
+                CellOffset::new(cell.parse().unwrap_or(0)).unwrap(),
+                BlockId::from_raw(value.parse().unwrap_or_else(|_| hash_value(value))),
+                world_revision,
+            )
+        })
+        .collect();
     MutationRequest {
         txn_id: txn_id.to_string(),
         world_id: world_id.to_string(),
         generation,
-        fields,
+        entries,
     }
+}
+
+fn hash_value(value: &str) -> u32 {
+    let digest = sha256(value.as_bytes());
+    u32::from_le_bytes(digest[..4].try_into().unwrap())
 }
 
 fn assert_stable_error(id: &str) {
@@ -284,4 +299,110 @@ fn failure_before_swap_leaves_ledger_dirty_and_root_unchanged() {
         LookupOutcome::InFlight => {}
         other => panic!("stale commit must not finalize, got {other:?}"),
     }
+}
+
+#[test]
+fn stale_section_revision_rejects_the_entire_batch_before_reservation() {
+    let (auth, snap) = published_world("world-a", 1, "r00438-stale-section");
+    let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
+    let before = auth.capture();
+    let identity = before.root().identity();
+    let request = MutationRequest {
+        txn_id: "txn-stale-section".into(),
+        world_id: "world-a".into(),
+        generation: 1,
+        entries: vec![
+            MutationEntry::new(
+                "s:0:0:0",
+                CellOffset::new(0).unwrap(),
+                BlockId::from_raw(7),
+                1,
+            ),
+            MutationEntry::new(
+                "s:4:0:0",
+                CellOffset::new(1).unwrap(),
+                BlockId::from_raw(8),
+                0,
+            ),
+        ],
+    };
+    let error = prepare(&request, &before, &mut ledger).unwrap_err();
+    assert_eq!(error.error_id(), "stale_section_revision");
+    assert_eq!(auth.capture().root().identity(), identity);
+    assert!(matches!(
+        ledger.lookup(&request).unwrap(),
+        LookupOutcome::Vacant
+    ));
+}
+
+#[test]
+fn write_batch_limit_rejects_65537_entries_without_side_effects() {
+    let (auth, snap) = published_world("world-a", 1, "r00438-limit");
+    let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
+    let before = auth.capture();
+    let identity = before.root().identity();
+    let entries = (0..=vw::MAX_ENTRIES_PER_WRITE_BATCH)
+        .map(|index| {
+            MutationEntry::new(
+                "s:0:0:0",
+                CellOffset::new((index % 4096) as u16).unwrap(),
+                BlockId::from_raw(index),
+                0,
+            )
+        })
+        .collect();
+    let request = MutationRequest {
+        txn_id: "txn-too-large".into(),
+        world_id: "world-a".into(),
+        generation: 1,
+        entries,
+    };
+    let error = prepare(&request, &before, &mut ledger).unwrap_err();
+    assert_eq!(error.error_id(), "write_batch_too_large");
+    assert_eq!(auth.capture().root().identity(), identity);
+    assert!(matches!(
+        ledger.lookup(&request).unwrap(),
+        LookupOutcome::Vacant
+    ));
+}
+
+#[test]
+fn write_batch_limit_tracks_contract_constant() {
+    assert_eq!(
+        MAX_WRITE_BATCH_ENTRIES,
+        vw::MAX_ENTRIES_PER_WRITE_BATCH as usize
+    );
+}
+
+#[test]
+fn duplicate_cell_writes_are_ordered_last_write_wins() {
+    let (auth, snap) = published_world("world-a", 1, "r00438-order");
+    let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
+    let before = auth.capture();
+    let request = MutationRequest {
+        txn_id: "txn-order".into(),
+        world_id: "world-a".into(),
+        generation: 1,
+        entries: vec![
+            MutationEntry::new(
+                "s:0:0:0",
+                CellOffset::new(7).unwrap(),
+                BlockId::from_raw(11),
+                0,
+            ),
+            MutationEntry::new(
+                "s:0:0:0",
+                CellOffset::new(7).unwrap(),
+                BlockId::from_raw(22),
+                0,
+            ),
+        ],
+    };
+    let prepared = prepare(&request, &before, &mut ledger).unwrap();
+    let first = commit(prepared, &auth, &mut ledger).unwrap();
+    let identity = auth.capture().root().identity();
+    let replay = prepare(&request, &auth.capture(), &mut ledger).unwrap();
+    let second = commit(replay, &auth, &mut ledger).unwrap();
+    assert_eq!(first.receipt, second.receipt);
+    assert_eq!(auth.capture().root().identity(), identity);
 }

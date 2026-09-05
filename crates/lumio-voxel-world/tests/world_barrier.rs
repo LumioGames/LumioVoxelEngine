@@ -9,8 +9,9 @@ use lumio_voxel_ops::async_support::{OriginEnvelope, OriginToken};
 use lumio_voxel_ops::mutation::MutationRequest;
 use lumio_voxel_ops::query::GeneratedVoxelQueryRequest;
 use lumio_voxel_world::world::{
-    AdmittedCommand, BarrierScope, ForbiddenWork, VoxelWorld, WorldCommand, WorldConfigAdapter,
-    WorldDescriptor, WorldError, WorldRouter, WorldWriteLane, reject_forbidden,
+    AdmittedCommand, BarrierScope, ForbiddenWork, PinBudget, RegionPinManager, VoxelWorld,
+    WorldCommand, WorldConfigAdapter, WorldDescriptor, WorldError, WorldRouter, WorldWriteLane,
+    reject_forbidden,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -134,15 +135,13 @@ fn identity_of(world: &VoxelWorld) -> [u8; 32] {
     world.publication_authority().capture().root().identity()
 }
 
-fn mutation_request(world: &VoxelWorld, txn_id: &str, world_revision: u64) -> MutationRequest {
+fn mutation_request(world: &VoxelWorld, txn_id: &str, _world_revision: u64) -> MutationRequest {
     let view = world.state_view();
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
     MutationRequest {
         txn_id: txn_id.to_string(),
         world_id: view.world_id().to_string(),
         generation: view.instance_generation(),
-        fields,
+        entries: Vec::new(),
     }
 }
 
@@ -164,7 +163,7 @@ fn mutation_envelope(
 ) -> OriginEnvelope<MutationRequest> {
     OriginEnvelope {
         origin: origin_of(world, txn_id),
-        config_hash: String::new(),
+        config_hash: world.config_hash().to_string(),
         payload: mutation_request(world, txn_id, world_revision),
     }
 }
@@ -175,7 +174,7 @@ fn query_envelope(
 ) -> OriginEnvelope<GeneratedVoxelQueryRequest> {
     OriginEnvelope {
         origin: origin_of(world, query_id),
-        config_hash: String::new(),
+        config_hash: world.config_hash().to_string(),
         payload: query_request(world, query_id),
     }
 }
@@ -185,6 +184,23 @@ fn assert_stable_error(id: &str) {
         is_stable_error_id(id),
         "error id {id} is neither a contract error code nor a frozen-mirror STABLE_ERROR_IDS member"
     );
+}
+
+#[test]
+fn router_rejects_an_empty_config_hash() {
+    let mut world = create_named(
+        "Authority",
+        "ctx-empty-config-hash",
+        "world-empty-config-hash",
+        "empty-config-hash",
+    );
+    drive_to_running(&mut world);
+
+    let mut envelope = query_envelope(&world, "q-empty-config-hash");
+    envelope.config_hash.clear();
+    let error = WorldRouter::query(&mut world, envelope)
+        .expect_err("config identity is mandatory on every routed command");
+    assert_eq!(error.error_id(), "SessionMismatch");
 }
 
 #[test]
@@ -327,4 +343,24 @@ fn query_path_does_not_keep_the_write_lane() {
     let lease = WorldWriteLane::try_acquire(&mut world)
         .expect("query must drop the write lane before returning");
     drop(lease);
+}
+
+#[test]
+fn world_query_rejects_a_non_ready_result_for_an_attached_ready_pin() {
+    let mut world = create_named(
+        "Authority",
+        "ctx-barrier-pinned-query",
+        "world-barrier-pinned-query",
+        "r00119-barrier-pinned-query",
+    );
+    drive_to_running(&mut world);
+    let mut pins = RegionPinManager::from_budget(PinBudget::new(1, 1));
+    let pin = pins.declare_pin(["s:0:0:0"]).expect("pin");
+    pins.mark_ready(pin).expect("ready");
+    world.set_region_pin_manager(pins);
+
+    let envelope = query_envelope(&world, "q-pinned");
+    let error = WorldRouter::query(&mut world, envelope)
+        .expect_err("attached ready pins must guard generated query outcomes");
+    assert_eq!(error.error_id(), "pinned_read_returned_pending");
 }

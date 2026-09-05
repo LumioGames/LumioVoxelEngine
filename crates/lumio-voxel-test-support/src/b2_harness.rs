@@ -6,6 +6,7 @@ use crate::fault_injection::{FaultInjector, FaultPoint};
 use crate::workspace_root_from_manifest;
 use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
 use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
+use lumio_voxel_domain::block::{BlockId, CellOffset};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -20,13 +21,13 @@ use lumio_voxel_domain::revision::{
 use lumio_voxel_domain::section::{
     CoveredSectionAck, DirtyFrontier, DurabilityAckContext, DurabilityAckEvidence,
     SectionDeltaBuilder, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage,
-    SectionPayload, SectionReplacement, SectionSlot,
+    SectionPayload, SectionReplacement, SectionSlot, SectionStorage,
 };
 use lumio_voxel_ops::SNAPSHOT_FEATURE;
 use lumio_voxel_ops::async_support::{OriginEnvelope, OriginToken};
 use lumio_voxel_ops::mutation::{
-    LookupOutcome, MutationRequest, ReceiptLedger, ReplayDisposition, canonical_fingerprint,
-    commit, prepare,
+    LookupOutcome, MutationEntry, MutationRequest, ReceiptLedger, ReplayDisposition,
+    canonical_fingerprint, commit, prepare,
 };
 use lumio_voxel_ops::query::{
     GeneratedVoxelQueryRequest, QUERY_SCHEMA, QueryExecutor, QueryPlanner,
@@ -946,7 +947,10 @@ fn published_mutation_world(
     );
     let mut builder = SectionDirectoryBuilder::new();
     builder
-        .insert("s:0:0:0", SectionSlot::ready(payload(b"base-ready")))
+        .insert(
+            "s:0:0:0",
+            SectionSlot::ready(storage_payload(b"base-ready")),
+        )
         .map_err(|err| format!("insert ready: {}", err.error_id()))?;
     builder
         .insert("s:1:0:0", SectionSlot::unchanged())
@@ -1043,7 +1047,7 @@ fn query_envelope(
     let view = world.state_view();
     Ok(OriginEnvelope {
         origin: origin_of(world, query_id)?,
-        config_hash: String::new(),
+        config_hash: world.config_hash().to_string(),
         payload: GeneratedVoxelQueryRequest {
             query_id: query_id.to_string(),
             world_id: view.world_id().to_string(),
@@ -1059,21 +1063,15 @@ fn mutation_envelope(
     txn_id: &str,
 ) -> Result<OriginEnvelope<MutationRequest>, String> {
     let view = world.state_view();
-    let world_revision = world
-        .publication_authority()
-        .capture()
-        .stamp()
-        .world_revision;
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
+    let entries = Vec::new();
     Ok(OriginEnvelope {
         origin: origin_of(world, txn_id)?,
-        config_hash: String::new(),
+        config_hash: world.config_hash().to_string(),
         payload: MutationRequest {
             txn_id: txn_id.to_string(),
             world_id: view.world_id().to_string(),
             generation: view.instance_generation(),
-            fields,
+            entries,
         },
     })
 }
@@ -1098,17 +1096,29 @@ fn mutation_request(
     world_revision: u64,
     extra: &[(&str, &str)],
 ) -> MutationRequest {
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
-    for (k, v) in extra {
-        fields.insert((*k).to_string(), (*v).to_string());
-    }
+    let entries = extra
+        .iter()
+        .map(|(key, value)| {
+            let (section, cell) = key.split_once('/').unwrap_or((key, "0"));
+            MutationEntry::new(
+                section,
+                CellOffset::new(cell.parse().unwrap_or(0)).unwrap(),
+                BlockId::from_raw(value.parse().unwrap_or_else(|_| hash_value(value))),
+                world_revision,
+            )
+        })
+        .collect();
     MutationRequest {
         txn_id: txn_id.to_string(),
         world_id: world_id.to_string(),
         generation,
-        fields,
+        entries,
     }
+}
+
+fn hash_value(value: &str) -> u32 {
+    let digest = sha256(value.as_bytes());
+    u32::from_le_bytes(digest[..4].try_into().unwrap())
 }
 
 fn world_rev(n: u64) -> WorldRevision {
@@ -1148,6 +1158,14 @@ fn payload(bytes: &[u8]) -> SectionPayload {
         sha256(bytes),
     )])
     .expect("valid dense uncompressed page")
+}
+
+fn storage_payload(bytes: &[u8]) -> SectionPayload {
+    let digest = sha256(bytes);
+    SectionPayload::from_storage(SectionStorage::uniform(BlockId::from_raw(
+        u32::from_le_bytes(digest[..4].try_into().unwrap()),
+    )))
+    .expect("canonical Section storage")
 }
 
 fn empty_replacement(base: &SectionDirectoryRoot) -> SectionReplacement {
@@ -1278,7 +1296,7 @@ fn seed_ready(world: &VoxelWorld, sections: &[&str]) -> Result<(), String> {
     let mut section_revision_set = BTreeMap::new();
     for id in sections {
         builder
-            .insert(id, SectionSlot::ready(payload(id.as_bytes())))
+            .insert(id, SectionSlot::ready(storage_payload(id.as_bytes())))
             .map_err(|err| format!("seed {id}: {}", err.error_id()))?;
         section_revision_set.insert((*id).to_string(), next);
     }
@@ -1319,16 +1337,22 @@ fn mutate(world: &mut VoxelWorld, txn_id: &str, sections: &[(&str, &str)]) -> Re
         .capture()
         .stamp()
         .world_revision;
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
-    for (id, value) in sections {
-        fields.insert((*id).to_string(), (*value).to_string());
-    }
+    let entries = sections
+        .iter()
+        .map(|(id, value)| {
+            MutationEntry::new(
+                *id,
+                CellOffset::new(0).unwrap(),
+                BlockId::from_raw(value.parse().unwrap_or_else(|_| hash_value(value))),
+                world_revision,
+            )
+        })
+        .collect();
     let request = MutationRequest {
         txn_id: txn_id.to_string(),
         world_id: view.world_id().to_string(),
         generation: view.instance_generation(),
-        fields,
+        entries,
     };
     let mut lease = WorldWriteLane::try_acquire(world)
         .map_err(|err| format!("lane for mutation: {}", err.error_id()))?;

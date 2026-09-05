@@ -32,7 +32,7 @@ const EXPECTED_LIFECYCLE: [&str; 11] = [
 const EXPECTED_WORLD_REVISIONS: [u64; 11] = [1, 1, 1, 1, 1, 1, 2, 2, 2, 4, 4];
 const EXPECTED_GENERATIONS: [u64; 11] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2];
 const EXPECTED_STAMP_GENERATIONS: [u64; 11] = [1; 11];
-const EXPECTED_PUBLICATION_EPOCHS: [u64; 11] = [0, 0, 0, 0, 0, 0, 1, 1, 1, 6, 6];
+const EXPECTED_PUBLICATION_EPOCHS: [u64; 11] = [0, 0, 0, 0, 0, 0, 1, 1, 1, 5, 5];
 const EXPECTED_PROVENANCE: [(&str, &str); 5] = [
     ("architectureBaselineId", "LGE-V1.4-2026-08-27"),
     ("voxelHead", "61cb864978dedfe9bdf7b687fea08660b31469f1"),
@@ -61,7 +61,7 @@ const EXPECTED_CONFIG_HASH: &str =
 // which is the only reason it is trustworthy — a golden that only one leg produced
 // would prove nothing.
 const GOLDEN_TRACE_SHA256: &str =
-    "4acbb1e431a770a184eb5139137716e174b7411c39ede322b3cdeebe1cde297b";
+    "96d965e12882ea8dad79562058df12d7afe56fdbd4f14dca39cd25640e616ed1";
 
 #[test]
 fn reference_and_rust_execute_shared_canonical_vectors() {
@@ -325,7 +325,7 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
     );
     assert_eq!(
         observations[9].probes[1].ack.as_ref().unwrap().coverage_len,
-        1
+        0
     );
     assert_eq!(
         observations[9].probes[2].ack.as_ref().unwrap().coverage_len,
@@ -382,7 +382,7 @@ fn reference_and_rust_execute_shared_canonical_vectors() {
             .dirty_frontier
             .iter()
             .find(|entry| entry.section_id == "s:0:0:0")
-            .is_some_and(|entry| entry.latest_revision == Some(2))
+            .is_some_and(|entry| entry.latest_revision == Some(3))
     );
     assert!(
         observations[9].probes[3]

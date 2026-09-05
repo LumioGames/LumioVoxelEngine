@@ -36,6 +36,14 @@ pub struct FinalizeOutcome {
     pub receipt: Vec<u8>,
 }
 
+/// Typed evidence retained for receipts finalized by the mutation commit path.
+/// Public callers may still finalize opaque bytes without supplying evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ReceiptEvidence {
+    pub old_root: [u8; 32],
+    pub new_root: [u8; 32],
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LedgerError {
     error_id: &'static str,
@@ -83,6 +91,7 @@ impl LedgerError {
 struct LedgerEntry {
     reservation: MutationReservation,
     receipt: Option<Vec<u8>>,
+    evidence: Option<ReceiptEvidence>,
 }
 
 pub struct ReceiptLedger {
@@ -171,6 +180,7 @@ impl ReceiptLedger {
             LedgerEntry {
                 reservation: reservation.clone(),
                 receipt: None,
+                evidence: None,
             },
         );
         self.reserve_count = self.reserve_count.saturating_add(1);
@@ -199,6 +209,51 @@ impl ReceiptLedger {
                     receipt,
                 })
             }
+        }
+    }
+
+    pub(crate) fn evidence(
+        &self,
+        request: &MutationRequest,
+    ) -> Result<Option<ReceiptEvidence>, LedgerError> {
+        self.check_request(request)?;
+        let Some(entry) = self.entries.get(&request.txn_id) else {
+            return Err(LedgerError::invalid_handle());
+        };
+        Self::check_entry(request, entry)?;
+        Ok(entry.evidence.clone())
+    }
+
+    /// Finalize the reservation after the authority has performed its sole visible swap.
+    /// All fallible checks have already run during prepare/commit; keeping this narrow
+    /// avoids a second validation point after publication.
+    pub(crate) fn finalize_after_publish(
+        &mut self,
+        request: &MutationRequest,
+        receipt: Vec<u8>,
+    ) -> Vec<u8> {
+        let entry = self
+            .entries
+            .get_mut(&request.txn_id)
+            .expect("published mutation must retain its reservation");
+        if let Some(stored) = &entry.receipt {
+            return stored.clone();
+        }
+        entry.receipt = Some(receipt.clone());
+        receipt
+    }
+
+    pub(crate) fn record_evidence_after_publish(
+        &mut self,
+        request: &MutationRequest,
+        evidence: ReceiptEvidence,
+    ) {
+        let entry = self
+            .entries
+            .get_mut(&request.txn_id)
+            .expect("published mutation must retain its reservation");
+        if entry.receipt.is_some() && entry.evidence.is_none() {
+            entry.evidence = Some(evidence);
         }
     }
 

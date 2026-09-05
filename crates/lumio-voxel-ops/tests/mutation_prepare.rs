@@ -2,6 +2,7 @@
 
 use lumio_voxel_contracts::voxel_world as vw;
 use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
+use lumio_voxel_domain::block::{BlockId, CellOffset};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -14,11 +15,12 @@ use lumio_voxel_domain::revision::{
     to_generated_stamp,
 };
 use lumio_voxel_domain::section::{
-    DirtyFrontier, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage, SectionPayload,
-    SectionSlot,
+    DirtyFrontier, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPayload, SectionSlot,
+    SectionStorage,
 };
 use lumio_voxel_ops::mutation::{
-    LookupOutcome, MutationRequest, PreparedMutation, ReceiptLedger, canonical_fingerprint, prepare,
+    LookupOutcome, MutationEntry, MutationRequest, PreparedMutation, ReceiptLedger,
+    canonical_fingerprint, prepare,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -105,12 +107,10 @@ fn stamp_at(
 }
 
 fn payload(bytes: &[u8]) -> SectionPayload {
-    SectionPayload::from_pages([SectionPage::new(
-        "Dense",
-        "None",
-        bytes.to_vec(),
-        sha256(bytes),
-    )])
+    let digest = sha256(bytes);
+    SectionPayload::from_storage(SectionStorage::uniform(BlockId::from_raw(
+        u32::from_le_bytes(digest[..4].try_into().unwrap()),
+    )))
     .expect("valid dense uncompressed page")
 }
 
@@ -166,17 +166,29 @@ fn request(
     world_revision: u64,
     extra: &[(&str, &str)],
 ) -> MutationRequest {
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
-    for (k, v) in extra {
-        fields.insert((*k).to_string(), (*v).to_string());
-    }
+    let entries = extra
+        .iter()
+        .map(|(key, value)| {
+            let (section, cell) = key.split_once('/').unwrap_or((key, "0"));
+            MutationEntry::new(
+                section,
+                CellOffset::new(cell.parse().unwrap_or(0)).unwrap(),
+                BlockId::from_raw(value.parse().unwrap_or_else(|_| hash_value(value))),
+                world_revision,
+            )
+        })
+        .collect();
     MutationRequest {
         txn_id: txn_id.to_string(),
         world_id: world_id.to_string(),
         generation,
-        fields,
+        entries,
     }
+}
+
+fn hash_value(value: &str) -> u32 {
+    let digest = sha256(value.as_bytes());
+    u32::from_le_bytes(digest[..4].try_into().unwrap())
 }
 
 fn assert_stable_error(id: &str) {

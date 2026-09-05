@@ -7,7 +7,7 @@ use super::fingerprint::{MUTATION_RECEIPT_SCHEMA, MutationRequest};
 use super::plan::MutationPlanner;
 use super::preconditions::MutationError;
 use super::prepared_token::PreparedMutation;
-use super::receipt_ledger::{LookupOutcome, ReceiptLedger};
+use super::receipt_ledger::{LookupOutcome, ReceiptEvidence, ReceiptLedger};
 use crate::canonical::CanonicalObject;
 use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
 use lumio_voxel_contracts::{SCHEMA_IDS, sha256};
@@ -15,7 +15,7 @@ use lumio_voxel_domain::publication::{
     PublicationAuthority, PublishedReadView, PublishedStateRoot,
 };
 use lumio_voxel_domain::revision::{
-    GeneratedRevisionStamp, RevisionAllocator, SectionRevision, WorldRevision, to_generated_stamp,
+    GeneratedRevisionStamp, SectionRevision, WorldRevision, to_generated_stamp,
 };
 use lumio_voxel_domain::section::{
     SectionDirectoryBuilder, SectionDirectoryRoot, SectionError, SectionReplacement,
@@ -44,18 +44,22 @@ pub fn commit(
     ledger: &mut ReceiptLedger,
 ) -> Result<GeneratedMutationReceipt, MutationError> {
     debug_assert!(SCHEMA_IDS.contains(&MUTATION_RECEIPT_SCHEMA));
-    let view = authority.capture();
     // Idempotent replay must not require the unpublished base. Lookup first.
     match ledger
         .lookup(prepared.request())
         .map_err(MutationError::from_ledger)?
     {
         LookupOutcome::Duplicate { receipt } => {
-            return Ok(duplicate_receipt(&prepared, &view, receipt));
+            let receipt = prepared
+                .replay_receipt()
+                .unwrap_or(receipt.as_slice())
+                .to_vec();
+            return duplicate_receipt(&prepared, receipt);
         }
         LookupOutcome::Vacant => return Err(MutationError::invalid_handle()),
         LookupOutcome::InFlight => {}
     }
+    let view = authority.capture();
     recheck_prepared(&prepared, &view, ledger)?;
     recheck_presence(prepared.request(), &view)?;
 
@@ -93,7 +97,15 @@ pub fn commit(
         receipt_hash: sha256(&receipt_bytes),
     };
 
-    let receipt = publish_once_and_finalize(authority, ledger, token, request, receipt_bytes)?;
+    let receipt =
+        publish_once_and_finalize(authority, ledger, token, request.clone(), receipt_bytes)?;
+    ledger.record_evidence_after_publish(
+        &request,
+        ReceiptEvidence {
+            old_root: evidence.old_root,
+            new_root: evidence.new_root,
+        },
+    );
     Ok(GeneratedMutationReceipt {
         txn_id,
         receipt,
@@ -129,21 +141,24 @@ fn recheck_prepared(
 
 fn duplicate_receipt(
     prepared: &PreparedMutation,
-    view: &PublishedReadView,
     receipt: Vec<u8>,
-) -> GeneratedMutationReceipt {
+) -> Result<GeneratedMutationReceipt, MutationError> {
     let txn_id = prepared.txn_id().to_string();
+    let (old_root, new_root) = prepared
+        .replay_evidence()
+        .map(|evidence| (evidence.old_root, evidence.new_root))
+        .unwrap_or_else(|| (prepared.base_identity(), prepared.base_identity()));
     let receipt_hash = sha256(&receipt);
-    GeneratedMutationReceipt {
+    Ok(GeneratedMutationReceipt {
         txn_id: txn_id.clone(),
         receipt,
         evidence: CommitEvidence {
-            old_root: prepared.base_identity(),
-            new_root: view.root().identity(),
+            old_root,
+            new_root,
             txn_id,
             receipt_hash,
         },
-    }
+    })
 }
 
 fn overlay_ids<'a>(
@@ -228,33 +243,11 @@ fn build_stamp(
 }
 
 fn world_revision(n: u64) -> Result<WorldRevision, MutationError> {
-    let mut alloc = RevisionAllocator::new();
-    for _ in 0..n {
-        alloc
-            .reserve_world()
-            .map_err(|_| MutationError::invalid_handle())?
-            .abandon();
-    }
-    alloc
-        .reserve_world()
-        .map_err(|_| MutationError::invalid_handle())?
-        .finalize()
-        .map_err(|_| MutationError::invalid_handle())
+    Ok(WorldRevision::from_raw(n))
 }
 
 fn section_revision(n: u64) -> Result<SectionRevision, MutationError> {
-    let mut alloc = RevisionAllocator::new();
-    for _ in 0..n {
-        alloc
-            .reserve_section()
-            .map_err(|_| MutationError::invalid_handle())?
-            .abandon();
-    }
-    alloc
-        .reserve_section()
-        .map_err(|_| MutationError::invalid_handle())?
-        .finalize()
-        .map_err(|_| MutationError::invalid_handle())
+    Ok(SectionRevision::from_raw(n))
 }
 
 fn receipt_bytes(
@@ -299,8 +292,23 @@ fn recheck_presence(
         return Err(MutationError::stale_epoch());
     }
     let plan = MutationPlanner::build(request)?;
-    if plan.expected_world_revision() != stamp.world_revision {
-        return Err(MutationError::revision_conflict());
+    for section_id in plan.section_ids() {
+        let edits = plan
+            .section_edits()
+            .get(section_id)
+            .ok_or_else(MutationError::unstructured_mutation_entry)?;
+        let current = stamp
+            .section_revision_set
+            .get(section_id)
+            .copied()
+            .unwrap_or(stamp.world_revision);
+        if edits
+            .entries()
+            .iter()
+            .any(|entry| entry.expected_section_revision != current)
+        {
+            return Err(MutationError::stale_section_revision());
+        }
     }
     for section_id in plan.section_ids() {
         match view.directory().lookup(section_id) {

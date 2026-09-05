@@ -12,6 +12,7 @@ mod durability_ack;
 mod events;
 mod fault;
 mod instance;
+mod residency;
 mod restore;
 mod routing;
 mod shutdown;
@@ -29,6 +30,11 @@ pub use fault::{FaultEvidence, WorldFaultPort};
 pub use instance::{
     InstanceGenerationGuard, VoxelWorld, WorldConfigAdapter, WorldDescriptor, WorldStateView,
     intern_local_embedded_pair, intern_role,
+};
+pub use residency::{
+    NoPinExemption, PinBudget, PinExemptionError, PinExemptionHook, PinHandle, PinId, PinReadiness,
+    PinStatus, RegionPinError, RegionPinManager, RegionPinStatus, ResidencyPinError, UnloadReceipt,
+    request_unload, section_keys_for_region, unload, unload_section,
 };
 pub use restore::{RestoreReceipt, restore};
 pub use routing::WorldRouter;

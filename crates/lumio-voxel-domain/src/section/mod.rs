@@ -9,24 +9,44 @@
 
 #![forbid(unsafe_code)]
 
+mod block_payload;
+mod block_storage;
+mod chunk_record;
 mod delta;
 mod directory;
 mod dirty;
+mod dispatch;
+mod modification_layer;
 mod payload;
 mod replacement;
 mod slot;
 
+pub use block_payload::{DecodedSectionPayload, DeltaEntry, SectionPayloadEnvelope};
+pub use block_storage::{
+    PaletteCapacityAction, SectionEncoding, SectionStorage, SectionStorageResolver, WriteOutcome,
+};
+pub use chunk_record::ChunkRecord;
 pub use delta::{SectionDeltaBuilder, StagedEdit};
 pub use directory::{SectionDirectoryBuilder, SectionDirectoryRoot};
 pub use dirty::{
     CoveredSectionAck, DirtyCoverage, DirtyError, DirtyFrontier, DurabilityAckContext,
     DurabilityAckEvidence,
 };
+pub use dispatch::{SectionDeliveryState, SectionDispatch};
+pub use modification_layer::RoomModificationLayer;
 pub use payload::{SectionPage, SectionPayload};
 pub use replacement::{ReplacementSet, SectionReplacement};
 pub use slot::SectionSlot;
 
 pub use crate::key::{KeyError, SectionId};
+
+/// Validates the residency presence observed by a read or physics path.
+///
+/// The trait lives in the domain crate so query, projection, and world layers can
+/// share the invariant without introducing a dependency back into the world crate.
+pub trait SectionPresenceGuard {
+    fn validate_presence(&self, section_id: &str, presence: &str) -> Result<(), &'static str>;
+}
 
 use lumio_voxel_contracts::STABLE_ERROR_IDS;
 use lumio_voxel_contracts::voxel_world as vw;
@@ -41,6 +61,8 @@ pub enum SectionError {
     InvalidHandle { error_id: &'static str },
     /// Section 当前不可提供。缺块永不等于空气。
     SectionUnavailable { error_id: &'static str },
+    /// A live voxel-world contract rule rejected the operation.
+    ContractViolation { error_id: &'static str },
 }
 
 impl SectionError {
@@ -49,7 +71,8 @@ impl SectionError {
             Self::Key(err) => err.error_id(),
             Self::SectionDigestMismatch { error_id }
             | Self::InvalidHandle { error_id }
-            | Self::SectionUnavailable { error_id } => error_id,
+            | Self::SectionUnavailable { error_id }
+            | Self::ContractViolation { error_id } => error_id,
         }
     }
 
@@ -68,6 +91,12 @@ impl SectionError {
     fn section_unavailable() -> Self {
         Self::SectionUnavailable {
             error_id: contract_error(vw::SECTION_UNAVAILABLE),
+        }
+    }
+
+    fn contract_violation(id: &'static str) -> Self {
+        Self::ContractViolation {
+            error_id: contract_error(id),
         }
     }
 }

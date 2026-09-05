@@ -101,17 +101,17 @@ impl WorldY {
         Ok(Self(value as u8))
     }
 
-    pub fn value(self) -> u8 {
+    pub const fn value(self) -> u8 {
         self.0
     }
 
     /// `sectionY = worldY >> 4`。
-    pub fn section_y(self) -> u8 {
+    pub const fn section_y(self) -> u8 {
         self.0 >> vw::SECTION_EXTENT.trailing_zeros()
     }
 
     /// `cellY = worldY & 15`。
-    pub fn cell_y(self) -> u8 {
+    pub const fn cell_y(self) -> u8 {
         self.0 & vw::SECTION_Y_MAX
     }
 }

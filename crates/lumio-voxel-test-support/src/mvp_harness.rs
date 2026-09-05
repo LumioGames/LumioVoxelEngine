@@ -15,6 +15,7 @@ use lumio_voxel_contracts::voxel_world::SECTION_PRESENCE;
 use lumio_voxel_contracts::{
     BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256, verify_artifact_hashes,
 };
+use lumio_voxel_domain::block::{BlockId, CellOffset};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -25,12 +26,14 @@ use lumio_voxel_domain::revision::{
 };
 use lumio_voxel_domain::section::{
     CoveredSectionAck, DirtyFrontier, DurabilityAckContext, SectionDeltaBuilder,
-    SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage, SectionPayload, SectionReplacement,
-    SectionSlot,
+    SectionDirectoryBuilder, SectionDirectoryRoot, SectionPayload, SectionReplacement, SectionSlot,
+    SectionStorage,
 };
 use lumio_voxel_ops::SNAPSHOT_FEATURE;
 use lumio_voxel_ops::async_support::{APPLY_PHASES, OriginEnvelope, OriginToken};
-use lumio_voxel_ops::mutation::{GeneratedMutationReceipt, MutationRequest, PreparedMutation};
+use lumio_voxel_ops::mutation::{
+    GeneratedMutationReceipt, MutationEntry, MutationRequest, PreparedMutation,
+};
 use lumio_voxel_ops::query::{GeneratedVoxelQueryRequest, QUERY_SCHEMA};
 use lumio_voxel_ops::snapshot::{
     MemoryCaptureWriter, RestorePreflight, RestoreShadowBuilder, VoxelCaptureRef, encode_capture,
@@ -928,7 +931,7 @@ fn query_envelope(
     let view = world.state_view();
     Ok(OriginEnvelope {
         origin: origin_of(world, query_id)?,
-        config_hash: String::new(),
+        config_hash: world.config_hash().to_string(),
         payload: GeneratedVoxelQueryRequest {
             query_id: query_id.to_string(),
             world_id: view.world_id().to_string(),
@@ -953,21 +956,42 @@ fn mutation_envelope(
         .capture()
         .stamp()
         .world_revision;
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
-    for (k, v) in extra {
-        fields.insert((*k).to_string(), (*v).to_string());
-    }
+    let entries = extra
+        .first()
+        .map(|(key, value)| {
+            let (section, cell) = key.split_once('/').unwrap_or((key, "0"));
+            let expected = world
+                .publication_authority()
+                .capture()
+                .stamp()
+                .section_revision_set
+                .get(section)
+                .copied()
+                .unwrap_or(world_revision);
+            MutationEntry::new(
+                section,
+                CellOffset::new(cell.parse().unwrap_or(0)).unwrap(),
+                BlockId::from_raw(value.parse().unwrap_or_else(|_| hash_value(value))),
+                expected,
+            )
+        })
+        .into_iter()
+        .collect();
     Ok(OriginEnvelope {
         origin: origin_of(world, txn_id)?,
-        config_hash: String::new(),
+        config_hash: world.config_hash().to_string(),
         payload: MutationRequest {
             txn_id: txn_id.to_string(),
             world_id: view.world_id().to_string(),
             generation: view.instance_generation(),
-            fields,
+            entries,
         },
     })
+}
+
+fn hash_value(value: &str) -> u32 {
+    let digest = sha256(value.as_bytes());
+    u32::from_le_bytes(digest[..4].try_into().unwrap())
 }
 
 fn world_rev(n: u64) -> WorldRevision {
@@ -980,13 +1004,11 @@ fn world_rev(n: u64) -> WorldRevision {
 }
 
 fn payload(bytes: &[u8]) -> SectionPayload {
-    SectionPayload::from_pages([SectionPage::new(
-        "Dense",
-        "None",
-        bytes.to_vec(),
-        sha256(bytes),
-    )])
-    .expect("valid dense uncompressed page")
+    let digest = sha256(bytes);
+    SectionPayload::from_storage(SectionStorage::uniform(BlockId::from_raw(
+        u32::from_le_bytes(digest[..4].try_into().unwrap()),
+    )))
+    .expect("canonical Section storage")
 }
 
 fn empty_replacement(base: &SectionDirectoryRoot) -> SectionReplacement {

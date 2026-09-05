@@ -7,3 +7,6 @@
 # Generated contract mirrors are opaque bytes; their lock hashes the checked-in
 # materialization exactly and must not vary with the consumer's checkout config.
 /crates/lumio-voxel-contracts/generated/** -text
+
+# Vendored wire contracts are hash-addressed public bytes, not checkout text.
+/crates/lumio-voxel-contracts/wire/*.json -text

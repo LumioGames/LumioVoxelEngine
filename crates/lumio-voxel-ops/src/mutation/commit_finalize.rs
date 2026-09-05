@@ -17,8 +17,5 @@ pub(super) fn publish_once_and_finalize(
     authority
         .publish_once(token)
         .map_err(MutationError::from_publish)?;
-    let outcome = ledger
-        .finalize(&request, receipt_bytes)
-        .map_err(MutationError::from_ledger)?;
-    Ok(outcome.receipt)
+    Ok(ledger.finalize_after_publish(&request, receipt_bytes))
 }

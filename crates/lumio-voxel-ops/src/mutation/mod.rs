@@ -17,9 +17,10 @@ mod reservation;
 
 pub use commit::{CommitEvidence, GeneratedMutationReceipt, commit};
 pub use fingerprint::{
-    MUTATION_RECEIPT_SCHEMA, MutationRequest, RequestFingerprint, canonical_fingerprint,
+    BlockWrite, BlockWriteEntry, MUTATION_RECEIPT_SCHEMA, MutationEntry, MutationRequest,
+    MutationWrite, MutationWriteEntry, RequestFingerprint, canonical_fingerprint,
 };
-pub use plan::{MutationPlan, MutationPlanner};
+pub use plan::{MAX_WRITE_BATCH_ENTRIES, MutationPlan, MutationPlanner};
 pub use preconditions::{MutationError, MutationPreconditions};
 pub use prepare::prepare;
 pub use prepared_token::PreparedMutation;

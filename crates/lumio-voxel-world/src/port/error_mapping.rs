@@ -130,3 +130,15 @@ pub fn map_query_error(err: QueryError) -> PortError {
 pub fn map_mutation_error(err: MutationError) -> PortError {
     map_internal_error(err.error_id())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unregistered_block_type_passes_through_as_registered_contract_error() {
+        let mapped = map_internal_error(vw::UNREGISTERED_BLOCK_TYPE);
+        assert_eq!(mapped.error_id(), vw::UNREGISTERED_BLOCK_TYPE);
+        assert!(mapped.is_registered());
+    }
+}

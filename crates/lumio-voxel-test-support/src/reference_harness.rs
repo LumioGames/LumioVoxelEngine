@@ -4,6 +4,7 @@
 use crate::fault_injection::{FaultInjector, FaultPoint};
 use lumio_voxel_contracts::voxel_world as vw;
 use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, sha256};
+use lumio_voxel_domain::block::{BlockId, CellOffset};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -14,10 +15,12 @@ use lumio_voxel_domain::revision::{
 };
 use lumio_voxel_domain::section::{
     CoveredSectionAck, DirtyFrontier, DurabilityAckContext, SectionDeltaBuilder,
-    SectionDirectoryBuilder, SectionPage, SectionPayload, SectionSlot,
+    SectionDirectoryBuilder, SectionPayload, SectionSlot, SectionStorage,
 };
 use lumio_voxel_ops::async_support::{OriginEnvelope, OriginToken};
-use lumio_voxel_ops::mutation::{MutationRequest, PreparedMutation, canonical_fingerprint};
+use lumio_voxel_ops::mutation::{
+    MutationEntry, MutationRequest, PreparedMutation, canonical_fingerprint,
+};
 use lumio_voxel_ops::query::GeneratedVoxelQueryRequest;
 use lumio_voxel_ops::snapshot::{
     MemoryCaptureWriter, RestorePreflight, RestoreShadowBuilder, VoxelCaptureRef,
@@ -640,7 +643,7 @@ impl OracleState {
         let mut ready = BTreeSet::new();
         for id in READY_SECTIONS {
             section_revisions.insert((*id).into(), 1);
-            payloads.insert((*id).into(), format!("seed:{id}").into_bytes());
+            payloads.insert((*id).into(), seed_payload_bytes(id));
             ready.insert((*id).into());
         }
         Self {
@@ -1172,31 +1175,36 @@ impl OracleState {
         if request.generation != self.generation {
             return Err("StaleEpoch");
         }
-        let expected = request
-            .fields
-            .get("world_revision")
-            .and_then(|v| v.parse::<u64>().ok());
-        if expected != Some(self.world_revision) {
+        let fp = oracle_fingerprint(&request)?;
+        if let Some(entry) = self.ledger.get(&request.txn_id)
+            && entry.fingerprint != fp
+        {
             return Err("RevisionConflict");
         }
         let section = request
-            .fields
-            .keys()
-            .find(|k| k.starts_with("s:"))
-            .and_then(|k| k.split('/').next());
+            .entries
+            .first()
+            .map(|entry| entry.section_key.as_str());
         let Some(section) = section else {
             return Err("InvalidHandle");
         };
+        let expected = self
+            .section_revisions
+            .get(section)
+            .copied()
+            .unwrap_or(self.world_revision);
+        if request
+            .entries
+            .iter()
+            .any(|entry| entry.expected_section_revision != expected)
+        {
+            return Err(vw::STALE_SECTION_REVISION);
+        }
         parse_coordinate(section)?;
         if !self.ready.contains(section) {
             return Err(vw::SECTION_UNAVAILABLE);
         }
-        let fp = oracle_fingerprint(&request)?;
-        if let Some(entry) = self.ledger.get(&request.txn_id) {
-            if entry.fingerprint != fp {
-                return Err("RevisionConflict");
-            }
-        } else {
+        if !self.ledger.contains_key(&request.txn_id) {
             self.ledger.insert(
                 request.txn_id.clone(),
                 OracleLedgerEntry {
@@ -1220,19 +1228,19 @@ impl OracleState {
     ) -> Result<ReceiptObservation, &'static str> {
         let section = prepared
             .request
-            .fields
-            .keys()
-            .find(|k| k.starts_with("s:"))
-            .and_then(|k| k.split('/').next())
+            .entries
+            .first()
+            .map(|entry| entry.section_key.as_str())
             .ok_or("InvalidHandle")?
             .to_string();
-        let payload = prepared
-            .request
-            .fields
-            .iter()
-            .find(|(key, _)| key.starts_with("s:"))
-            .map(|(_, value)| value.as_bytes().to_vec())
-            .ok_or("InvalidHandle")?;
+        let payload = storage_payload(
+            self.payloads.get(&section).map(Vec::as_slice),
+            prepared
+                .request
+                .entries
+                .iter()
+                .filter(|entry| entry.section_key == section),
+        );
         let old = self.state().published_root;
         let old_section = self
             .section_revisions
@@ -1243,12 +1251,13 @@ impl OracleState {
         self.section_revisions
             .insert(section.clone(), old_section + 1);
         self.payloads.insert(section.clone(), payload);
+        let new_section = old_section + 1;
         self.dirty
             .entry(section)
-            .and_modify(|d| d.latest = d.latest.max(old_section))
+            .and_modify(|d| d.latest = d.latest.max(new_section))
             .or_insert(OracleDirty {
-                first: old_section,
-                latest: old_section,
+                first: new_section,
+                latest: new_section,
                 reason: "mutation".into(),
             });
         self.publication_epoch += 1;
@@ -1272,11 +1281,16 @@ impl OracleState {
         section: &str,
         value: &str,
     ) -> Result<ReceiptObservation, &'static str> {
+        let expected_section_revision = self
+            .section_revisions
+            .get(section)
+            .copied()
+            .unwrap_or(self.world_revision);
         let req = oracle_request(
             txn,
             WORLD_ID,
             self.generation,
-            self.world_revision,
+            expected_section_revision,
             section,
             "cell",
             value,
@@ -1423,10 +1437,8 @@ impl OracleState {
                 "edited",
             )
         });
-        if conflict {
-            request
-                .fields
-                .insert("s:0:0:0/cell-0".into(), "conflicting".into());
+        if conflict && let Some(entry) = request.entries.first_mut() {
+            entry.block_id = BlockId::from_raw(hash_value("conflicting"));
         }
         let fingerprint = match oracle_fingerprint(&request) {
             Ok(fingerprint) => fingerprint,
@@ -2448,9 +2460,15 @@ fn rust_mutation_request(
     config: &str,
 ) -> Result<OriginEnvelope<MutationRequest>, String> {
     let context = run.world.state_view().world_context_id().to_string();
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".into(), expected.to_string());
-    fields.insert(format!("{section}/{cell}"), value.into());
+    let offset = cell
+        .parse::<u16>()
+        .unwrap_or_else(|_| hash_value(cell) as u16 % 4096);
+    let entries = vec![MutationEntry::new(
+        section,
+        CellOffset::new(offset).unwrap(),
+        BlockId::from_raw(value.parse().unwrap_or_else(|_| hash_value(value))),
+        expected,
+    )];
     Ok(OriginEnvelope {
         origin: rust_origin(&run.world, txn, Some(&context), Some(generation))?,
         config_hash: config.into(),
@@ -2458,7 +2476,7 @@ fn rust_mutation_request(
             txn_id: txn.into(),
             world_id: world.into(),
             generation,
-            fields,
+            entries,
         },
     })
 }
@@ -2593,23 +2611,10 @@ fn rust_commit(
                 .0;
             let already_recorded = run.receipts.contains_key(&txn);
             let evidence_matches = if already_recorded {
-                // A duplicate returns the retained wire receipt while its
-                // evidence describes the current prepared base. Verify both
-                // independently so a fresh receipt cannot masquerade as a replay.
-                out.payload.evidence.old_root
-                    == run
-                        .world
-                        .publication_authority()
-                        .capture()
-                        .root()
-                        .identity()
-                    && out.payload.evidence.new_root
-                        == run
-                            .world
-                            .publication_authority()
-                            .capture()
-                            .root()
-                            .identity()
+                // A duplicate is field-equivalent to the original receipt and
+                // cannot synthesize evidence from the later published root.
+                old_root == out.payload.evidence.old_root
+                    && new_root == out.payload.evidence.new_root
                     && run
                         .receipts
                         .get(&txn)
@@ -2623,7 +2628,10 @@ fn rust_commit(
                 || fp != expected
                 || sha256(&out.payload.receipt) != out.payload.evidence.receipt_hash
             {
-                return Err("receipt evidence mismatch".into());
+                return Err(format!(
+                    "receipt evidence mismatch: txn={txn} duplicate={already_recorded} wire_old={old_root:?} wire_new={new_root:?} evidence_old={:?} evidence_new={:?}",
+                    out.payload.evidence.old_root, out.payload.evidence.new_root
+                ));
             }
             let disposition = if run
                 .receipts
@@ -2659,9 +2667,24 @@ fn rust_commit_new(
     txn: &str,
     section: &str,
     value: &str,
-    expected: u64,
+    _expected: u64,
 ) -> Result<ReceiptObservation, String> {
     let generation = run.world.state_view().instance_generation();
+    let expected = run
+        .world
+        .publication_authority()
+        .capture()
+        .stamp()
+        .section_revision_set
+        .get(section)
+        .copied()
+        .unwrap_or_else(|| {
+            run.world
+                .publication_authority()
+                .capture()
+                .stamp()
+                .world_revision
+        });
     let env = rust_mutation_request(
         run,
         txn,
@@ -2685,10 +2708,9 @@ fn rust_conflicting_replay_probe(
     request: &OriginEnvelope<MutationRequest>,
 ) -> Result<ProbeObservation, String> {
     let mut conflict = request.clone();
-    conflict
-        .payload
-        .fields
-        .insert("s:0:0:0/cell-0".into(), "conflicting".into());
+    if let Some(entry) = conflict.payload.entries.first_mut() {
+        entry.block_id = BlockId::from_raw(hash_value("conflicting"));
+    }
     let result = GeneratedVoxelWorldPortAdapter::new(&mut run.world).prepare_mutation(conflict);
     let (ok, error) = match result {
         Ok(_) => (true, None),
@@ -3216,14 +3238,20 @@ fn oracle_request(
     cell: &str,
     value: &str,
 ) -> MutationRequest {
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".into(), expected.to_string());
-    fields.insert(format!("{section}/{cell}"), value.into());
+    let offset = cell
+        .parse::<u16>()
+        .unwrap_or_else(|_| hash_value(cell) as u16 % 4096);
+    let entries = vec![MutationEntry::new(
+        section,
+        CellOffset::new(offset).unwrap(),
+        BlockId::from_raw(value.parse().unwrap_or_else(|_| hash_value(value))),
+        expected,
+    )];
     MutationRequest {
         txn_id: txn.into(),
         world_id: world.into(),
         generation,
-        fields,
+        entries,
     }
 }
 
@@ -3321,25 +3349,15 @@ fn canonical_coordinate((x, y, z): (i32, i32, i32)) -> String {
 }
 
 fn oracle_fingerprint(request: &MutationRequest) -> Result<[u8; 32], &'static str> {
-    if request.fields.keys().any(|key| {
-        matches!(
-            key.as_str(),
-            "canonicalForm" | "txn_id" | "world_id" | "generation"
-        )
-    }) {
-        return Err("InvalidHandle");
-    }
     let mut entries = BTreeMap::new();
-    for (key, value) in &request.fields {
-        entries.insert(key.clone(), oracle_quote(value));
-    }
+    entries.insert("canonicalForm", oracle_quote("VoxelCanonicalObjectV1"));
     entries.insert(
-        "canonicalForm".into(),
-        oracle_quote("VoxelCanonicalObjectV1"),
+        "entries",
+        oracle_quote(&oracle_entries_encoding(&request.entries)),
     );
-    entries.insert("txn_id".into(), oracle_quote(&request.txn_id));
-    entries.insert("world_id".into(), oracle_quote(&request.world_id));
-    entries.insert("generation".into(), request.generation.to_string());
+    entries.insert("generation", request.generation.to_string());
+    entries.insert("txn_id", oracle_quote(&request.txn_id));
+    entries.insert("world_id", oracle_quote(&request.world_id));
     let mut encoded = String::from("{");
     for (index, (key, value)) in entries.iter().enumerate() {
         if index > 0 {
@@ -3351,6 +3369,81 @@ fn oracle_fingerprint(request: &MutationRequest) -> Result<[u8; 32], &'static st
     }
     encoded.push('}');
     Ok(sha256(encoded.as_bytes()))
+}
+
+fn hash_value(value: &str) -> u32 {
+    let digest = sha256(value.as_bytes());
+    u32::from_le_bytes(digest[..4].try_into().unwrap())
+}
+
+fn seed_payload_bytes(id: &str) -> Vec<u8> {
+    hash_value(&format!("seed:{id}")).to_le_bytes().to_vec()
+}
+
+fn storage_payload<'a>(
+    previous: Option<&[u8]>,
+    entries: impl Iterator<Item = &'a MutationEntry>,
+) -> Vec<u8> {
+    let (mut palette, _) = decode_storage_payload(previous);
+    let mut cells = vec![0_u8; 4096];
+    if let Some((decoded_palette, decoded_cells)) = decode_palette_payload(previous) {
+        palette = decoded_palette;
+        cells = decoded_cells;
+    }
+    for entry in entries {
+        let slot = palette
+            .iter()
+            .position(|block| *block == entry.block_id)
+            .unwrap_or_else(|| {
+                palette.push(entry.block_id);
+                palette.len() - 1
+            });
+        cells[usize::from(entry.cell_offset.raw())] = slot as u8;
+    }
+    let original_palette = palette;
+    let original_cells = cells;
+    palette = Vec::new();
+    cells = vec![0; 4096];
+    for (index, old_slot) in original_cells.into_iter().enumerate() {
+        let block = original_palette[usize::from(old_slot)];
+        let slot = palette
+            .iter()
+            .position(|entry| *entry == block)
+            .unwrap_or_else(|| {
+                palette.push(block);
+                palette.len() - 1
+            });
+        cells[index] = slot as u8;
+    }
+    if palette.len() == 1 {
+        return palette[0].raw().to_le_bytes().to_vec();
+    }
+    let mut payload = Vec::with_capacity(2 + palette.len() * 4 + cells.len());
+    payload.extend_from_slice(&(palette.len() as u16).to_le_bytes());
+    for block in palette {
+        payload.extend_from_slice(&block.raw().to_le_bytes());
+    }
+    payload.extend_from_slice(&cells);
+    payload
+}
+
+fn oracle_entries_encoding(entries: &[MutationEntry]) -> String {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&(entries.len() as u64).to_le_bytes());
+    for entry in entries {
+        let section = entry.section_key.as_bytes();
+        bytes.extend_from_slice(&(section.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(section);
+        bytes.extend_from_slice(&entry.cell_offset.raw().to_le_bytes());
+        bytes.extend_from_slice(&entry.block_id.raw().to_le_bytes());
+        bytes.extend_from_slice(&entry.expected_section_revision.to_le_bytes());
+    }
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(char::from(b"0123456789abcdef"[(byte >> 4) as usize]));
+        out.push(char::from(b"0123456789abcdef"[(byte & 0x0f) as usize]));
+    }
+    out
 }
 
 fn oracle_quote(value: &str) -> String {
@@ -4603,6 +4696,39 @@ fn observations_equal_for_contract(
             .all(|(left, right)| observation_matches(left, right))
 }
 
+fn decode_storage_payload(previous: Option<&[u8]>) -> (Vec<BlockId>, Vec<u8>) {
+    if let Some(bytes) = previous
+        && bytes.len() == 4
+    {
+        return (
+            vec![BlockId::from_raw(u32::from_le_bytes(
+                bytes.try_into().unwrap(),
+            ))],
+            vec![0; 4096],
+        );
+    }
+    (vec![BlockId::from_raw(0)], vec![0; 4096])
+}
+
+fn decode_palette_payload(previous: Option<&[u8]>) -> Option<(Vec<BlockId>, Vec<u8>)> {
+    let bytes = previous?;
+    if bytes.len() < 2 {
+        return None;
+    }
+    let count = usize::from(u16::from_le_bytes([bytes[0], bytes[1]]));
+    let table_end = 2usize.checked_add(count.checked_mul(4)?)?;
+    if !(2..=256).contains(&count) || bytes.len() != table_end + 4096 {
+        return None;
+    }
+    let palette = bytes[2..table_end]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|raw| BlockId::from_raw(u32::from_le_bytes(*raw)))
+        .collect::<Vec<_>>();
+    Some((palette, bytes[table_end..].to_vec()))
+}
+
 fn observation_matches(a: &DifferentialObservation, b: &DifferentialObservation) -> bool {
     a.sequence == b.sequence
         && a.operation == b.operation
@@ -5075,14 +5201,9 @@ fn seed_differential_ready_sections(world: &mut VoxelWorld) -> Result<(), String
         .ok_or_else(|| "seed overflow".to_string())?;
     let mut directory = SectionDirectoryBuilder::new();
     for id in READY_SECTIONS {
-        let bytes = format!("seed:{id}").into_bytes();
-        let payload = SectionPayload::from_pages([SectionPage::new(
-            "Dense",
-            "None",
-            bytes.clone(),
-            sha256(&bytes),
-        )])
-        .map_err(|e| e.error_id().to_string())?;
+        let storage = SectionStorage::uniform(BlockId::from_raw(hash_value(&format!("seed:{id}"))));
+        let payload =
+            SectionPayload::from_storage(storage).map_err(|e| e.error_id().to_string())?;
         directory
             .insert(id, SectionSlot::ready(payload))
             .map_err(|e| e.error_id().to_string())?;

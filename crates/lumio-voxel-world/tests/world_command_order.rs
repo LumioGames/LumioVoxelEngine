@@ -135,15 +135,13 @@ fn identity_of(world: &VoxelWorld) -> [u8; 32] {
     world.publication_authority().capture().root().identity()
 }
 
-fn mutation_request(world: &VoxelWorld, txn_id: &str, world_revision: u64) -> MutationRequest {
+fn mutation_request(world: &VoxelWorld, txn_id: &str, _world_revision: u64) -> MutationRequest {
     let view = world.state_view();
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
     MutationRequest {
         txn_id: txn_id.to_string(),
         world_id: view.world_id().to_string(),
         generation: view.instance_generation(),
-        fields,
+        entries: Vec::new(),
     }
 }
 
@@ -154,7 +152,7 @@ fn mutation_envelope(
 ) -> OriginEnvelope<MutationRequest> {
     OriginEnvelope {
         origin: origin_of(world, txn_id),
-        config_hash: String::new(),
+        config_hash: world.config_hash().to_string(),
         payload: mutation_request(world, txn_id, world_revision),
     }
 }

@@ -10,7 +10,7 @@ use super::barrier::{BarrierScope, admit_scope};
 use super::instance::VoxelWorld;
 use lumio_voxel_contracts::SCHEMA_IDS;
 use lumio_voxel_domain::publication::PublishedStateRoot;
-use lumio_voxel_domain::revision::{RevisionAllocator, WorldRevision};
+use lumio_voxel_domain::revision::WorldRevision;
 use lumio_voxel_domain::section::{DurabilityAckEvidence, SectionDeltaBuilder};
 
 const ACK_KIND: &str = "DurabilityAck";
@@ -151,18 +151,7 @@ fn validate_before_occupancy(world: &VoxelWorld, ack: &AckEvidence) -> Result<()
 }
 
 fn world_revision_matching(n: u64) -> Result<WorldRevision, WorldError> {
-    let mut alloc = RevisionAllocator::new();
-    for _ in 0..n {
-        alloc
-            .reserve_world()
-            .map_err(|_| WorldError::invalid_handle())?
-            .abandon();
-    }
-    alloc
-        .reserve_world()
-        .map_err(|_| WorldError::invalid_handle())?
-        .finalize()
-        .map_err(|_| WorldError::invalid_handle())
+    Ok(WorldRevision::from_raw(n))
 }
 
 fn ack_schema_id() -> &'static str {

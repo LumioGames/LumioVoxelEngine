@@ -229,6 +229,27 @@ fn successful_replacement_replay_equal_hashes() {
 }
 
 #[test]
+fn opaque_replacement_keeps_the_legacy_payload_digest() {
+    let base = SectionDirectoryBuilder::new().freeze();
+    let next = payload(b"legacy-opaque-page");
+    let mut delta = SectionDeltaBuilder::new(&base);
+    delta
+        .stage(("s:0:0:0", SectionSlot::ready(next.clone())))
+        .expect("stage opaque payload");
+    let replacement = delta.freeze().expect("freeze replacement");
+
+    let mut legacy = Vec::new();
+    legacy.extend_from_slice(b"s:0:0:0");
+    legacy.push(0);
+    legacy.extend_from_slice(b"Ready");
+    legacy.push(0);
+    legacy.extend_from_slice(next.schema_id().as_bytes());
+    legacy.push(0);
+    legacy.extend_from_slice(&sha256(format!("{next:?}").as_bytes()));
+    assert_eq!(replacement.digest(), sha256(&legacy));
+}
+
+#[test]
 fn dirty_frontier_newer_dirty_not_covered_by_older_ack() {
     assert!(SCHEMA_IDS.contains(&"voxel-durability-ack"));
 

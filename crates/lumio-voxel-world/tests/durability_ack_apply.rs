@@ -1,6 +1,7 @@
 //! R-00137: DurabilityAck is the only Dirty-clear path (coverage-checked root swap).
 
 use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
+use lumio_voxel_domain::block::{BlockId, CellOffset};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -11,10 +12,10 @@ use lumio_voxel_domain::revision::{
 };
 use lumio_voxel_domain::section::{
     CoveredSectionAck, DirtyFrontier, DurabilityAckContext, SectionDeltaBuilder,
-    SectionDirectoryBuilder, SectionPage, SectionPayload, SectionReplacement, SectionSlot,
+    SectionDirectoryBuilder, SectionPayload, SectionReplacement, SectionSlot, SectionStorage,
 };
 use lumio_voxel_ops::async_support::OriginToken;
-use lumio_voxel_ops::mutation::MutationRequest;
+use lumio_voxel_ops::mutation::{MutationEntry, MutationRequest};
 use lumio_voxel_world::world::{
     AckEvidence, AdmittedCommand, BarrierScope, VoxelWorld, WorldCommand, WorldConfigAdapter,
     WorldDescriptor, WorldError, WorldWriteLane, apply_durability_ack,
@@ -152,12 +153,10 @@ fn world_rev(n: u64) -> WorldRevision {
 }
 
 fn payload(bytes: &[u8]) -> SectionPayload {
-    SectionPayload::from_pages([SectionPage::new(
-        "Dense",
-        "None",
-        bytes.to_vec(),
-        sha256(bytes),
-    )])
+    let digest = sha256(bytes);
+    SectionPayload::from_storage(SectionStorage::uniform(BlockId::from_raw(
+        u32::from_le_bytes(digest[..4].try_into().unwrap()),
+    )))
     .expect("valid dense uncompressed page")
 }
 
@@ -237,16 +236,22 @@ fn seed_ready(world: &VoxelWorld, sections: &[&str]) {
 fn mutate(world: &mut VoxelWorld, txn_id: &str, sections: &[(&str, &str)]) {
     let view = world.state_view();
     let world_revision = current_world_revision(world);
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
-    for (id, value) in sections {
-        fields.insert((*id).to_string(), (*value).to_string());
-    }
+    let entries = sections
+        .iter()
+        .map(|(id, value)| {
+            MutationEntry::new(
+                id.split_once('/').map(|(section, _)| section).unwrap_or(id),
+                CellOffset::new(0).unwrap(),
+                BlockId::from_raw(value.parse().unwrap_or(1)),
+                world_revision,
+            )
+        })
+        .collect();
     let request = MutationRequest {
         txn_id: txn_id.to_string(),
         world_id: view.world_id().to_string(),
         generation: view.instance_generation(),
-        fields,
+        entries,
     };
     let mut lease = WorldWriteLane::try_acquire(world).expect("lane free for mutation");
     lease

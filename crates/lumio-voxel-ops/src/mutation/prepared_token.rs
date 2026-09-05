@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 use super::fingerprint::{MutationRequest, RequestFingerprint};
+use super::receipt_ledger::ReceiptEvidence;
 use super::reservation::MutationReservation;
 use lumio_voxel_domain::section::{DirtyFrontier, SectionReplacement};
 
@@ -22,6 +23,8 @@ pub struct PreparedMutation {
     dirty: DirtyFrontier,
     #[allow(dead_code)]
     target_world_revision: u64,
+    replay_receipt: Option<Vec<u8>>,
+    replay_evidence: Option<ReceiptEvidence>,
 }
 
 impl PreparedMutation {
@@ -48,7 +51,39 @@ impl PreparedMutation {
             replacement,
             dirty,
             target_world_revision,
+            replay_receipt: None,
+            replay_evidence: None,
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn bind_replay(
+        request: MutationRequest,
+        fingerprint: RequestFingerprint,
+        base_identity: [u8; 32],
+        generation: u64,
+        config_hash: String,
+        reservation: MutationReservation,
+        replacement: SectionReplacement,
+        dirty: DirtyFrontier,
+        target_world_revision: u64,
+        receipt: Vec<u8>,
+        evidence: Option<ReceiptEvidence>,
+    ) -> Self {
+        let mut token = Self::bind(
+            request,
+            fingerprint,
+            base_identity,
+            generation,
+            config_hash,
+            reservation,
+            replacement,
+            dirty,
+            target_world_revision,
+        );
+        token.replay_receipt = Some(receipt);
+        token.replay_evidence = evidence;
+        token
     }
 
     pub fn txn_id(&self) -> &str {
@@ -93,6 +128,14 @@ impl PreparedMutation {
     #[allow(dead_code)]
     pub(crate) fn target_world_revision(&self) -> u64 {
         self.target_world_revision
+    }
+
+    pub(crate) fn replay_receipt(&self) -> Option<&[u8]> {
+        self.replay_receipt.as_deref()
+    }
+
+    pub(crate) fn replay_evidence(&self) -> Option<&ReceiptEvidence> {
+        self.replay_evidence.as_ref()
     }
 }
 

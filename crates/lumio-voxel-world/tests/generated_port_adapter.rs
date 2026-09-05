@@ -4,16 +4,25 @@ use lumio_voxel_contracts::{
     BASELINE_ID, BINDINGS, BoundedBuffer, SCHEMA_EPOCH, SCHEMA_IDS, STABLE_ERROR_IDS,
     is_stable_error_id, sha256,
 };
+use lumio_voxel_domain::block::{BlockId, CellOffset};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
 };
-use lumio_voxel_domain::section::DurabilityAckContext;
+use lumio_voxel_domain::publication::PublishedStateRoot;
+use lumio_voxel_domain::revision::{GeneratedRevisionStamp, WorldRevision};
+use lumio_voxel_domain::section::{
+    DirtyFrontier, DurabilityAckContext, SectionDeltaBuilder, SectionDirectoryBuilder,
+    SectionPayload, SectionSlot, SectionStorage, StagedEdit,
+};
 use lumio_voxel_ops::async_support::{OriginEnvelope, OriginToken};
-use lumio_voxel_ops::mutation::MutationRequest;
-use lumio_voxel_ops::query::GeneratedVoxelQueryRequest;
+use lumio_voxel_ops::mutation::{MutationEntry, MutationRequest};
+use lumio_voxel_ops::query::{BlockReadWorld, GeneratedVoxelQueryRequest};
 use lumio_voxel_ops::snapshot::{
     MemoryCaptureWriter, RestorePreflight, RestoreShadowBuilder, encode_capture,
+};
+use lumio_voxel_project::physics_query::{
+    MaterialClass, MaterialMask, MaterialTable, PhysicsQuery, PhysicsWorld, QueryResolution, Vec3,
 };
 use lumio_voxel_world::port::{
     GENERATED_PORT_METHODS, GeneratedVoxelWorldPortAdapter, MutationStatus, OwnedResultBuffer,
@@ -166,7 +175,7 @@ fn query_envelope(
     let view = world.state_view();
     OriginEnvelope {
         origin: origin_of(world, query_id),
-        config_hash: String::new(),
+        config_hash: world.config_hash().to_string(),
         payload: GeneratedVoxelQueryRequest {
             query_id: query_id.to_string(),
             world_id: view.world_id().to_string(),
@@ -179,21 +188,14 @@ fn query_envelope(
 
 fn mutation_envelope(world: &VoxelWorld, txn_id: &str) -> OriginEnvelope<MutationRequest> {
     let view = world.state_view();
-    let world_revision = world
-        .publication_authority()
-        .capture()
-        .stamp()
-        .world_revision;
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
     OriginEnvelope {
         origin: origin_of(world, txn_id),
-        config_hash: String::new(),
+        config_hash: world.config_hash().to_string(),
         payload: MutationRequest {
             txn_id: txn_id.to_string(),
             world_id: view.world_id().to_string(),
             generation: view.instance_generation(),
-            fields,
+            entries: Vec::new(),
         },
     }
 }
@@ -214,6 +216,53 @@ fn empty_ack(world: &VoxelWorld) -> AckEvidence {
             .world_revision,
         covered_sections: Vec::new(),
     }
+}
+
+fn seed_structured_section(world: &VoxelWorld, section_id: &str) {
+    let storage = SectionStorage::uniform(BlockId::from_raw(0));
+    let payload = SectionPayload::from_storage(storage).expect("structured payload");
+    publish_section_slot(world, section_id, SectionSlot::ready(payload));
+}
+
+fn publish_section_slot(world: &VoxelWorld, section_id: &str, slot: SectionSlot) {
+    let before = world.publication_authority().capture();
+    let world_revision = before.stamp().world_revision + 1;
+    let section_revision = world_revision;
+
+    let mut directory = SectionDirectoryBuilder::new();
+    for (id, current) in before.directory().iter() {
+        directory.insert(&id.key(), current.clone()).unwrap();
+    }
+    directory.insert(section_id, slot.clone()).unwrap();
+    let mut revisions = before.stamp().section_revision_set.clone();
+    revisions.insert(section_id.to_string(), section_revision);
+    let stamp = GeneratedRevisionStamp {
+        schema_id: before.stamp().schema_id,
+        world_id: before.stamp().world_id.clone(),
+        context_id: before.stamp().context_id.clone(),
+        generation: before.stamp().generation,
+        world_revision,
+        section_revision_set: revisions,
+    };
+    let root = PublishedStateRoot::new(
+        stamp,
+        directory.freeze(),
+        DirtyFrontier::new(&before.stamp().world_id, before.stamp().generation).unwrap(),
+    );
+    let mut delta = SectionDeltaBuilder::new(before.directory());
+    delta
+        .stage(StagedEdit::new(section_id, slot))
+        .expect("stage seed");
+    let replacement = delta.freeze().expect("freeze seed");
+    let mut prepared = world
+        .publication_authority()
+        .prepare(WorldRevision::from_raw(world_revision), root, replacement)
+        .expect("prepare seed");
+    let token = prepared.seal().expect("seal seed");
+    world
+        .publication_authority()
+        .publish_once(token)
+        .expect("publish seed");
 }
 
 fn workspace_root() -> PathBuf {
@@ -501,6 +550,111 @@ fn status_tracks_prepared_and_applied_mutations() {
         adapter.status("txn-status").expect("applied"),
         MutationStatus::Applied
     );
+}
+
+#[test]
+fn committed_storage_is_shared_by_block_reads_and_physics() {
+    let mut world = create_named(
+        "Authority",
+        "ctx-published-storage",
+        "world-published-storage",
+        "published-storage-views",
+    );
+    drive_to_running(&mut world);
+    seed_structured_section(&world, "s:0:0:0");
+
+    let generation = world.state_view().instance_generation();
+    let revision = world
+        .publication_authority()
+        .capture()
+        .stamp()
+        .section_revision_set["s:0:0:0"];
+    let stone = BlockId::from_raw(256);
+    let request = OriginEnvelope {
+        origin: origin_of(&world, "txn-shared-storage"),
+        config_hash: world.config_hash().to_string(),
+        payload: MutationRequest {
+            txn_id: "txn-shared-storage".into(),
+            world_id: "world-published-storage".into(),
+            generation,
+            entries: vec![MutationEntry::new(
+                "s:0:0:0",
+                CellOffset::new(0).unwrap(),
+                stone,
+                revision,
+            )],
+        },
+    };
+    let mut adapter = GeneratedVoxelWorldPortAdapter::new(&mut world);
+    let prepared = adapter.prepare_mutation(request).expect("prepare mutation");
+    adapter.commit(prepared).expect("commit mutation");
+
+    let published = world.publication_authority().capture();
+    let reads = BlockReadWorld::from_published_view(&published).expect("block read view");
+    let cell = reads.read_cell(0, 0, 0).expect("published cell read");
+    assert_eq!(cell.block_id(), Some(stone));
+    assert_eq!(cell.section_revision(), revision + 1);
+
+    let physics = PhysicsWorld::from_published_view(&published).expect("physics view");
+    let materials = MaterialTable::default().with(stone.block_type(), MaterialClass::Solid);
+    let hit = PhysicsQuery::new(&physics, &materials)
+        .raycast(
+            Vec3::new(0.5, 0.5, 0.5),
+            Vec3::new(1.0, 0.0, 0.0),
+            1.0,
+            MaterialMask::solid(),
+        )
+        .expect("physics query");
+    assert!(matches!(hit, QueryResolution::Hit(_)));
+}
+
+#[test]
+fn unchanged_published_slots_require_and_share_the_original_map_baseline() {
+    let mut world = create_named(
+        "Authority",
+        "ctx-published-baseline",
+        "world-published-baseline",
+        "published-baseline-views",
+    );
+    drive_to_running(&mut world);
+    publish_section_slot(&world, "s:0:0:0", SectionSlot::unchanged());
+
+    let published = world.publication_authority().capture();
+    assert_eq!(
+        BlockReadWorld::from_published_view(&published)
+            .expect_err("Unchanged has no inline BlockId storage")
+            .error_id(),
+        "section_encoding_mismatch"
+    );
+    assert_eq!(
+        PhysicsWorld::from_published_view(&published)
+            .expect_err("physics cannot infer the original map")
+            .error_id(),
+        "section_encoding_mismatch"
+    );
+
+    let stone = BlockId::from_raw(256 << 8);
+    let baseline = SectionStorage::uniform(stone);
+    let resolve_baseline =
+        |id: &lumio_voxel_domain::key::SectionId| (id.key() == "s:0:0:0").then(|| baseline.clone());
+    let reads = BlockReadWorld::from_published_view_with_baseline(&published, &resolve_baseline)
+        .expect("resolved block read view");
+    let cell = reads.read_cell(0, 0, 0).expect("baseline cell read");
+    assert_eq!(cell.presence(), "Unchanged");
+    assert_eq!(cell.block_id(), Some(stone));
+
+    let physics = PhysicsWorld::from_published_view_with_baseline(&published, &resolve_baseline)
+        .expect("resolved physics view");
+    let materials = MaterialTable::default().with(stone.block_type(), MaterialClass::Solid);
+    let hit = PhysicsQuery::new(&physics, &materials)
+        .raycast(
+            Vec3::new(0.5, 0.5, 0.5),
+            Vec3::new(1.0, 0.0, 0.0),
+            1.0,
+            MaterialMask::solid(),
+        )
+        .expect("baseline physics query");
+    assert!(matches!(hit, QueryResolution::Hit(_)));
 }
 
 #[test]

@@ -43,6 +43,38 @@ Section 的层号取值 0~15 恰好 4 bit。
 错误码还带 `KeyRejection`,`LegacyThreeCoordinateChunkKey` 让「显式拒绝」这件事本身可被断言,
 而不是只看到一个笼统的解析失败。
 
+### 方块存储与载荷
+
+- `lumio_voxel_domain::section::SectionStorage` 以不可变 `Arc` 状态提供 `Uniform` / `Palette` / `Raw`
+  三态存储；写入经 `Arc::make_mut` 形成完整新状态后替换，既有快照继续读取旧状态。格访问只接收
+  `CellOffset`，世界坐标便利入口复用 `block::CellOffset::from_world` 的 y/z/x 固定顺序。
+- Palette 固定使用 8 位索引。死槽平时保留；撞到 256 项时才用栈上 256 位图扫描活槽，有死槽就复用，
+  全活才升级 Raw，不维护常驻引用计数或空闲链表。全量序列化按实际活项重编，Raw 写入后种类降到
+  256 以内时重新降级。
+- `SectionPayloadEnvelope` 携带 Section 键、revision、编码、载荷长度与 SHA-256；解码先验摘要，再解释
+  Uniform / Palette / Raw 或每条 6 字节的 Delta。Delta 必须匹配接收方基线 revision，首次送达只接受
+  全量编码，且 Delta 必须显式携带 base revision、target revision 必须严格大于 base。`ChunkRecord` 的
+  有效形状只有 `ChunkId`，数据字节或独立 revision 都被拒绝。
+- `SectionPayload::from_storage` 从同一份 canonical `SectionStorage` 同时生成密封页与 COW sidecar；构造器
+  会拒绝 page bytes 与 sidecar 不一致。通用 `from_pages` 仍可承载 opaque page，但没有 sidecar 的 Ready
+  Section 不可进入结构化 mutation，不能被回退解释成全空气。sidecar 摘要参与发布 Root 身份；无
+  sidecar 的旧 opaque directory / replacement identity 保持兼容。
+- Mutation 对 published sidecar 做局部 COW，Dirty frontier 记录新发布的 SectionRevision。`BlockReadWorld` 与
+  `PhysicsWorld` 均从同一个 `PublishedReadView` 物化只读视图，所以 commit 后的方块值在玩法读与物理查询
+  中来自同一份 Section storage，而不是各自维护权威副本。`Unchanged` 是零字节短票，两种只读视图都必须
+  通过 `SectionStorageResolver` 取得原图 baseline；缺 resolver 时明确拒绝，不能伪造空气或降成 Unavailable。
+- 批量读的 `*_into` 路径由调用方同时提供 BlockId 与连续 Section 段元数据缓冲，只返回固定大小的计数摘要；
+  公共 visitor 先对整条请求做无写入预检，再直接写调用方缓冲，不在体素侧构造与查询体积成正比的结果数组。
+- 物理材质表的键是 `BlockType`，同类型的全部 `BlockState` 共用一项材质；非空气 BlockType 缺映射时报
+  `unknown_material_class`，不能静默当成 Empty / Miss。Sweep 以几何进入 fraction 比较已知命中与未决区，
+  远处 Pending / Unavailable 不得覆盖更近且已经证明的命中。
+- Mutation ledger 对同一 `TxnId` + fingerprint 回放原始 receipt 字节与首次提交证据；重复 prepare 不再读取
+  当前 Section storage，因此首次提交后即使 Section 已卸载或变成 `Unchanged`，回放仍保持字段等价。
+- Region pin 的 caller / host budget 由调用方注入，声明在超过有效预算后立即停止消费输入；超大 region
+  在展开 Section 键前先做 checked 规模计算。卸载同时受 Dirty durability frontier 与 pin hook 约束。
+- `WorldRouter` 的 query / prepare / commit / abort envelope 必须携带当前冻结配置的精确 `configHash`；空值与
+  不匹配值都报 `SessionMismatch`，Native provider 只通过 `VoxelWorld::config_hash` 取同一身份。
+
 ### 错误码
 
 体素公共语义报活契约 `errorCodes` 里的 snake_case 码:`unknown_section_key` / `unknown_chunk_key` /
@@ -64,15 +96,11 @@ Section 的层号取值 0~15 恰好 4 bit。
 
 ## 待解决
 
-- 契约 `blockEntityBinding`(方块↔实体的 Section 级稀疏引用表)只登记了错误码,未实现。
-- 契约 `sectionPayload` 的四档编码(Uniform / Palette / Raw / Delta)只登记了枚举与上限;当前载荷仍是
-  死基线的 `Dense` / `None` 适配器。`Delta` 相对基线 revision 表达,只能用于非首次送达。
-- 契约扩张引入、本仓只登记了错误码与常量而**未实现**的面:`blockCatalog`(官方方块目录与铸号规程)、
-  `assetLibraries`(官方 / 玩家素材库)、`blockId.scope`(BlockType 第 23 位划分全局段与房间局部段)、
-  `blockRead` / `blockWrite`(读写预算与批量语义)、`physicsQuery`(未决命中既不算空气也不算实心)。
-  段判定已有 `voxel_world::{is_global_segment, is_room_local_segment, room_local_index}` 三个纯函数
-  并受一致性测试覆盖,其余只是常量。
-- 材质类、光照、网格生成、物理 DDA、流式加载都还没落地。
+- `blockCatalog` 的占位 BlockType、保留号段与缺失 `materialClass` 错误优先级仍有三处公共契约冲突，
+  本仓不能替架构 Owner 选边；目录的完整内建映射要等契约裁决。
+- `assetLibraries`(官方 / 玩家素材库)、光照、网格生成尚未落地。
+- Residency 已有 pin、readiness、durability-fenced unload，但完整 streaming loader、候选选择、缓存预算与
+  eviction policy 仍是上层/后续工作；不得把本地技术上限伪装成冻结的公共 pin 预算。
 
 ## 相关
 
@@ -81,4 +109,6 @@ Section 的层号取值 0~15 恰好 4 bit。
 - 代码:`crates/lumio-voxel-domain/src/key.rs`、`crates/lumio-voxel-domain/src/section/`、
   `crates/lumio-voxel-contracts/src/voxel_world.rs`、`crates/lumio-voxel-contracts/src/legacy_baseline.rs`。
 - 测试:`crates/lumio-voxel-domain/tests/section_chunk_keys.rs`、
+  `crates/lumio-voxel-domain/tests/section_block_storage.rs`、
+  `crates/lumio-voxel-domain/tests/section_payload_contract.rs`、
   `crates/lumio-voxel-contracts/tests/voxel_world_conformance.rs`。
