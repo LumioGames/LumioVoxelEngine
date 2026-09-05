@@ -426,6 +426,37 @@ fn contract_block_id_bitfields_match() {
     assert_eq!(st.get("bits").as_int(), i64::from(vw::BLOCK_STATE_BITS));
     assert_eq!(st.get("shift").as_int(), i64::from(vw::BLOCK_STATE_SHIFT));
     assert_eq!(st.get("max").as_int(), i64::from(vw::BLOCK_STATE_MAX));
+
+    let resolution = block.get("resolution");
+    let builtins = resolution.get("builtInSentinels").get("types");
+    assert_eq!(
+        builtins.keys(),
+        ["0", "1", "2", "3"],
+        "the four built-in sentinel entries are ordered and exhaustive"
+    );
+    for (raw, name) in [
+        (vw::BLOCK_TYPE_AIR, "air"),
+        (vw::BLOCK_TYPE_ERROR, "error-block"),
+        (vw::BLOCK_TYPE_ECS_OCCUPANCY, "ecs-occupancy"),
+        (
+            vw::BLOCK_TYPE_STRUCTURE_PLACEHOLDER,
+            "structure-placeholder",
+        ),
+    ] {
+        assert_eq!(builtins.get(&raw.to_string()).as_str(), name);
+    }
+    assert_eq!(
+        resolution.get("reservedRange").get("min").as_int(),
+        i64::from(vw::RESERVED_BLOCK_TYPE_MIN)
+    );
+    assert_eq!(
+        resolution.get("reservedRange").get("max").as_int(),
+        i64::from(vw::SYSTEM_RESERVED_TYPE_MAX)
+    );
+    assert_eq!(
+        resolution.get("reservedRange").get("onAdmission").as_str(),
+        vw::UNREGISTERED_BLOCK_TYPE
+    );
 }
 
 #[test]
@@ -497,6 +528,18 @@ fn contract_error_codes_match() {
         vw::BLOCK_TYPE_SCOPE_VIOLATION,
         vw::ROOM_LOCAL_TYPE_WITHOUT_MAPPING,
         vw::WORLD_Y_OUT_OF_RANGE,
+        vw::UNKNOWN_MATERIAL_CLASS,
+        vw::MATERIAL_CLASS_NOT_A_CELL_LANE,
+        vw::LIQUID_AUTO_PROPAGATION_UNSUPPORTED,
+        vw::CROSS_MATERIAL_FACE_MERGE,
+        vw::SYSTEM_RESERVED_TYPE_MISUSE,
+        vw::PLAYER_TYPE_DECLARES_BEHAVIOR,
+        vw::BLOCK_CATALOG_NOT_DENSE,
+        vw::BLOCK_CATALOG_NAME_REUSED,
+        vw::BLOCK_CATALOG_ROW_INCOMPLETE,
+        vw::CELL_OFFSET_OUT_OF_RANGE,
+        vw::UNKNOWN_BEHAVIOR_TEMPLATE,
+        vw::UNREGISTERED_BLOCK_TYPE,
     ] {
         assert!(vw::is_error_code(extra));
     }
@@ -557,6 +600,10 @@ fn contract_rules_that_this_repo_enforces_are_present() {
         vw::SECTION_ENCODING_MISMATCH
     );
     assert_eq!(rules["payload.palette-cap"], vw::PALETTE_OVERFLOW);
+    assert_eq!(
+        rules["blockType.resolution-domain"],
+        vw::UNREGISTERED_BLOCK_TYPE
+    );
 }
 
 /// `blockId.scope`:作用域位是段归属的唯一权威,本仓的判定函数必须与之一致。

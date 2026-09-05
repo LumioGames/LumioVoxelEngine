@@ -40,6 +40,12 @@ impl std::error::Error for BlockError {}
 pub struct BlockType(u32);
 
 impl BlockType {
+    pub const AIR: Self = Self(vw::BLOCK_TYPE_AIR);
+    pub const ERROR: Self = Self(vw::BLOCK_TYPE_ERROR);
+    pub const ENTITY_OCCUPANCY_PLACEHOLDER: Self = Self(vw::BLOCK_TYPE_ECS_OCCUPANCY);
+    pub const ENTITY_OCCUPIED: Self = Self::ENTITY_OCCUPANCY_PLACEHOLDER;
+    pub const STRUCTURE_PLACEHOLDER: Self = Self(vw::BLOCK_TYPE_STRUCTURE_PLACEHOLDER);
+
     pub const fn new(raw: u32) -> Option<Self> {
         if raw <= vw::BLOCK_TYPE_MAX {
             Some(Self(raw))
@@ -65,6 +71,48 @@ impl BlockType {
             Some(self.0 & !vw::BLOCK_TYPE_SCOPE_MASK)
         } else {
             None
+        }
+    }
+}
+
+/// The four built-in BlockType values. These are typed sentinels, not catalog rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuiltinBlockType {
+    Air,
+    ErrorBlock,
+    EntityOccupancyPlaceholder,
+    StructurePlaceholder,
+}
+
+impl BuiltinBlockType {
+    pub const ECS_OCCUPANCY: Self = Self::EntityOccupancyPlaceholder;
+    pub const ENTITY_OCCUPANCY_PLACEHOLDER: Self = Self::EntityOccupancyPlaceholder;
+
+    pub const fn from_block_type(block_type: BlockType) -> Option<Self> {
+        match block_type.raw() {
+            vw::BLOCK_TYPE_AIR => Some(Self::Air),
+            vw::BLOCK_TYPE_ERROR => Some(Self::ErrorBlock),
+            vw::BLOCK_TYPE_ECS_OCCUPANCY => Some(Self::EntityOccupancyPlaceholder),
+            vw::BLOCK_TYPE_STRUCTURE_PLACEHOLDER => Some(Self::StructurePlaceholder),
+            _ => None,
+        }
+    }
+
+    pub const fn block_type(self) -> BlockType {
+        match self {
+            Self::Air => BlockType::AIR,
+            Self::ErrorBlock => BlockType::ERROR,
+            Self::EntityOccupancyPlaceholder => BlockType::ENTITY_OCCUPANCY_PLACEHOLDER,
+            Self::StructurePlaceholder => BlockType::STRUCTURE_PLACEHOLDER,
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Air => "air",
+            Self::ErrorBlock => "error-block",
+            Self::EntityOccupancyPlaceholder => "ecs-occupancy",
+            Self::StructurePlaceholder => "structure-placeholder",
         }
     }
 }
@@ -305,5 +353,525 @@ impl StateLayout {
         let raw = (u16::from(state.raw()) & !(value_mask << field.offset))
             | (u16::from(value) << field.offset);
         Ok(BlockState::new(raw as u8))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterialClass {
+    Solid,
+    Liquid,
+}
+
+impl MaterialClass {
+    pub fn parse(raw: &str) -> Result<Self, BlockError> {
+        match raw {
+            "Solid" => Ok(Self::Solid),
+            "Liquid" => Ok(Self::Liquid),
+            _ => Err(BlockError::contract(vw::UNKNOWN_MATERIAL_CLASS)),
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Solid => "Solid",
+            Self::Liquid => "Liquid",
+        }
+    }
+
+    pub const fn profile(self) -> &'static MaterialProfile {
+        match self {
+            Self::Solid => &MATERIAL_TABLE[0],
+            Self::Liquid => &MATERIAL_TABLE[1],
+        }
+    }
+
+    pub fn validate_greedy_merge(self, other: Self) -> Result<(), BlockError> {
+        if self != other {
+            return Err(BlockError::contract(vw::CROSS_MATERIAL_FACE_MERGE));
+        }
+        Ok(())
+    }
+
+    pub fn validate_auto_propagation_request(self) -> Result<(), BlockError> {
+        if self == Self::Liquid {
+            return Err(BlockError::contract(
+                vw::LIQUID_AUTO_PROPAGATION_UNSUPPORTED,
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MeshBehavior {
+    Solid,
+    Liquid,
+}
+
+impl MeshBehavior {
+    pub const fn face_against(self, neighbor: Option<MaterialClass>) -> FaceVisibility {
+        match (self, neighbor) {
+            (Self::Liquid, None) => FaceVisibility::Visible,
+            (Self::Liquid, Some(_)) => FaceVisibility::Hidden,
+            (Self::Solid, Some(MaterialClass::Solid)) => FaceVisibility::Hidden,
+            (Self::Solid, _) => FaceVisibility::Visible,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaceVisibility {
+    Hidden,
+    Visible,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RenderPass {
+    Opaque,
+    Transparent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CollisionBehavior {
+    Solid,
+    Passable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LightAttenuation {
+    Opaque,
+    Attenuating,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaterialProfile {
+    mesh: MeshBehavior,
+    render_pass: RenderPass,
+    collision: CollisionBehavior,
+    light_attenuation: LightAttenuation,
+    queryable: bool,
+}
+
+impl MaterialProfile {
+    pub const fn mesh(self) -> MeshBehavior {
+        self.mesh
+    }
+    pub const fn render_pass(self) -> RenderPass {
+        self.render_pass
+    }
+    pub const fn collision(self) -> CollisionBehavior {
+        self.collision
+    }
+    pub const fn light_attenuation(self) -> LightAttenuation {
+        self.light_attenuation
+    }
+    pub const fn queryable(self) -> bool {
+        self.queryable
+    }
+}
+
+pub static MATERIAL_TABLE: [MaterialProfile; 2] = [
+    MaterialProfile {
+        mesh: MeshBehavior::Solid,
+        render_pass: RenderPass::Opaque,
+        collision: CollisionBehavior::Solid,
+        light_attenuation: LightAttenuation::Opaque,
+        queryable: true,
+    },
+    MaterialProfile {
+        mesh: MeshBehavior::Liquid,
+        render_pass: RenderPass::Transparent,
+        collision: CollisionBehavior::Passable,
+        light_attenuation: LightAttenuation::Attenuating,
+        queryable: true,
+    },
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterialStorage {
+    BlockTypeTable,
+    PerCellLane,
+}
+
+impl MaterialStorage {
+    pub fn validate(self) -> Result<(), BlockError> {
+        match self {
+            Self::BlockTypeTable => Ok(()),
+            Self::PerCellLane => Err(BlockError::contract(vw::MATERIAL_CLASS_NOT_A_CELL_LANE)),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BehaviorTemplate {
+    FullCube,
+    Liquid,
+}
+
+impl BehaviorTemplate {
+    pub fn parse(raw: &str) -> Result<Self, BlockError> {
+        match raw {
+            "FullCube" => Ok(Self::FullCube),
+            "Liquid" => Ok(Self::Liquid),
+            _ => Err(BlockError::contract(vw::UNKNOWN_BEHAVIOR_TEMPLATE)),
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::FullCube => "FullCube",
+            Self::Liquid => "Liquid",
+        }
+    }
+
+    pub fn state_layout(self) -> StateLayout {
+        match self {
+            Self::FullCube => StateLayout::empty(),
+            Self::Liquid => StateLayout::new(&[StateFieldSpec::new("level", 4)])
+                .expect("the frozen Liquid layout uses four of eight bits"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlockDefinition {
+    block_type: BlockType,
+    name: String,
+    material_class: MaterialClass,
+    behavior_template: BehaviorTemplate,
+    asset_ref: String,
+    state_layout: StateLayout,
+}
+
+impl BlockDefinition {
+    pub const fn block_type(&self) -> BlockType {
+        self.block_type
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub const fn material_class(&self) -> MaterialClass {
+        self.material_class
+    }
+    pub const fn behavior_template(&self) -> BehaviorTemplate {
+        self.behavior_template
+    }
+    pub fn asset_ref(&self) -> &str {
+        &self.asset_ref
+    }
+    pub const fn state_layout(&self) -> &StateLayout {
+        &self.state_layout
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlockCatalogRowInput {
+    pub block_type: Option<u32>,
+    pub name: Option<String>,
+    pub material_class: Option<String>,
+    pub behavior_template: Option<String>,
+    pub asset_ref: Option<String>,
+    pub state_layout: Option<StateLayout>,
+}
+
+impl BlockCatalogRowInput {
+    fn into_definition(self) -> Result<BlockDefinition, BlockError> {
+        let Some(block_type) = self.block_type else {
+            return Err(BlockError::contract(vw::BLOCK_CATALOG_ROW_INCOMPLETE));
+        };
+        let Some(name) = self.name.filter(|v| !v.trim().is_empty()) else {
+            return Err(BlockError::contract(vw::BLOCK_CATALOG_ROW_INCOMPLETE));
+        };
+        let Some(material_name) = self.material_class.filter(|v| !v.trim().is_empty()) else {
+            return Err(BlockError::contract(vw::BLOCK_CATALOG_ROW_INCOMPLETE));
+        };
+        let Some(template_name) = self.behavior_template.filter(|v| !v.trim().is_empty()) else {
+            return Err(BlockError::contract(vw::BLOCK_CATALOG_ROW_INCOMPLETE));
+        };
+        let Some(asset_ref) = self.asset_ref.filter(|v| !v.trim().is_empty()) else {
+            return Err(BlockError::contract(vw::BLOCK_CATALOG_ROW_INCOMPLETE));
+        };
+        let Some(state_layout) = self.state_layout else {
+            return Err(BlockError::contract(vw::BLOCK_CATALOG_ROW_INCOMPLETE));
+        };
+        let block_type = BlockType::new(block_type)
+            .ok_or_else(|| BlockError::contract(vw::BLOCK_CATALOG_NOT_DENSE))?;
+        Ok(BlockDefinition {
+            block_type,
+            name,
+            material_class: MaterialClass::parse(&material_name)?,
+            behavior_template: BehaviorTemplate::parse(&template_name)?,
+            asset_ref,
+            state_layout,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfficialCatalog {
+    rows: Vec<Option<BlockDefinition>>,
+    retired_names: Vec<String>,
+}
+
+impl OfficialCatalog {
+    pub fn load(
+        rows: impl IntoIterator<Item = BlockCatalogRowInput>,
+        retired_names: &[&str],
+    ) -> Result<Self, BlockError> {
+        let mut catalog = Self {
+            rows: vec![None; vw::FIRST_OFFICIAL_BLOCK_TYPE as usize],
+            retired_names: retired_names.iter().map(|n| (*n).to_owned()).collect(),
+        };
+        for row in rows {
+            catalog.register(row)?;
+        }
+        Ok(catalog)
+    }
+
+    pub fn register(&mut self, row: BlockCatalogRowInput) -> Result<BlockType, BlockError> {
+        let definition = row.into_definition()?;
+        let block_type = definition.block_type;
+        if block_type.raw() <= vw::SYSTEM_RESERVED_TYPE_MAX {
+            return Err(BlockError::contract(vw::SYSTEM_RESERVED_TYPE_MISUSE));
+        }
+        if block_type.scope() != BlockScope::Global {
+            return Err(BlockError::contract(vw::BLOCK_TYPE_SCOPE_VIOLATION));
+        }
+        if block_type.raw() != self.rows.len() as u32 {
+            return Err(BlockError::contract(vw::BLOCK_CATALOG_NOT_DENSE));
+        }
+        if self.retired_names.iter().any(|n| n == &definition.name)
+            || self
+                .rows
+                .iter()
+                .flatten()
+                .any(|r| r.name == definition.name)
+        {
+            return Err(BlockError::contract(vw::BLOCK_CATALOG_NAME_REUSED));
+        }
+        self.rows.push(Some(definition));
+        Ok(block_type)
+    }
+
+    pub fn get(&self, block_type: BlockType) -> Result<Option<&BlockDefinition>, BlockError> {
+        if block_type.scope() != BlockScope::Global {
+            return Err(BlockError::contract(vw::BLOCK_TYPE_SCOPE_VIOLATION));
+        }
+        Ok(self
+            .rows
+            .get(block_type.raw() as usize)
+            .and_then(Option::as_ref))
+    }
+
+    pub fn resolve_palette(
+        &self,
+        palette: &[BlockId],
+    ) -> Result<Vec<&BlockDefinition>, BlockError> {
+        palette
+            .iter()
+            .map(|id| {
+                self.get(id.block_type())?
+                    .ok_or_else(|| BlockError::contract(vw::UNREGISTERED_BLOCK_TYPE))
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RoomBehaviorInput {
+    Template(String),
+    Custom,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoomLocalRowInput {
+    pub name: String,
+    pub material_class: String,
+    pub behavior: RoomBehaviorInput,
+    pub asset_ref: String,
+    pub state_layout: StateLayout,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RoomLocalCatalog {
+    rows: Vec<BlockDefinition>,
+}
+
+impl RoomLocalCatalog {
+    pub const fn new() -> Self {
+        Self { rows: Vec::new() }
+    }
+
+    pub fn register(&mut self, row: RoomLocalRowInput) -> Result<BlockType, BlockError> {
+        if row.name.trim().is_empty()
+            || row.material_class.trim().is_empty()
+            || row.asset_ref.trim().is_empty()
+            || matches!(&row.behavior, RoomBehaviorInput::Template(name) if name.trim().is_empty())
+        {
+            return Err(BlockError::contract(vw::BLOCK_CATALOG_ROW_INCOMPLETE));
+        }
+        let behavior_template = match row.behavior {
+            RoomBehaviorInput::Template(name) => BehaviorTemplate::parse(&name)?,
+            RoomBehaviorInput::Custom => {
+                return Err(BlockError::contract(vw::PLAYER_TYPE_DECLARES_BEHAVIOR));
+            }
+        };
+        let local_index = self.rows.len() as u32;
+        let block_type = BlockType::new(vw::BLOCK_TYPE_SCOPE_MASK | local_index)
+            .expect("local index fits uint23");
+        let material_class = MaterialClass::parse(&row.material_class)?;
+        self.rows.push(BlockDefinition {
+            block_type,
+            name: row.name,
+            material_class,
+            behavior_template,
+            asset_ref: row.asset_ref,
+            state_layout: row.state_layout,
+        });
+        Ok(block_type)
+    }
+
+    pub fn get(&self, block_type: BlockType) -> Result<&BlockDefinition, BlockError> {
+        let local_index = block_type
+            .room_local_index()
+            .ok_or_else(|| BlockError::contract(vw::BLOCK_TYPE_SCOPE_VIOLATION))?;
+        self.rows
+            .get(local_index as usize)
+            .ok_or_else(|| BlockError::contract(vw::UNREGISTERED_BLOCK_TYPE))
+    }
+
+    pub fn get_for_save_mapping(
+        &self,
+        block_type: BlockType,
+    ) -> Result<&BlockDefinition, BlockError> {
+        let local_index = block_type
+            .room_local_index()
+            .ok_or_else(|| BlockError::contract(vw::BLOCK_TYPE_SCOPE_VIOLATION))?;
+        self.rows
+            .get(local_index as usize)
+            .ok_or_else(|| BlockError::contract(vw::ROOM_LOCAL_TYPE_WITHOUT_MAPPING))
+    }
+
+    pub fn import_from(
+        &mut self,
+        source: &Self,
+    ) -> Result<Vec<(BlockType, BlockType)>, BlockError> {
+        let mut staged = self.clone();
+        let mut remap = Vec::with_capacity(source.rows.len());
+        for definition in &source.rows {
+            let new = staged.register(RoomLocalRowInput {
+                name: definition.name.clone(),
+                material_class: definition.material_class.name().to_owned(),
+                behavior: RoomBehaviorInput::Template(
+                    definition.behavior_template.name().to_owned(),
+                ),
+                asset_ref: definition.asset_ref.clone(),
+                state_layout: definition.state_layout.clone(),
+            })?;
+            remap.push((definition.block_type, new));
+        }
+        *self = staged;
+        Ok(remap)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlockTables {
+    official: OfficialCatalog,
+    room_local: RoomLocalCatalog,
+}
+
+/// A resolved block is either a typed sentinel or a registered ordinary definition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockResolution<'a> {
+    Builtin(BuiltinBlockType),
+    Ordinary(&'a BlockDefinition),
+}
+
+impl<'a> BlockResolution<'a> {
+    pub const fn builtin(self) -> Option<BuiltinBlockType> {
+        match self {
+            Self::Builtin(v) => Some(v),
+            Self::Ordinary(_) => None,
+        }
+    }
+    pub const fn ordinary(self) -> Option<&'a BlockDefinition> {
+        match self {
+            Self::Builtin(_) => None,
+            Self::Ordinary(v) => Some(v),
+        }
+    }
+    pub fn name(self) -> &'a str {
+        match self {
+            Self::Builtin(v) => v.name(),
+            Self::Ordinary(v) => v.name(),
+        }
+    }
+    pub const fn material_class(self) -> Option<MaterialClass> {
+        match self {
+            Self::Builtin(_) => None,
+            Self::Ordinary(v) => Some(v.material_class()),
+        }
+    }
+    pub const fn behavior_template(self) -> Option<BehaviorTemplate> {
+        match self {
+            Self::Builtin(_) => None,
+            Self::Ordinary(v) => Some(v.behavior_template()),
+        }
+    }
+}
+
+impl BlockTables {
+    pub const fn new(official: OfficialCatalog, room_local: RoomLocalCatalog) -> Self {
+        Self {
+            official,
+            room_local,
+        }
+    }
+
+    pub fn resolve(&self, block_id: BlockId) -> Result<BlockResolution<'_>, BlockError> {
+        let block_type = block_id.block_type();
+        if let Some(builtin) = BuiltinBlockType::from_block_type(block_type) {
+            return Ok(BlockResolution::Builtin(builtin));
+        }
+        match block_type.scope() {
+            BlockScope::Global => {
+                if block_type.raw() <= vw::SYSTEM_RESERVED_TYPE_MAX {
+                    return Err(BlockError::contract(vw::UNREGISTERED_BLOCK_TYPE));
+                }
+                self.official
+                    .get(block_type)?
+                    .map(BlockResolution::Ordinary)
+                    .ok_or_else(|| BlockError::contract(vw::UNREGISTERED_BLOCK_TYPE))
+            }
+            BlockScope::RoomLocal => self
+                .room_local
+                .get(block_type)
+                .map(BlockResolution::Ordinary),
+        }
+    }
+
+    pub fn resolve_type(&self, block_type: BlockType) -> Result<BlockResolution<'_>, BlockError> {
+        self.resolve(BlockId::from_parts(block_type, BlockState::new(0)))
+    }
+
+    pub fn resolve_block_type(
+        &self,
+        block_type: BlockType,
+    ) -> Result<BlockResolution<'_>, BlockError> {
+        self.resolve_type(block_type)
+    }
+
+    pub fn resolve_for_save_mapping(
+        &self,
+        block_type: BlockType,
+    ) -> Result<&BlockDefinition, BlockError> {
+        self.room_local.get_for_save_mapping(block_type)
+    }
+
+    pub fn resolve_ordinary(&self, block_id: BlockId) -> Result<&BlockDefinition, BlockError> {
+        self.resolve(block_id)?
+            .ordinary()
+            .ok_or_else(|| BlockError::contract(vw::UNREGISTERED_BLOCK_TYPE))
     }
 }

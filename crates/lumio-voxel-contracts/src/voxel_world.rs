@@ -15,7 +15,7 @@ pub const CONTRACT_ID: &str = "lumio.voxel-world.v1";
 pub const CONTRACT_VERSION: u32 = 1;
 /// `wire/voxel-world-v1.json` 的 SHA-256。副本被改动即在一致性测试里失败。
 pub const CONTRACT_SHA256: &str =
-    "e474907b397627e168acd6dc1ddbba5375a2c5b53f9a8722130dcf6bb7b02869";
+    "56d555fd8ab5a5da2e407bd78f499d0e04208fec267af94b4887f1152da7b0d7";
 
 // ------------------------------------------------------------------ identity
 
@@ -124,6 +124,16 @@ pub const BLOCK_TYPE_SHIFT: u32 = 8;
 pub const BLOCK_STATE_BITS: u32 = 8;
 /// `blockId.fields.BlockState.shift`。
 pub const BLOCK_STATE_SHIFT: u32 = 0;
+/// `blockId.resolution.builtInSentinels.types.0`.
+pub const BLOCK_TYPE_AIR: u32 = 0;
+/// `blockId.resolution.builtInSentinels.types.1`.
+pub const BLOCK_TYPE_ERROR: u32 = 1;
+/// `blockId.resolution.builtInSentinels.types.2`.
+pub const BLOCK_TYPE_ECS_OCCUPANCY: u32 = 2;
+/// `blockId.resolution.builtInSentinels.types.3`.
+pub const BLOCK_TYPE_STRUCTURE_PLACEHOLDER: u32 = 3;
+/// `blockId.resolution.reservedRange.min`.
+pub const RESERVED_BLOCK_TYPE_MIN: u32 = 4;
 
 // ---------------------------------------------------------- 枚举(顺序即契约顺序)
 
@@ -224,6 +234,7 @@ pub static VOXEL_WORLD_ERROR_CODES: &[&str] = &[
     "pinned_read_returned_pending",
     "unknown_behavior_template",
     "cell_read_missing_presence",
+    "unregistered_block_type",
 ];
 
 /// 键不是合法 Section 键(前缀 / 元数 / 规范写法任一不合)。
@@ -286,6 +297,8 @@ pub const BLOCK_CATALOG_ROW_INCOMPLETE: &str = "block_catalog_row_incomplete";
 pub const CELL_OFFSET_OUT_OF_RANGE: &str = "cell_offset_out_of_range";
 /// 目录引用了 v1 登记表之外的行为模板。
 pub const UNKNOWN_BEHAVIOR_TEMPLATE: &str = "unknown_behavior_template";
+/// An admitted BlockType has no registered ordinary definition or mapping.
+pub const UNREGISTERED_BLOCK_TYPE: &str = "unregistered_block_type";
 
 // ------------------------------------------------------------------- blockId 段
 
