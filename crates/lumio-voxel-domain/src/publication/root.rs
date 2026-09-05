@@ -108,9 +108,7 @@ fn fingerprint(
         buf.push(0);
         buf.extend_from_slice(&rev.to_le_bytes());
     }
-    // Sibling exclusive files keep directory/frontier maps private; Debug is the
-    // in-crate fingerprint of the whole cut without adding public iterators.
-    buf.extend_from_slice(format!("{directory:?}").as_bytes());
+    buf.extend_from_slice(&directory.identity_bytes());
     buf.push(0);
     buf.extend_from_slice(format!("{frontier:?}").as_bytes());
     buf.push(0);

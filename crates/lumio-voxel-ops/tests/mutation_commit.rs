@@ -1,6 +1,7 @@
 //! R-00104: commit linearizes one PreparedMutation through publish_once.
 
 use lumio_voxel_contracts::{BASELINE_ID, SCHEMA_EPOCH, SCHEMA_IDS, is_stable_error_id, sha256};
+use lumio_voxel_domain::block::{BlockId, CellOffset};
 use lumio_voxel_domain::config_snapshot::{
     DecisionEvidence, GateSourceHashes, GeneratedHostCapability, GeneratedVoxelConfig,
     P0_DECISION_GATES, VoxelConfigSnapshot,
@@ -13,11 +14,13 @@ use lumio_voxel_domain::revision::{
     to_generated_stamp,
 };
 use lumio_voxel_domain::section::{
-    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionDirectoryRoot, SectionPage,
-    SectionPayload, SectionSlot,
+    DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionDirectoryRoot,
+    SectionPayload, SectionSlot, SectionStorage,
 };
+use lumio_voxel_ops::canonical::CanonicalObject;
 use lumio_voxel_ops::mutation::{
-    LookupOutcome, MutationRequest, ReceiptLedger, canonical_fingerprint, commit, prepare,
+    LookupOutcome, MutationEntry, MutationRequest, ReceiptLedger, canonical_fingerprint, commit,
+    prepare,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -104,12 +107,10 @@ fn stamp_at(
 }
 
 fn payload(bytes: &[u8]) -> SectionPayload {
-    SectionPayload::from_pages([SectionPage::new(
-        "Dense",
-        "None",
-        bytes.to_vec(),
-        sha256(bytes),
-    )])
+    let digest = sha256(bytes);
+    SectionPayload::from_storage(SectionStorage::uniform(BlockId::from_raw(
+        u32::from_le_bytes(digest[..4].try_into().unwrap()),
+    )))
     .expect("valid dense uncompressed page")
 }
 
@@ -165,17 +166,29 @@ fn request(
     world_revision: u64,
     extra: &[(&str, &str)],
 ) -> MutationRequest {
-    let mut fields = BTreeMap::new();
-    fields.insert("world_revision".to_string(), world_revision.to_string());
-    for (k, v) in extra {
-        fields.insert((*k).to_string(), (*v).to_string());
-    }
+    let entries = extra
+        .iter()
+        .map(|(key, value)| {
+            let (section, cell) = key.split_once('/').unwrap_or((key, "0"));
+            MutationEntry::new(
+                section,
+                CellOffset::new(cell.parse().unwrap_or(0)).unwrap(),
+                BlockId::from_raw(value.parse().unwrap_or_else(|_| hash_value(value))),
+                world_revision,
+            )
+        })
+        .collect();
     MutationRequest {
         txn_id: txn_id.to_string(),
         world_id: world_id.to_string(),
         generation,
-        fields,
+        entries,
     }
+}
+
+fn hash_value(value: &str) -> u32 {
+    let digest = sha256(value.as_bytes());
+    u32::from_le_bytes(digest[..4].try_into().unwrap())
 }
 
 fn assert_stable_error(id: &str) {
@@ -275,6 +288,134 @@ fn duplicate_txn_returns_original_receipt_without_second_publish() {
 }
 
 #[test]
+fn completed_opaque_legacy_receipt_replays_without_decoding() {
+    let (auth, snap) = published_world("world-a", 1);
+    let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
+    let req = request("txn-opaque", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
+    let opaque = b"legacy-receipt-without-canonical-fields".to_vec();
+
+    let prepared = prepare(&req, &auth.capture(), &mut ledger).expect("prepare");
+    ledger
+        .finalize(&req, opaque.clone())
+        .expect("legacy storage may finalize through the public API");
+
+    let replay = commit(
+        prepare(&req, &auth.capture(), &mut ledger).expect("duplicate prepare"),
+        &auth,
+        &mut ledger,
+    )
+    .expect("opaque duplicate replay");
+    drop(prepared);
+    assert_eq!(replay.receipt, opaque);
+    assert_eq!(replay.txn_id, req.txn_id);
+    assert_eq!(replay.evidence.txn_id, req.txn_id);
+    assert_eq!(replay.evidence.old_root, auth.capture().root().identity());
+    assert_eq!(replay.evidence.new_root, auth.capture().root().identity());
+}
+
+#[test]
+fn canonical_receipt_fields_cannot_override_prepared_identity() {
+    let (auth, snap) = published_world("world-a", 1);
+    let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
+    let req = request("txn-canonical", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
+    let base_identity = auth.capture().root().identity();
+    let mut forged = CanonicalObject::new();
+    forged.insert_text("txn_id", "forged-txn").unwrap();
+    forged
+        .insert_text(
+            "fingerprint",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        )
+        .unwrap();
+    forged
+        .insert_text(
+            "old_root",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        )
+        .unwrap();
+    forged
+        .insert_text(
+            "new_root",
+            "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        )
+        .unwrap();
+    let forged = forged.encode_bytes();
+
+    prepare(&req, &auth.capture(), &mut ledger).expect("prepare");
+    ledger
+        .finalize(&req, forged.clone())
+        .expect("test harness may finalize via the public API");
+    let replay = commit(
+        prepare(&req, &auth.capture(), &mut ledger).expect("duplicate prepare"),
+        &auth,
+        &mut ledger,
+    )
+    .expect("canonical duplicate replay");
+
+    assert_eq!(replay.receipt, forged);
+    assert_eq!(replay.txn_id, req.txn_id);
+    assert_eq!(replay.evidence.txn_id, req.txn_id);
+    assert_eq!(replay.evidence.old_root, base_identity);
+    assert_eq!(replay.evidence.new_root, base_identity);
+}
+
+#[test]
+fn duplicate_replay_after_section_unload_reuses_original_receipt_evidence() {
+    let (auth, snap) = published_world("world-a", 1);
+    let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
+    let req = request("txn-unloaded", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
+
+    let first = commit(
+        prepare(&req, &auth.capture(), &mut ledger).expect("first prepare"),
+        &auth,
+        &mut ledger,
+    )
+    .expect("first commit");
+    let original_evidence = first.evidence.clone();
+
+    let current = auth.capture();
+    let mut unloaded_directory = SectionDirectoryBuilder::new();
+    unloaded_directory
+        .insert("s:0:0:0", SectionSlot::unchanged())
+        .expect("canonical section id");
+    let unloaded_root = PublishedStateRoot::new(
+        stamp_at("world-a", "ctx-1", 1, 2, &[("s:0:0:0", 1)]),
+        unloaded_directory.freeze(),
+        current.dirty_frontier().clone(),
+    );
+    let mut unloaded = auth
+        .prepare(
+            world_rev(2),
+            unloaded_root,
+            empty_replacement(current.directory()),
+        )
+        .expect("prepare unloaded root");
+    auth.publish_once(unloaded.seal().expect("seal unloaded root"))
+        .expect("publish unloaded root");
+    let unloaded_identity = auth.capture().root().identity();
+    assert_eq!(
+        auth.capture()
+            .directory()
+            .lookup("s:0:0:0")
+            .unwrap()
+            .unwrap()
+            .presence(),
+        "Unchanged"
+    );
+
+    let replay = commit(
+        prepare(&req, &auth.capture(), &mut ledger)
+            .expect("duplicate prepare must not read storage"),
+        &auth,
+        &mut ledger,
+    )
+    .expect("duplicate commit");
+    assert_eq!(replay.receipt, first.receipt);
+    assert_eq!(replay.evidence, original_evidence);
+    assert_eq!(auth.capture().root().identity(), unloaded_identity);
+}
+
+#[test]
 fn stale_base_fails_snapshot_base_mismatch_without_swap() {
     let (auth, snap) = published_world("world-a", 1);
     let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
@@ -339,5 +480,29 @@ fn conflict_fingerprint_same_txn_does_not_swap() {
     match ledger.lookup(&first_req).unwrap() {
         LookupOutcome::Duplicate { receipt } => assert_eq!(receipt, first.receipt),
         other => panic!("first receipt must be unchanged, got {other:?}"),
+    }
+}
+
+#[test]
+fn replaying_the_same_transaction_one_hundred_times_is_stable() {
+    let (auth, snap) = published_world("world-a", 1);
+    let mut ledger = ReceiptLedger::from_approved_snapshot(snap, 4).unwrap();
+    let request = request("txn-replay-100", "world-a", 1, 0, &[("s:0:0:0", "edit")]);
+    let first = commit(
+        prepare(&request, &auth.capture(), &mut ledger).unwrap(),
+        &auth,
+        &mut ledger,
+    )
+    .unwrap();
+    let identity = auth.capture().root().identity();
+    for _ in 0..100 {
+        let replay = commit(
+            prepare(&request, &auth.capture(), &mut ledger).unwrap(),
+            &auth,
+            &mut ledger,
+        )
+        .unwrap();
+        assert_eq!(replay.receipt, first.receipt);
+        assert_eq!(auth.capture().root().identity(), identity);
     }
 }

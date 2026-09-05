@@ -15,7 +15,7 @@ pub const CONTRACT_ID: &str = "lumio.voxel-world.v1";
 pub const CONTRACT_VERSION: u32 = 1;
 /// `wire/voxel-world-v1.json` 的 SHA-256。副本被改动即在一致性测试里失败。
 pub const CONTRACT_SHA256: &str =
-    "000e820632b1165713f7f822234c0f2f6b6ce6a94b932de4213fed2e98fd3b5f";
+    "e474907b397627e168acd6dc1ddbba5375a2c5b53f9a8722130dcf6bb7b02869";
 
 // ------------------------------------------------------------------ identity
 
@@ -99,6 +99,19 @@ pub const MAX_ENTRIES_PER_WRITE_BATCH: u32 = 65536;
 /// `limits.firstCatalogBlockType`——方块目录的首个可分配编号。
 pub const FIRST_CATALOG_BLOCK_TYPE: u32 = 256;
 
+// ------------------------------------------------------------ identity.cellOffset
+
+/// `identity.cellOffset.strides.y`。
+pub const CELL_OFFSET_Y_STRIDE: u16 = 256;
+/// `identity.cellOffset.strides.z`。
+pub const CELL_OFFSET_Z_STRIDE: u16 = 16;
+/// `identity.cellOffset.strides.x`。
+pub const CELL_OFFSET_X_STRIDE: u16 = 1;
+/// `identity.cellOffset.range` 的下界。
+pub const CELL_OFFSET_MIN: u16 = 0;
+/// `identity.cellOffset.range` 的上界。
+pub const CELL_OFFSET_MAX: u16 = 4095;
+
 // --------------------------------------------------------------------- blockId
 
 /// `blockId.width`。
@@ -120,6 +133,9 @@ pub static SECTION_PRESENCE: &[&str] = &["Ready", "Unchanged", "Pending", "Unava
 /// `diffDispatch.shortTicket.payloadLength`——Unchanged 必须是零字节短票。
 pub const SHORT_TICKET_PAYLOAD_LENGTH: u32 = 0;
 
+/// `sectionPayload.encodings.Delta.bytesPerEntry`.
+pub const DELTA_BYTES_PER_ENTRY: u32 = 6;
+
 /// `sectionPayload.encodings` 的四种编码,文档顺序。
 ///
 /// `Delta` 是本次契约扩张新增的一档:它相对一个基线 revision 表达,因此只能用于
@@ -138,6 +154,9 @@ pub static SECTION_PAYLOAD_ENVELOPE_FIELDS: &[&str] = &[
 
 /// `materialClasses.classes` 的 v1 材质类,文档顺序。
 pub static MATERIAL_CLASSES: &[&str] = &["Solid", "Liquid"];
+
+/// `behaviorTemplates.v1` 的穷尽模板表,文档顺序。
+pub static BEHAVIOR_TEMPLATES_V1: &[&str] = &["FullCube", "Liquid"];
 
 // ------------------------------------------------------------------ errorCodes
 
@@ -197,6 +216,14 @@ pub static VOXEL_WORLD_ERROR_CODES: &[&str] = &[
     "read_result_missing_revision",
     "write_batch_too_large",
     "unstructured_mutation_entry",
+    // 固定 cellOffset 算式、区域常驻、行为模板与单格读取闭合。
+    "cell_offset_out_of_range",
+    "residency_pin_exceeds_budget",
+    "pin_region_not_ready",
+    "pinned_section_evicted",
+    "pinned_read_returned_pending",
+    "unknown_behavior_template",
+    "cell_read_missing_presence",
 ];
 
 /// 键不是合法 Section 键(前缀 / 元数 / 规范写法任一不合)。
@@ -223,12 +250,42 @@ pub const DIRTY_SECTION_NOT_DURABLE: &str = "dirty_section_not_durable";
 pub const LIGHTING_IN_PAYLOAD: &str = "lighting_in_payload";
 /// Chunk 记录携带了数据字节或自己的 revision。
 pub const CHUNK_CARRIES_DATA_ERROR: &str = "chunk_carries_data";
+/// Palette escalation skipped the required live-slot reclamation scan.
+pub const PALETTE_RECLAIM_BEFORE_ESCALATION: &str = "palette_reclaim_before_escalation";
+/// A serialized Palette carries an entry that no cell references.
+pub const DEAD_PALETTE_ENTRY_IN_PAYLOAD: &str = "dead_palette_entry_in_payload";
+/// A Delta payload does not match the receiver's current Section revision.
+pub const DELTA_BASE_REVISION_MISMATCH: &str = "delta_base_revision_mismatch";
+/// A Delta payload was offered without a receiver-side Section baseline.
+pub const DELTA_USED_FOR_FIRST_DELIVERY: &str = "delta_used_for_first_delivery";
+/// 目录中的材质类不在 `materialClasses.classes` 表中。
+pub const UNKNOWN_MATERIAL_CLASS: &str = "unknown_material_class";
+/// 材质类被错误地存成逐格数据通道。
+pub const MATERIAL_CLASS_NOT_A_CELL_LANE: &str = "material_class_not_a_cell_lane";
+/// v1 液体是静态的,体素系统不自动传播。
+pub const LIQUID_AUTO_PROPAGATION_UNSUPPORTED: &str = "liquid_auto_propagation_unsupported";
+/// 贪心合面跨越了不同材质类。
+pub const CROSS_MATERIAL_FACE_MERGE: &str = "cross_material_face_merge";
 /// BlockType 越过了作用域位划定的段边界。
 pub const BLOCK_TYPE_SCOPE_VIOLATION: &str = "block_type_scope_violation";
+/// 普通官方方块占用了 0~255 系统保留段。
+pub const SYSTEM_RESERVED_TYPE_MISUSE: &str = "system_reserved_type_misuse";
 /// 房间局部 BlockType 缺少随存档保存的映射表。
 pub const ROOM_LOCAL_TYPE_WITHOUT_MAPPING: &str = "room_local_type_without_mapping";
+/// 房间局部方块声明了自定义行为,而非选择登记模板。
+pub const PLAYER_TYPE_DECLARES_BEHAVIOR: &str = "player_type_declares_behavior";
 /// 世界 Y 越出 0~255。
 pub const WORLD_Y_OUT_OF_RANGE: &str = "world_y_out_of_range";
+/// 官方目录的 BlockType 不是从 256 起连续稠密分配。
+pub const BLOCK_CATALOG_NOT_DENSE: &str = "block_catalog_not_dense";
+/// 官方目录复用了现存或已下线的稳定名称。
+pub const BLOCK_CATALOG_NAME_REUSED: &str = "block_catalog_name_reused";
+/// 官方目录行的六个必需字段没有填齐。
+pub const BLOCK_CATALOG_ROW_INCOMPLETE: &str = "block_catalog_row_incomplete";
+/// 格内偏移越出 0~4095 或不符合唯一坐标算式。
+pub const CELL_OFFSET_OUT_OF_RANGE: &str = "cell_offset_out_of_range";
+/// 目录引用了 v1 登记表之外的行为模板。
+pub const UNKNOWN_BEHAVIOR_TEMPLATE: &str = "unknown_behavior_template";
 
 // ------------------------------------------------------------------- blockId 段
 

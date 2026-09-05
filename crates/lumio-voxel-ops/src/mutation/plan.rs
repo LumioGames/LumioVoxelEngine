@@ -1,48 +1,33 @@
-//! Canonical cell/section edit batch. Duplicates fail with no partial plan.
+//! Canonical cell/section edit batch. Duplicate cells retain submission order so
+//! the final entry is the authoritative last write.
 
 #![forbid(unsafe_code)]
 
-use super::fingerprint::MutationRequest;
+use super::fingerprint::{MutationEntry, MutationRequest};
 use super::preconditions::MutationError;
+use lumio_voxel_contracts::voxel_world as vw;
+use lumio_voxel_domain::key::SectionId;
 use std::collections::BTreeMap;
 
-/// Wraps generated `GeneratedRevisionStamp.world_revision`. Not a new Schema column.
-pub(crate) const WORLD_REVISION_FIELD: &str = "world_revision";
+pub const MAX_WRITE_BATCH_ENTRIES: usize = vw::MAX_ENTRIES_PER_WRITE_BATCH as usize;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SectionEdits {
-    section_value: Option<String>,
-    cells: BTreeMap<String, String>,
+    entries: Vec<MutationEntry>,
 }
 
 impl SectionEdits {
-    pub(crate) fn payload_bytes(&self) -> Vec<u8> {
-        if let Some(value) = &self.section_value {
-            return value.as_bytes().to_vec();
-        }
-        self.cells
-            .values()
-            .flat_map(|value| value.as_bytes())
-            .copied()
-            .collect()
-    }
-
-    pub(crate) fn cell_ids(&self) -> impl Iterator<Item = &str> {
-        self.cells.keys().map(String::as_str)
+    pub(crate) fn entries(&self) -> &[MutationEntry] {
+        &self.entries
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MutationPlan {
-    expected_world_revision: u64,
     sections: BTreeMap<String, SectionEdits>,
 }
 
 impl MutationPlan {
-    pub fn expected_world_revision(&self) -> u64 {
-        self.expected_world_revision
-    }
-
     pub(crate) fn section_ids(&self) -> impl Iterator<Item = &str> {
         self.sections.keys().map(String::as_str)
     }
@@ -59,54 +44,23 @@ impl MutationPlanner {
         if request.txn_id.is_empty() || request.world_id.is_empty() {
             return Err(MutationError::invalid_handle());
         }
-        let expected_world_revision = match request.fields.get(WORLD_REVISION_FIELD) {
-            Some(raw) => raw
-                .parse::<u64>()
-                .map_err(|_| MutationError::invalid_handle())?,
-            None => return Err(MutationError::invalid_handle()),
-        };
-
         let mut sections: BTreeMap<String, SectionEdits> = BTreeMap::new();
-        for (key, value) in &request.fields {
-            if key == WORLD_REVISION_FIELD {
-                continue;
+        if request.entries.len() > MAX_WRITE_BATCH_ENTRIES {
+            return Err(MutationError::write_batch_too_large());
+        }
+        for entry in &request.entries {
+            if entry.section_key.is_empty() {
+                return Err(MutationError::unstructured_mutation_entry());
             }
-            // Occupancy keys wrap canonical `voxelSectionId` (`c:x:y:z`), not Schema fields.
-            if !key.starts_with("s:") {
-                continue;
-            }
-            let (section_id, cell_id) = match key.split_once('/') {
-                Some((section, cell)) => {
-                    if cell.is_empty() {
-                        return Err(MutationError::invalid_handle());
-                    }
-                    (section, Some(cell))
-                }
-                None => (key.as_str(), None),
-            };
-            let entry = sections.entry(section_id.to_string()).or_default();
-            match cell_id {
-                None => {
-                    if entry.section_value.is_some() {
-                        return Err(MutationError::invalid_handle());
-                    }
-                    entry.section_value = Some(value.clone());
-                }
-                Some(cell) => {
-                    if entry
-                        .cells
-                        .insert(cell.to_string(), value.clone())
-                        .is_some()
-                    {
-                        return Err(MutationError::invalid_handle());
-                    }
-                }
-            }
+            SectionId::parse(&entry.section_key)
+                .map_err(|err| MutationError::from_section(err.into()))?;
+            sections
+                .entry(entry.section_key.clone())
+                .or_default()
+                .entries
+                .push(entry.clone());
         }
 
-        Ok(MutationPlan {
-            expected_world_revision,
-            sections,
-        })
+        Ok(MutationPlan { sections })
     }
 }

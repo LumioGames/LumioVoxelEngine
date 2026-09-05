@@ -7,6 +7,8 @@
 
 pub const CRATE_NAME: &str = "lumio-voxel-domain";
 
+pub mod binding;
+pub mod block;
 pub mod config_snapshot;
 pub mod key;
 pub mod publication;

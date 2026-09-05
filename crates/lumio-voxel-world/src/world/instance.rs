@@ -4,6 +4,7 @@
 
 use super::WorldError;
 use super::admission::WorldEndpoint;
+use super::residency::RegionPinManager;
 use super::state::{WorldState, simulation_session_machine};
 use lumio_voxel_contracts::{SCHEMA_IDS, VOXEL_WORLD_ROLES};
 use lumio_voxel_domain::config_snapshot::{
@@ -116,6 +117,7 @@ pub(crate) struct WorldInstance {
     pub(crate) ledger: ReceiptLedger,
     pub(crate) query_planner: QueryPlanner,
     pub(crate) write_occupied: bool,
+    pub(crate) region_pins: Option<RegionPinManager>,
 }
 
 impl WorldInstance {
@@ -201,6 +203,7 @@ impl VoxelWorld {
                 ledger,
                 query_planner,
                 write_occupied: false,
+                region_pins: None,
             },
         })
     }
@@ -219,6 +222,24 @@ impl VoxelWorld {
 
     pub fn publication_authority(&self) -> &PublicationAuthority {
         &self.instance.authority
+    }
+
+    pub fn config_hash(&self) -> &str {
+        self.instance.snapshot.config_hash()
+    }
+
+    /// Attach the caller-owned residency pin policy to this world. The policy's
+    /// budget is supplied by the caller; the world does not invent a default.
+    pub fn set_region_pin_manager(&mut self, manager: RegionPinManager) {
+        self.instance.region_pins = Some(manager);
+    }
+
+    pub fn region_pin_manager(&self) -> Option<&RegionPinManager> {
+        self.instance.region_pins.as_ref()
+    }
+
+    pub fn region_pin_manager_mut(&mut self) -> Option<&mut RegionPinManager> {
+        self.instance.region_pins.as_mut()
     }
 
     pub(crate) fn ledger_mut(&mut self) -> &mut ReceiptLedger {

@@ -140,7 +140,7 @@ fn mutation_cmd_with_origin(world: &VoxelWorld, origin: OriginToken, txn_id: &st
             txn_id: txn_id.to_string(),
             world_id: view.world_id().to_string(),
             generation,
-            fields: BTreeMap::new(),
+            entries: Vec::new(),
         },
     }
 }

@@ -8,7 +8,7 @@ use crate::canonical::{CanonicalObject, CanonicalValue};
 use lumio_voxel_contracts::sha256;
 use lumio_voxel_domain::publication::PublishedStateRoot;
 use lumio_voxel_domain::revision::{
-    GeneratedRevisionStamp, RevisionAllocator, SectionRevision, WorldRevision, to_generated_stamp,
+    GeneratedRevisionStamp, SectionRevision, WorldRevision, to_generated_stamp,
 };
 use lumio_voxel_domain::section::{
     DirtyFrontier, SectionDeltaBuilder, SectionDirectoryBuilder, SectionReplacement, SectionSlot,
@@ -141,31 +141,9 @@ fn fingerprint(
 }
 
 fn world_revision(n: u64) -> Result<WorldRevision, RestoreError> {
-    let mut alloc = RevisionAllocator::new();
-    for _ in 0..n {
-        alloc
-            .reserve_world()
-            .map_err(|err| RestoreError::mapped(err.error_id()))?
-            .abandon();
-    }
-    alloc
-        .reserve_world()
-        .map_err(|err| RestoreError::mapped(err.error_id()))?
-        .finalize()
-        .map_err(|err| RestoreError::mapped(err.error_id()))
+    Ok(WorldRevision::from_raw(n))
 }
 
 fn section_revision(n: u64) -> Result<SectionRevision, RestoreError> {
-    let mut alloc = RevisionAllocator::new();
-    for _ in 0..n {
-        alloc
-            .reserve_section()
-            .map_err(|err| RestoreError::mapped(err.error_id()))?
-            .abandon();
-    }
-    alloc
-        .reserve_section()
-        .map_err(|err| RestoreError::mapped(err.error_id()))?
-        .finalize()
-        .map_err(|err| RestoreError::mapped(err.error_id()))
+    Ok(SectionRevision::from_raw(n))
 }

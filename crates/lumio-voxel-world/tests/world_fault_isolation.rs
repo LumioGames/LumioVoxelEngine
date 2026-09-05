@@ -149,7 +149,7 @@ fn mutation_cmd(world: &VoxelWorld, txn_id: &str) -> WorldCommand {
             txn_id: txn_id.to_string(),
             world_id: view.world_id().to_string(),
             generation: view.instance_generation(),
-            fields: BTreeMap::new(),
+            entries: Vec::new(),
         },
     }
 }

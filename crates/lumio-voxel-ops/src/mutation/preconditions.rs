@@ -10,6 +10,9 @@ use lumio_voxel_contracts::voxel_world::{self as vw, SECTION_PRESENCE};
 use lumio_voxel_domain::publication::{PublishError, PublishedReadView};
 use lumio_voxel_domain::section::{DirtyError, SectionError};
 
+const WRITE_BATCH_TOO_LARGE: &str = "write_batch_too_large";
+const UNSTRUCTURED_MUTATION_ENTRY: &str = "unstructured_mutation_entry";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MutationError {
     error_id: &'static str,
@@ -46,9 +49,26 @@ impl MutationError {
         }
     }
 
-    pub(crate) fn revision_conflict() -> Self {
+    pub(crate) fn stale_section_revision() -> Self {
         Self {
-            error_id: stable("RevisionConflict"),
+            error_id: vw::intern_error_code(vw::STALE_SECTION_REVISION)
+                .expect("stale_section_revision is a contract error code"),
+            disposition: None,
+        }
+    }
+
+    pub(crate) fn write_batch_too_large() -> Self {
+        Self {
+            error_id: vw::intern_error_code(WRITE_BATCH_TOO_LARGE)
+                .expect("write_batch_too_large is a contract error code"),
+            disposition: None,
+        }
+    }
+
+    pub(crate) fn unstructured_mutation_entry() -> Self {
+        Self {
+            error_id: vw::intern_error_code(UNSTRUCTURED_MUTATION_ENTRY)
+                .expect("unstructured_mutation_entry is a contract error code"),
             disposition: None,
         }
     }
@@ -137,8 +157,29 @@ impl MutationPreconditions {
         }
 
         let plan = MutationPlanner::build(request)?;
-        if plan.expected_world_revision() != stamp.world_revision {
-            return Err(MutationError::revision_conflict());
+
+        for section_id in plan.section_ids() {
+            let expected = plan
+                .section_edits()
+                .get(section_id)
+                .and_then(|edits| edits.entries().first())
+                .map(|entry| entry.expected_section_revision)
+                .ok_or_else(MutationError::unstructured_mutation_entry)?;
+            let current = stamp
+                .section_revision_set
+                .get(section_id)
+                .copied()
+                .unwrap_or(stamp.world_revision);
+            if expected != current
+                || plan
+                    .section_edits()
+                    .get(section_id)
+                    .into_iter()
+                    .flat_map(|edits| edits.entries())
+                    .any(|entry| entry.expected_section_revision != current)
+            {
+                return Err(MutationError::stale_section_revision());
+            }
         }
 
         for section_id in plan.section_ids() {

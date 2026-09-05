@@ -73,7 +73,7 @@ impl WorldRouter {
             txn_id: envelope.payload.txn_id().to_string(),
             world_id: world.instance.world_id.clone(),
             generation: world.instance.generation,
-            fields: BTreeMap::new(),
+            entries: Vec::new(),
         };
         let admitted = world.endpoint().admit(WorldCommand::Mutation {
             origin: origin.clone(),
@@ -134,9 +134,6 @@ fn complete<T>(world: &VoxelWorld, origin: OriginToken, payload: T) -> OriginEnv
 }
 
 fn check_config_hash(world: &VoxelWorld, hash: &str) -> Result<(), WorldError> {
-    if hash.is_empty() {
-        return Ok(());
-    }
     if hash != world.instance.snapshot.config_hash() {
         return Err(WorldError::session_mismatch());
     }

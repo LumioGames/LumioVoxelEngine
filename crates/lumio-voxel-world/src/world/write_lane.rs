@@ -85,7 +85,7 @@ impl WriteLease<'_> {
             txn_id: prepared.txn_id().to_string(),
             world_id: self.world.instance.world_id.clone(),
             generation: self.world.instance.generation,
-            fields: BTreeMap::new(),
+            entries: Vec::new(),
         };
         re_admit_mutation(self.world, &request)?;
         commit(
@@ -119,7 +119,11 @@ impl WriteLease<'_> {
             .query_planner
             .plan(request, &view, snapshot.as_ref())
             .map_err(map_query)?;
-        QueryExecutor::execute(&plan, &view).map_err(map_query)
+        let outcome = match self.world.instance.region_pins.as_ref() {
+            Some(pins) => QueryExecutor::execute_with_presence_guard(&plan, &view, pins),
+            None => QueryExecutor::execute(&plan, &view),
+        };
+        outcome.map_err(map_query)
     }
 
     fn require_scope(&self, expected: BarrierScope) -> Result<(), WorldError> {

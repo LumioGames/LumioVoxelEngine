@@ -62,8 +62,7 @@ fn digest_slots(entries: &BTreeMap<SectionId, SectionSlot>) -> [u8; 32] {
         if let Some(payload) = slot.payload() {
             buf.extend_from_slice(payload.schema_id().as_bytes());
             buf.push(0);
-            // Sealed page digest is not a public payload accessor (R-00073 exclusive files).
-            buf.extend_from_slice(&sha256(format!("{payload:?}").as_bytes()));
+            buf.extend_from_slice(&payload.replacement_identity_digest());
         } else {
             buf.extend_from_slice(&[0u8; 32]);
         }

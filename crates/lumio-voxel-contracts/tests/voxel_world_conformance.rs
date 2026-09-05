@@ -282,6 +282,27 @@ fn contract_identity_matches() {
 }
 
 #[test]
+fn contract_cell_offset_layout_matches() {
+    let c = contract();
+    let offset = c.get("identity").get("cellOffset");
+    let strides = offset.get("strides");
+    assert_eq!(
+        strides.get("y").as_int(),
+        i64::from(vw::CELL_OFFSET_Y_STRIDE)
+    );
+    assert_eq!(
+        strides.get("z").as_int(),
+        i64::from(vw::CELL_OFFSET_Z_STRIDE)
+    );
+    assert_eq!(
+        strides.get("x").as_int(),
+        i64::from(vw::CELL_OFFSET_X_STRIDE)
+    );
+    assert_eq!(vw::CELL_OFFSET_MIN, 0);
+    assert_eq!(vw::CELL_OFFSET_MAX, vw::SECTION_CELLS as u16 - 1);
+}
+
+#[test]
 fn contract_layering_matches() {
     let c = contract();
     let levels = c.get("layering").get("levels");
@@ -428,6 +449,14 @@ fn contract_presence_and_encodings_match() {
     );
     assert_eq!(
         c.get("sectionPayload")
+            .get("encodings")
+            .get("Delta")
+            .get("bytesPerEntry")
+            .as_int(),
+        i64::from(vw::DELTA_BYTES_PER_ENTRY)
+    );
+    assert_eq!(
+        c.get("sectionPayload")
             .get("envelope")
             .get("required")
             .str_list(),
@@ -514,6 +543,10 @@ fn contract_rules_that_this_repo_enforces_are_present() {
         rules["presence.missing-is-not-air"],
         vw::SECTION_UNAVAILABLE
     );
+    assert_eq!(
+        rules["presence.short-ticket-is-zero-bytes"],
+        vw::SECTION_ENCODING_MISMATCH
+    );
     // 页语义改名 payload 后,本仓消费的两条规则改从新 id 取。
     assert_eq!(
         rules["payload.digest-before-interpretation"],
@@ -579,5 +612,44 @@ fn vendored_copy_matches_upstream_when_available() {
         hex32(sha256(&theirs)),
         "本仓 wire/voxel-world-v1.json 与架构仓 {} 不是同一份字节",
         upstream.display()
+    );
+}
+
+#[test]
+fn contract_dispatch_cases_are_the_cases_exercised_by_the_domain() {
+    let c = contract();
+    let positive: Vec<_> = c
+        .get("testCases")
+        .as_arr()
+        .iter()
+        .filter(|case| case.get("class").as_str() == "dispatch")
+        .map(|case| case.get("name").as_str())
+        .collect();
+    assert_eq!(positive, ["unchanged_section_is_zero_bytes"]);
+
+    let invalid: BTreeMap<_, _> = c
+        .get("invalidCases")
+        .as_arr()
+        .iter()
+        .filter(|case| case.get("class").as_str() == "dispatch")
+        .map(|case| {
+            (
+                case.get("name").as_str(),
+                case.get("expectedRejection").as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(invalid.len(), 3);
+    assert_eq!(
+        invalid["pending_section_rendered_as_air"],
+        vw::SECTION_UNAVAILABLE
+    );
+    assert_eq!(
+        invalid["unavailable_section_treated_as_deleted"],
+        vw::SECTION_UNAVAILABLE
+    );
+    assert_eq!(
+        invalid["unchanged_answered_with_full_payload"],
+        vw::SECTION_ENCODING_MISMATCH
     );
 }
