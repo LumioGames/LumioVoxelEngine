@@ -89,6 +89,52 @@ impl std::fmt::Display for KeyError {
 
 impl std::error::Error for KeyError {}
 
+/// 世界纵坐标。契约只允许 0~255,构造后即可无失败地拆成 Section 层号与格内 y。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WorldY(u8);
+
+impl WorldY {
+    pub fn new(value: i64) -> Result<Self, WorldYError> {
+        if value < i64::from(vw::WORLD_Y_MIN) || value > i64::from(vw::WORLD_Y_MAX) {
+            return Err(WorldYError);
+        }
+        Ok(Self(value as u8))
+    }
+
+    pub fn value(self) -> u8 {
+        self.0
+    }
+
+    /// `sectionY = worldY >> 4`。
+    pub fn section_y(self) -> u8 {
+        self.0 >> vw::SECTION_EXTENT.trailing_zeros()
+    }
+
+    /// `cellY = worldY & 15`。
+    pub fn cell_y(self) -> u8 {
+        self.0 & vw::SECTION_Y_MAX
+    }
+}
+
+/// 世界 y 越出契约定义域。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WorldYError;
+
+impl WorldYError {
+    pub fn error_id(&self) -> &'static str {
+        vw::intern_error_code(vw::WORLD_Y_OUT_OF_RANGE)
+            .expect("world-y error id is declared in the contract table")
+    }
+}
+
+impl std::fmt::Display for WorldYError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.error_id())
+    }
+}
+
+impl std::error::Error for WorldYError {}
+
 /// 16×16×16 数据单元的规范键 `s:<x>:<y>:<z>`。
 ///
 /// 排序是 (x, y, z) 字典序,`BTreeMap<SectionId, _>` 因此有确定的迭代顺序。
@@ -259,6 +305,11 @@ fn parse_decimal(raw: &str, kind: KeyKind) -> Result<i64, KeyError> {
 
 /// x / z:规范十进制且落在 int32 定义域。
 fn parse_i32(raw: &str, kind: KeyKind) -> Result<i32, KeyError> {
+    let digits = raw.strip_prefix('-').unwrap_or(raw);
+    let max_digits = vw::SECTION_COORD_MIN.unsigned_abs().ilog10() as usize + 1;
+    if digits.len() > max_digits {
+        return Err(KeyError::new(kind, KeyRejection::NonCanonicalCoordinate));
+    }
     let value = parse_decimal(raw, kind)?;
     if value < i64::from(vw::SECTION_COORD_MIN) || value > i64::from(vw::SECTION_COORD_MAX) {
         return Err(KeyError::new(kind, KeyRejection::CoordinateOutOfBounds));
